@@ -1,0 +1,18 @@
+#!/usr/bin/env zsh
+#
+# _z4m_err - Stack trace printing (for use in trap handlers)
+#
+# This is a minimal function used as a trap handler.
+# For general error handling, use -z4m-error instead.
+#
+
+local -i ret=$?
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+print -Pru2 -- '%F{3}z4m%f: %F{1}error occurred%f'
+print -Pru2 -- '%F{3}--- stack trace (most recent call first) ---%f'
+print -lru2 -- "${funcfiletrace[@]}"
+print -Pru2 -- '%F{3}--- end of stack trace ---%f'
+
+return $(( ret ? ret : 1 ))

@@ -1,0 +1,126 @@
+#!/usr/bin/env zsh
+#
+# z4m version - Display version information
+#
+# Usage:
+#   z4m version           - Show version summary
+#   z4m version --verbose - Show detailed version info
+#   z4m version --check   - Check for updates
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local -i verbose=0 check_update=0
+
+while (( $# )); do
+  case $1 in
+    -v|--verbose)
+      verbose=1
+      shift
+      ;;
+    -c|--check)
+      check_update=1
+      shift
+      ;;
+    -h|--help)
+      print -Pr -- "Usage: %F{2}z4m%f %Bversion%b [options]"
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-v, --verbose%b  Show detailed version info"
+      print -Pr -- "  %B-c, --check%b    Check for available updates"
+      print -Pr -- "  %B-h, --help%b     Show this help"
+      return 0
+      ;;
+    *)
+      print -Pru2 -- "%F{3}z4m%f: %Bversion%b: unknown option: %F{1}$1%f"
+      return 1
+      ;;
+  esac
+done
+
+# Read z4m version
+local z4m_version
+z4m_version=${$(<$Z4M/zsh4monkey/version)%$'\r'} 2>/dev/null || z4m_version="unknown"
+
+# Format version for display (500000033 -> 5.0.0.33)
+local z4m_display_version
+if [[ $z4m_version == <-> ]]; then
+  local major=$(( z4m_version / 100000000 ))
+  local minor=$(( (z4m_version / 1000000) % 100 ))
+  local patch=$(( (z4m_version / 10000) % 100 ))
+  local build=$(( z4m_version % 10000 ))
+  z4m_display_version="$major.$minor.$patch"
+  (( build )) && z4m_display_version+=".$build"
+else
+  z4m_display_version=$z4m_version
+fi
+
+print -Pr -- "%F{3}zsh4monkey%f %B$z4m_display_version%b"
+print -Pr -- ""
+print -Pr -- "  %Bzsh%b:         $ZSH_VERSION"
+print -Pr -- "  %Bplatform%b:    $OSTYPE ($CPUTYPE)"
+
+if (( verbose )); then
+  print -Pr -- "  %Bpatchlevel%b:  $ZSH_PATCHLEVEL"
+  print -Pr -- "  %Bexecutable%b:  $_z4m_exe"
+  print -Pr -- "  %Bz4m dir%b:     $Z4M"
+  print -Pr -- "  %Bzdotdir%b:     ${ZDOTDIR:-$HOME}"
+  print -Pr -- ""
+
+  # Show component versions
+  print -Pr -- "%F{3}z4m%f: components"
+  print -Pr -- ""
+
+  # fzf
+  if (( $+commands[fzf] )); then
+    local fzf_version
+    fzf_version=$(command fzf --version 2>/dev/null) || fzf_version="unknown"
+    print -Pr -- "  %Bfzf%b:           ${fzf_version%% *}"
+  else
+    print -Pr -- "  %Bfzf%b:           not installed"
+  fi
+
+  # powerlevel10k
+  if [[ -d $Z4M/romkatv/powerlevel10k ]]; then
+    local p10k_version
+    if [[ -r $Z4M/romkatv/powerlevel10k/internal/version ]]; then
+      p10k_version=$(<$Z4M/romkatv/powerlevel10k/internal/version)
+    else
+      p10k_version="installed"
+    fi
+    print -Pr -- "  %Bpowerlevel10k%b: $p10k_version"
+  fi
+
+  # zsh-autosuggestions
+  if [[ -d $Z4M/zsh-users/zsh-autosuggestions ]]; then
+    local zas_version="installed"
+    if [[ -r $Z4M/zsh-users/zsh-autosuggestions/VERSION ]]; then
+      zas_version=$(<$Z4M/zsh-users/zsh-autosuggestions/VERSION)
+    fi
+    print -Pr -- "  %Bautosuggestions%b: $zas_version"
+  fi
+
+  # zsh-syntax-highlighting
+  if [[ -d $Z4M/zsh-users/zsh-syntax-highlighting ]]; then
+    local zsh_version="installed"
+    if [[ -r $Z4M/zsh-users/zsh-syntax-highlighting/.version ]]; then
+      zsh_version=$(<$Z4M/zsh-users/zsh-syntax-highlighting/.version)
+    fi
+    print -Pr -- "  %Bsyntax-highlighting%b: $zsh_version"
+  fi
+
+  # tmux
+  if (( $+commands[tmux] )); then
+    local tmux_version
+    tmux_version=$(command tmux -V 2>/dev/null) || tmux_version="unknown"
+    print -Pr -- "  %Btmux%b:         ${tmux_version#tmux }"
+  fi
+fi
+
+if (( check_update )); then
+  print -Pr -- ""
+  print -Pr -- "%F{3}z4m%f: checking for updates..."
+  print -Pr -- ""
+  print -Pr -- "  Run %Bz4m update%b to update all components"
+fi

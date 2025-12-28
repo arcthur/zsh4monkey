@@ -1,0 +1,285 @@
+#!/usr/bin/env zsh
+#
+# z4m help - Display help for zsh4monkey commands
+#
+# Usage:
+#   z4m help           - Show all commands
+#   z4m help <command> - Show help for specific command
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+# Detailed help for specific commands
+if (( ARGC == 1 )); then
+  case $1 in
+    install)
+      print -Pr -- "Usage: %F{2}z4m%f %Binstall%b [-f|--force] [%Uuser/project[@branch]%u]..."
+      print -Pr -- ""
+      print -Pr -- "Clone or update GitHub project(s) to \$Z4M directory."
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-f, --force%b  Force reinstall even if already installed"
+      print -Pr -- ""
+      print -Pr -- "Examples:"
+      print -Pr -- "  z4m install romkatv/powerlevel10k"
+      print -Pr -- "  z4m install -f zsh-users/zsh-autosuggestions"
+      print -Pr -- "  z4m install ohmyzsh/ohmyzsh@master"
+    ;;
+    update)
+      print -Pr -- "Usage: %F{2}z4m%f %Bupdate%b"
+      print -Pr -- ""
+      print -Pr -- "Update %Bzsh4monkey%b and all installed dependencies:"
+      print -Pr -- "  - fzf"
+      print -Pr -- "  - powerlevel10k"
+      print -Pr -- "  - zsh-autosuggestions"
+      print -Pr -- "  - zsh-syntax-highlighting"
+      print -Pr -- "  - User-installed plugins"
+    ;;
+    init)
+      print -Pr -- "Usage: %F{2}z4m%f %Binit%b"
+      print -Pr -- ""
+      print -Pr -- "Initialize Zsh. Should be called exactly once from %U.zshrc%u."
+      print -Pr -- "This sets up completion, keybindings, prompt, and all features."
+    ;;
+    source)
+      print -Pr -- "Usage: %F{2}z4m%f %Bsource%b [-c|--compile] [--] [%Ufile%u]..."
+      print -Pr -- ""
+      print -Pr -- "Source zsh script file(s) with proper error handling."
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-c, --compile%b  Compile the file before sourcing for faster load"
+    ;;
+    compile)
+      print -Pr -- "Usage: %F{2}z4m%f %Bcompile%b [--] [%Ufile%u]..."
+      print -Pr -- ""
+      print -Pr -- "Compile zsh script file(s) to zwc format for faster loading."
+      print -Pr -- "Compiled files are created alongside the original."
+    ;;
+    load)
+      print -Pr -- "Usage: %F{2}z4m%f %Bload%b [-c|--compile] [--] [%Udir%u]..."
+      print -Pr -- ""
+      print -Pr -- "Load a plugin from directory. Adds functions to fpath and"
+      print -Pr -- "sources the main plugin file."
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-c, --compile%b  Compile plugin files"
+    ;;
+    bindkey)
+      print -Pr -- "Usage: %F{2}z4m%f %Bbindkey%b [--] %Uzle-widget%u [%Ukey-binding%u]..."
+      print -Pr -- ""
+      print -Pr -- "Bind key(s) to a ZLE widget with proper terminal handling."
+      print -Pr -- ""
+      print -Pr -- "Examples:"
+      print -Pr -- "  z4m bindkey z4m-cd-back Alt+Left"
+      print -Pr -- "  z4m bindkey z4m-cd-up Alt+Up"
+      print -Pr -- "  z4m bindkey accept-line Enter"
+    ;;
+    ssh)
+      print -Pr -- "Usage: %F{2}z4m%f %Bssh%b [%Uoptions%u] [%Ussh-options%u] [%Uuser@%u]%Uhostname%u"
+      print -Pr -- ""
+      print -Pr -- "SSH with zsh4monkey teleportation. Automatically installs"
+      print -Pr -- "and configures zsh4monkey on the remote host."
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B--force-sync%b  Force full file sync, ignoring cached state"
+      print -Pr -- ""
+      print -Pr -- "The remote shell will have the same configuration as local."
+      print -Pr -- "All standard ssh options are supported, including %B-J%b (ProxyJump)."
+      print -Pr -- ""
+      print -Pr -- "%F{6}Jump Hosts:%f"
+      print -Pr -- "  z4m ssh -J jumphost user@target     # Via bastion"
+      print -Pr -- "  z4m ssh -J j1 -J j2 user@target     # Multi-hop"
+      print -Pr -- "  ProxyJump from ~/.ssh/config is also supported."
+      print -Pr -- ""
+      print -Pr -- "Configuration (in .zshrc before z4m init):"
+      print -Pr -- "  zstyle ':z4m:ssh:*' enable 'yes'           # Enable teleportation"
+      print -Pr -- "  zstyle ':z4m:ssh:*' sync-mode 'smart'      # Sync strategy"
+      print -Pr -- "  zstyle ':z4m:ssh:*' send-extra-files ...   # Additional files"
+      print -Pr -- "  zstyle ':z4m:ssh:*' offline-mode yes       # For air-gapped hosts"
+      print -Pr -- ""
+      print -Pr -- "%F{6}Offline Mode:%f"
+      print -Pr -- "  For hosts without internet, enable offline-mode to bundle"
+      print -Pr -- "  z4m with the SSH connection. This increases transfer size"
+      print -Pr -- "  but allows z4m to work in air-gapped environments."
+    ;;
+    debug)
+      print -Pr -- "Usage: %F{2}z4m%f %Bdebug%b [on|off|trace <func>|status]"
+      print -Pr -- ""
+      print -Pr -- "Debug mode utilities for troubleshooting."
+      print -Pr -- ""
+      print -Pr -- "Subcommands:"
+      print -Pr -- "  %Bon%b             Enable debug mode (WARN_NESTED_VAR)"
+      print -Pr -- "  %Boff%b            Disable debug mode"
+      print -Pr -- "  %Btrace <func>%b   Enable tracing for function"
+      print -Pr -- "  %Bstatus%b         Show current debug status and environment"
+    ;;
+    bench)
+      print -Pr -- "Usage: %F{2}z4m%f %Bbench%b [%Ucount%u]"
+      print -Pr -- ""
+      print -Pr -- "Measure shell startup time. Default: 10 iterations."
+      print -Pr -- "Reports min, max, and average startup time."
+    ;;
+    env)
+      print -Pr -- "Usage: %F{2}z4m%f %Benv%b [summary|full|paths]"
+      print -Pr -- ""
+      print -Pr -- "Display environment information."
+      print -Pr -- ""
+      print -Pr -- "Subcommands:"
+      print -Pr -- "  %Bsummary%b  Show basic info (default)"
+      print -Pr -- "  %Bfull%b     Show detailed info including modules and options"
+      print -Pr -- "  %Bpaths%b    Show PATH and fpath components"
+    ;;
+    time)
+      print -Pr -- "Usage: %F{2}z4m%f %Btime%b %Ucommand%u [%Uargs%u]..."
+      print -Pr -- ""
+      print -Pr -- "Measure command execution time with nanosecond precision."
+      print -Pr -- "More accurate than the built-in %Btime%b keyword."
+    ;;
+    version)
+      print -Pr -- "Usage: %F{2}z4m%f %Bversion%b [options]"
+      print -Pr -- ""
+      print -Pr -- "Display version information for zsh4monkey and components."
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-v, --verbose%b  Show detailed component versions"
+      print -Pr -- "  %B-c, --check%b    Check for available updates"
+    ;;
+    vi-mode)
+      print -Pr -- "Usage: %F{2}z4m%f %Bvi-mode%b [on|off|toggle|status]"
+      print -Pr -- ""
+      print -Pr -- "Toggle Vi editing mode at runtime."
+      print -Pr -- ""
+      print -Pr -- "Commands:"
+      print -Pr -- "  %Bon%b       Enable Vi mode (normal/insert modes)"
+      print -Pr -- "  %Boff%b      Disable Vi mode (use emacs bindings)"
+      print -Pr -- "  %Btoggle%b   Switch between vi and emacs mode"
+      print -Pr -- "  %Bstatus%b   Show current editor mode"
+      print -Pr -- ""
+      print -Pr -- "Cursor shapes:"
+      print -Pr -- "  Insert mode:  thin beam |"
+      print -Pr -- "  Normal mode:  block"
+      print -Pr -- ""
+      print -Pr -- "To enable by default, add to %U.zshrc%u before %Bz4m init%b:"
+      print -Pr -- "  %F{2}zstyle%f ':z4m:' editor-mode vi"
+    ;;
+    recovery)
+      print -Pr -- "Usage: %F{2}z4m%f %Brecovery%b"
+      print -Pr -- ""
+      print -Pr -- "Enter a minimal recovery shell environment."
+      print -Pr -- ""
+      print -Pr -- "Useful when .zshrc has errors that prevent normal startup."
+      print -Pr -- "The recovery shell provides basic zsh with no z4m features."
+      print -Pr -- ""
+      print -Pr -- "%F{6}Recovery Commands:%f"
+      print -Pr -- "  %Bz4m-recovery-edit%b [file]  Edit .zshrc or specified file"
+      print -Pr -- "  %Bz4m-recovery-reload%b       Reload zsh with fixed config"
+      print -Pr -- "  %Bz4m-recovery-exit%b         Exit recovery mode"
+      print -Pr -- ""
+      print -Pr -- "You can also bind to a key:"
+      print -Pr -- "  z4m bindkey z4m-recovery-shell Ctrl+Alt+R"
+    ;;
+    uninstall)
+      print -Pr -- "Usage: %F{2}z4m%f %Buninstall%b [options]"
+      print -Pr -- ""
+      print -Pr -- "Uninstall zsh4monkey. Creates a backup before removing files."
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-f, --force%b     Uninstall without confirmation"
+      print -Pr -- "  %B-n, --dry-run%b   Show what would be removed without changing anything"
+      print -Pr -- ""
+      print -Pr -- "Files removed:"
+      print -Pr -- "  - ~/.zshenv, ~/.zshrc, ~/.zprofile, ~/.zlogin, ~/.zlogout"
+      print -Pr -- "  - ~/.p10k.zsh and variants"
+      print -Pr -- "  - \$Z4M directory"
+    ;;
+    docker)
+      print -Pr -- "Usage: %F{2}z4m%f %Bdocker%b [%Udocker-options%u] %Ucontainer%u [%Ucommand%u]"
+      print -Pr -- ""
+      print -Pr -- "Run zsh in a Docker container with zsh4monkey."
+    ;;
+    sudo)
+      print -Pr -- "Usage: %F{2}z4m%f %Bsudo%b [%Usudo-options%u] [%Ucommand%u]"
+      print -Pr -- ""
+      print -Pr -- "Run command as root with zsh4monkey environment preserved."
+    ;;
+    pack)
+      print -Pr -- "Usage: %F{2}z4m%f %Bpack%b [-o %Uoutput%u] [-t %Utag%u]"
+      print -Pr -- ""
+      print -Pr -- "Create an offline installation package."
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-o%b %Ufile%u   Output file (default: z4m-offline-install.sh)"
+      print -Pr -- "  %B-t%b %Utag%u    Configuration tag for extra-files zstyle"
+      print -Pr -- ""
+      print -Pr -- "The generated script can install z4m on machines without"
+      print -Pr -- "internet access. Copy it to the target and run:"
+      print -Pr -- ""
+      print -Pr -- "  sh z4m-offline-install.sh"
+      print -Pr -- ""
+      print -Pr -- "Configuration:"
+      print -Pr -- "  zstyle ':z4m:pack:default' extra-files ~/myfile"
+    ;;
+    help)
+      print -Pr -- "Usage: %F{2}z4m%f %Bhelp%b [%Ucommand%u]"
+      print -Pr -- ""
+      print -Pr -- "Print help. Without arguments, shows all commands."
+      print -Pr -- "With a command name, shows detailed help for that command."
+    ;;
+    *)
+      if (( $+functions[-z4m-help-$1] )); then
+        -z4m-help-$1
+      else
+        print -Pru2 -- "%F{3}z4m%f: unknown command: %F{1}${1//\%/%%}%f"
+        print -Pru2 -- ""
+        print -Pru2 -- "Run %Bz4m help%b to see all commands."
+        return 1
+      fi
+    ;;
+  esac
+  return
+fi
+
+# General help (no arguments)
+if (( ARGC == 0 )); then
+  local fd=1 ret=0
+else
+  local fd=2 ret=1
+fi
+
+print -Pru$fd -- "%F{3}zsh4monkey%f - A modern, feature-rich zsh configuration"
+print -Pru$fd -- ""
+print -Pru$fd -- "%F{6}Core Commands:%f"
+print -Pru$fd -- "  %F{2}z4m%f %Binit%b                    Initialize zsh (call once from .zshrc)"
+print -Pru$fd -- "  %F{2}z4m%f %Bupdate%b                  Update z4m and all plugins"
+print -Pru$fd -- "  %F{2}z4m%f %Binstall%b %Uproject%u          Install a plugin from GitHub"
+print -Pru$fd -- ""
+print -Pru$fd -- "%F{6}Plugin Management:%f"
+print -Pru$fd -- "  %F{2}z4m%f %Bsource%b %Ufile%u              Source a zsh script"
+print -Pru$fd -- "  %F{2}z4m%f %Bcompile%b %Ufile%u             Compile zsh script to zwc"
+print -Pru$fd -- "  %F{2}z4m%f %Bload%b %Udir%u                 Load a plugin directory"
+print -Pru$fd -- "  %F{2}z4m%f %Bbindkey%b %Uwidget%u %Ukey%u      Bind key to ZLE widget"
+print -Pru$fd -- ""
+print -Pru$fd -- "%F{6}Remote Access:%f"
+print -Pru$fd -- "  %F{2}z4m%f %Bssh%b %Uhost%u                 SSH with z4m teleportation"
+print -Pru$fd -- "  %F{2}z4m%f %Bpack%b                       Create offline install package"
+print -Pru$fd -- "  %F{2}z4m%f %Bdocker%b %Ucontainer%u         Run zsh in Docker container"
+print -Pru$fd -- "  %F{2}z4m%f %Bsudo%b %Ucommand%u             Run as root preserving z4m"
+print -Pru$fd -- ""
+print -Pru$fd -- "%F{6}Editor Mode:%f"
+print -Pru$fd -- "  %F{2}z4m%f %Bvi-mode%b [on|off|toggle]  Toggle Vi editing mode"
+print -Pru$fd -- ""
+print -Pru$fd -- "%F{6}Diagnostics:%f"
+print -Pru$fd -- "  %F{2}z4m%f %Bdebug%b [on|off|status]   Toggle debug mode"
+print -Pru$fd -- "  %F{2}z4m%f %Bbench%b [%Ucount%u]            Benchmark startup time"
+print -Pru$fd -- "  %F{2}z4m%f %Benv%b [full|paths]        Show environment info"
+print -Pru$fd -- "  %F{2}z4m%f %Btime%b %Ucommand%u             Time command execution"
+print -Pru$fd -- "  %F{2}z4m%f %Brecovery%b               Enter recovery shell"
+print -Pru$fd -- ""
+print -Pru$fd -- "%F{6}Information:%f"
+print -Pru$fd -- "  %F{2}z4m%f %Bversion%b                 Show version info"
+print -Pru$fd -- "  %F{2}z4m%f %Bhelp%b [%Ucommand%u]           Show help"
+print -Pru$fd -- "  %F{2}z4m%f %Buninstall%b               Uninstall zsh4monkey"
+print -Pru$fd -- ""
+print -Pru$fd -- "Run %Bz4m help <command>%b for detailed help on a specific command."
+return ret

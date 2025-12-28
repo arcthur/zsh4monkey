@@ -1,0 +1,12 @@
+#!/usr/bin/env zsh
+
+local code=$?
+builtin emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+builtin zle || builtin exit code
+typeset -g precmd_functions=(z4m-exit)
+if [[ $BUFFER == [[:space:]]# ]]; then
+  builtin zle -w accept-line
+else
+  builtin zle -w send-break
+fi

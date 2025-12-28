@@ -1,0 +1,58 @@
+#!/usr/bin/env zsh
+#
+# Initialize Carapace completion engine
+#
+# Configuration:
+#   zstyle ':z4m:carapace' enabled yes/no      - Enable/disable Carapace (default: yes)
+#   zstyle ':z4m:carapace' exclude (cmd ...)   - Commands to always use native completion
+#   zstyle ':z4m:carapace' debug yes/no        - Enable debug output
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+zstyle -T :z4m:carapace enabled || return 0
+
+# Skip on remote SSH environments
+[[ -n $Z4M_SSH ]] && return 0
+[[ -n $SSH_CONNECTION ]] && ! zstyle -t :z4m:carapace force-remote && return 0
+
+# Require system carapace
+(( $+commands[carapace] )) || return 0
+
+typeset -g _z4m_carapace_bin=$commands[carapace]
+
+# Cache directory for carapace completions
+typeset -g _z4m_carapace_cache=$Z4M/cache/carapace-$EUID
+[[ -d $_z4m_carapace_cache ]] || zf_mkdir -p -- "$_z4m_carapace_cache"
+
+# Get list of commands carapace supports (with caching)
+local -a carapace_commands
+local commands_cache=$_z4m_carapace_cache/commands.list
+
+if [[ -r $commands_cache && $commands_cache -nt $commands[carapace] ]]; then
+  carapace_commands=("${(@f)$(<$commands_cache)}")
+else
+  carapace_commands=("${(@f)$(carapace --list 2>/dev/null | command cut -d' ' -f1)}")
+  if (( $#carapace_commands )); then
+    print -l -- "${carapace_commands[@]}" >$commands_cache 2>/dev/null
+  fi
+fi
+
+typeset -ga _z4m_carapace_supported_commands=("${carapace_commands[@]}")
+
+# Load user-configured exclusion list
+local -a user_exclude
+zstyle -a :z4m:carapace exclude user_exclude
+
+# Default exclusions: only ssh (uses native completion for host/key handling)
+local -a default_exclude=(ssh)
+
+typeset -ga _z4m_carapace_exclude=("${default_exclude[@]}" "${user_exclude[@]}")
+
+if zstyle -t :z4m:carapace debug; then
+  print -Pru2 -- "%F{3}z4m%f: carapace initialized"
+  print -Pru2 -- "  binary: $commands[carapace]"
+  print -Pru2 -- "  supported commands: ${#carapace_commands}"
+  print -Pru2 -- "  excluded: ${_z4m_carapace_exclude[*]}"
+fi

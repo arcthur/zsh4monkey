@@ -1,0 +1,51 @@
+#!/usr/bin/env zsh
+#
+# z4m-error - Unified error handling utilities
+#
+# Usage:
+#   -z4m-error <message>                 - Print error message
+#   -z4m-error -f <message>              - Print fatal error with stack trace
+#   -z4m-error -w <message>              - Print warning message
+#   -z4m-error --check <condition> <msg> - Print error if condition fails
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local -i fatal=0 warning=0
+local msg
+
+case ${1-} in
+  -f|--fatal)
+    fatal=1
+    shift
+    ;;
+  -w|--warning)
+    warning=1
+    shift
+    ;;
+  --check)
+    shift
+    local condition=$1
+    shift
+    if ! eval "$condition"; then
+      -z4m-error "$@"
+      return 1
+    fi
+    return 0
+    ;;
+esac
+
+msg="${(j: :)@}"
+
+if (( warning )); then
+  print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: ${msg//\%/%%}"
+elif (( fatal )); then
+  print -Pru2 -- "%F{3}z4m%f: %F{1}error%f: ${msg//\%/%%}"
+  print -Pru2 -- '%F{3}--- stack trace (most recent call first) ---%f'
+  print -lru2 -- "${funcfiletrace[@]}"
+  print -Pru2 -- '%F{3}--- end of stack trace ---%f'
+  return 1
+else
+  print -Pru2 -- "%F{3}z4m%f: %F{1}error%f: ${msg//\%/%%}"
+fi

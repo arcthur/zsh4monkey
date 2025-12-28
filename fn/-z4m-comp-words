@@ -1,0 +1,171 @@
+#!/usr/bin/env zsh
+
+()  {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  local -i list_types
+  [[ $1 == on ]] && list_types=1
+
+  typeset -ga _z4m_naturals
+  if (( $#_z4m_naturals < $#_z4m_words )); then
+    _z4m_naturals+=({$(($#_z4m_naturals+1))..$#_z4m_words})
+  fi
+
+  local -A seen
+  local -a indices
+  local word idx
+  for word idx in "${(@)_z4m_words:^_z4m_naturals}"; do
+    if (( ! ${+seen[$word]} )); then
+      seen[$word]=1
+      indices+=($idx)
+    fi
+  done
+
+  -z4m-set-list-colors "$_z4m_curcontext" "$list_types"
+  local -i list_colors=$((!$?))
+
+  zstyle -t :completion:${_z4m_curcontext}:default sort
+  local -i sort=$((!$?))
+
+  autoload +X -Uz -- -z4m-cursor-show -z4m-fzf
+
+  local -i pct=60
+  (( _z4m_can_save_restore_screen )) && pct=100
+
+  local -i height=$(( 100 * ($#indices + 4) < pct * LINES ? $#indices + 4 : pct * LINES / 100 ))
+
+  (( height >= 6 )) || (( height = 6 ))
+  (( height <= LINES - 1 )) || (( height = LINES - 1 ))
+
+  local opts=(
+    --query=${_z4m_word_prefix:+"^$_z4m_word_prefix "}
+    --color=hl:201,hl+:201
+    --with-nth=2
+    --delimiter='\000'
+    --ansi
+    --exact
+    --no-mouse
+    --tiebreak=length,begin,index
+    --multi
+    --cycle
+    --border=horizontal
+  )
+
+  local cursor_y cursor_x
+  -z4m-get-cursor-pos || return
+
+  if (( _z4m_can_save_restore_screen )); then
+    opts+=(--no-clear)
+    if { (( height <= cursor_y - 1 )) && zstyle -T :z4m: prompt-at-bottom } ||
+       (( cursor_y - 1 > LINES - cursor_y && cursor_y - 1 > 6 )) &&
+       { (( height > LINES - cursor_y )) || zstyle -T :z4m: prompt-at-bottom }; then
+      (( height <= cursor_y - 1 )) || (( height = cursor_y - 1 ))
+      local move=$'\e[0m\e['$((cursor_y-height))';1H'
+      opts+=(--layout=default)
+    elif (( LINES - cursor_y > 6 )); then
+      (( height <= LINES - cursor_y )) || (( height = LINES - cursor_y ))
+      local move=$'\e[0m\n\r'
+      opts+=(--layout=reverse)
+    else
+      local -i extra=$((height - LINES + cursor_y))
+      print -rnu $_z4m_tty_fd -- ${(pl:$height::\n:)} || return
+      (( cursor_y += LINES - cursor_y - height ))
+      local move=$'\e[0m\e['$((cursor_y+1))';1H'
+      opts+=(--layout=reverse)
+    fi
+    local _z4m_saved_screen
+    -z4m-save-screen || return
+  else
+    print >&$_z4m_tty_fd || return
+    local move=
+    opts+=(--layout=reverse)
+  fi
+
+  opts+=(--height=$height)
+
+  {
+    local choice
+    choice="$(
+      unsetopt pipe_fail
+      exec 2>/dev/null
+      {
+        # Colorize file completions when list_colors is enabled
+        if (( list_colors )); then
+          local -i m
+          local word descr style file_style orig_descr
+          if (( sort )); then
+            # Sort by original descr, then colorize for output
+            local rows=() sorted_rows=()
+            local -A idx_to_style=()
+            for idx in $indices; do
+              word=$_z4m_words[idx]
+              descr=$_z4m_descrs[idx]
+              # Check if the word is a file path that exists
+              if [[ -e $word || -e $_z4m_path_prefix$word ]]; then
+                local target=${${word:a}:-$_z4m_path_prefix$word}
+                if zstat -L -A m +mode -- $target 2>/dev/null; then
+                  file_style=${${_z4m_mode_codes[$((m & 64075))]:-}#*$'\0'}
+                  [[ -n $file_style ]] && idx_to_style[$idx]=$file_style
+                fi
+              fi
+              rows+=($descr$'\0'$idx)
+            done
+            # Sort and output with colors
+            for row in ${(@o)rows}; do
+              idx=${row##*$'\0'}
+              descr=${row%$'\0'*}
+              if [[ -n ${idx_to_style[$idx]:-} ]]; then
+                descr=$'\e['${idx_to_style[$idx]}'m'$descr$'\e[0m'
+              fi
+              printf '%s\0%s\n' $idx "$descr"
+            done
+          else
+            for idx in $indices; do
+              word=$_z4m_words[idx]
+              descr=$_z4m_descrs[idx]
+              if [[ -e $word || -e $_z4m_path_prefix$word ]]; then
+                local target=${${word:a}:-$_z4m_path_prefix$word}
+                if zstat -L -A m +mode -- $target 2>/dev/null; then
+                  file_style=${${_z4m_mode_codes[$((m & 64075))]:-}#*$'\0'}
+                  if [[ -n $file_style ]]; then
+                    descr=$'\e['$file_style'm'$descr$'\e[0m'
+                  fi
+                fi
+              fi
+              printf '%s\0%s\n' $idx "$descr"
+            done
+          fi
+        elif (( sort )); then
+          local rows=()
+          for idx in $indices; do
+            rows+=($_z4m_descrs[idx]$'\0'$idx)
+          done
+          printf '%2$s\0%1$s\n' "${(@0)${(@o)rows}}"
+        else
+          for idx in $indices; do
+            printf '%s\0%s\n' $idx "$_z4m_descrs[idx]"
+          done
+        fi
+      } | {
+        print -rnu $_z4m_tty_fd -- $move
+        -z4m-cursor-show
+        2>&$_z4m_tty_fd -z4m-fzf $opts
+      }
+    )"
+  } always {
+    -z4m-cursor-hide
+    if (( _z4m_can_save_restore_screen )); then
+      -z4m-restore-screen
+      print -rn -- $'\e[0m\e['$cursor_y';'$cursor_x'H'
+    else
+      builtin echoti cuu 1
+      (( cursor_x > 1 )) && builtin echoti cuf $((cursor_x-1))
+    fi
+  }
+
+  [[ -n $choice ]] || return
+  choice=("${(@f)choice}")
+  typeset -g _z4m_reply=(0 ${${choice:1}%$'\0'*})
+  [[ -z $choice[1] ]] || _z4m_reply[1]=1
+} "${options[list_types]}"

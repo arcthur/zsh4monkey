@@ -1,0 +1,14 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+if [[ -n $_Z4M_TMUX ]]; then
+  local pane
+  pane="$(TMUX=$_Z4M_TMUX TMUX_PANE=$_Z4M_TMUX_PANE $_Z4M_TMUX_CMD capture-pane -p -e && print -n x)" || return
+  typeset -g _z4m_saved_screen=$'\e[0m\e[H'${${pane//$'\n'/$'\e[49m\e[K\r\n'}%$'\r\nx'}
+elif [[ -n $Z4M_SSH && -n $_Z4M_SSH_MARKER && -v _z4m_tty_fd ]]; then
+  printf '\001z4m.%s%s' "$_Z4M_SSH_MARKER" 'save-screen     ' >&$_z4m_tty_fd
+else
+  return 1
+fi

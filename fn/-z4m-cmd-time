@@ -1,0 +1,36 @@
+#!/usr/bin/env zsh
+#
+# z4m time - Measure command execution time with high precision
+#
+# Usage:
+#   z4m time <command> [args...]   - Run command and show elapsed time
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+if (( ARGC == 0 )); then
+  print -Pru2 -- "Usage: %F{2}z4m%f %Btime%b %Ucommand%u [%Uargs%u]..."
+  return 1
+fi
+
+local -F start end elapsed
+start=$EPOCHREALTIME
+
+"$@"
+local -i ret=$?
+
+end=$EPOCHREALTIME
+elapsed=$(( end - start ))
+
+# Format output based on duration
+if (( elapsed < 1 )); then
+  printf '\n%F{3}z4m%f: elapsed %.3fms (exit %d)\n' $(( elapsed * 1000 )) $ret
+elif (( elapsed < 60 )); then
+  printf '\n%F{3}z4m%f: elapsed %.3fs (exit %d)\n' $elapsed $ret
+else
+  local -i mins=$(( elapsed / 60 ))
+  local -F secs=$(( elapsed - mins * 60 ))
+  printf '\n%F{3}z4m%f: elapsed %dm%.3fs (exit %d)\n' $mins $secs $ret
+fi
+
+return ret

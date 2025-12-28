@@ -1,0 +1,168 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+# Handle -l and -L options for listing bindings
+local -a list_opt export_opt
+zparseopts -D -F -- l=list_opt L=export_opt || return '_z4m_err()'
+
+if (( $#list_opt )); then
+  # List all bindings in a readable table format
+  print -Pr -- "%F{6}Navigation:%f"
+  print -Pr -- "  %-20s %-30s %s" "Up, Ctrl+P" "z4m-up-prefix-local" "Search local history with prefix"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Up" "z4m-up-prefix-global" "Search global history with prefix"
+  print -Pr -- "  %-20s %-30s %s" "Down, Ctrl+N" "z4m-down-prefix-local" "Navigate history forward"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Down" "z4m-down-prefix-global" "Navigate global history forward"
+  print -Pr -- "  %-20s %-30s %s" "Left" "backward-char" "Move cursor left"
+  print -Pr -- "  %-20s %-30s %s" "Right" "forward-char" "Move cursor right"
+  print -Pr -- "  %-20s %-30s %s" "Home" "beginning-of-line" "Go to line start"
+  print -Pr -- "  %-20s %-30s %s" "End" "end-of-line" "Go to line end"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Home, Alt+Home" "z4m-beginning-of-buffer" "Go to buffer start"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+End, Alt+End" "z4m-end-of-buffer" "Go to buffer end"
+  print -Pr -- ""
+  print -Pr -- "%F{6}Word Navigation:%f"
+  print -Pr -- "  %-20s %-30s %s" "Alt+B, Alt+Left" "z4m-backward-word" "Move back one word"
+  print -Pr -- "  %-20s %-30s %s" "Alt+F, Alt+Right" "z4m-forward-word" "Move forward one word"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Left, Ctrl+Right" "z4m-backward/forward-word" "Word navigation"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Shift+Left" "z4m-backward-zword" "Move back one zword"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Shift+Right" "z4m-forward-zword" "Move forward one zword"
+  print -Pr -- ""
+  print -Pr -- "%F{6}Deletion:%f"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+D, Delete" "delete-char" "Delete character"
+  print -Pr -- "  %-20s %-30s %s" "Alt+D, Ctrl+Delete" "z4m-kill-word" "Delete word forward"
+  print -Pr -- "  %-20s %-30s %s" "Alt+Delete" "z4m-kill-word" "Delete word forward"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+W, Alt+Backspace" "z4m-backward-kill-word" "Delete word backward"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Shift+Delete" "z4m-kill-zword" "Delete zword forward"
+  print -Pr -- "  %-20s %-30s %s" "Alt+K" "backward-kill-line" "Kill to line start"
+  print -Pr -- "  %-20s %-30s %s" "Alt+J" "kill-buffer" "Kill entire buffer"
+  print -Pr -- ""
+  print -Pr -- "%F{6}Directory Navigation:%f"
+  print -Pr -- "  %-20s %-30s %s" "Shift+Left" "z4m-cd-back" "Go to previous directory"
+  print -Pr -- "  %-20s %-30s %s" "Shift+Right" "z4m-cd-forward" "Go to next directory"
+  print -Pr -- "  %-20s %-30s %s" "Shift+Up" "z4m-cd-up" "Go to parent directory"
+  print -Pr -- "  %-20s %-30s %s" "Shift+Down" "z4m-cd-down" "Fuzzy select subdirectory"
+  print -Pr -- "  %-20s %-30s %s" "Alt+R" "z4m-fzf-dir-history" "Fuzzy directory history"
+  print -Pr -- ""
+  print -Pr -- "%F{6}Completion & History:%f"
+  print -Pr -- "  %-20s %-30s %s" "Tab" "z4m-fzf-complete" "Fuzzy completion"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+R" "z4m-fzf-history" "Fuzzy history search"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Space" "z4m-expand" "Expand alias/glob"
+  print -Pr -- "  %-20s %-30s %s" "Alt+M" "z4m-autosuggest-accept" "Accept autosuggestion"
+  print -Pr -- ""
+  print -Pr -- "%F{6}Editing:%f"
+  print -Pr -- "  %-20s %-30s %s" "Shift+Tab" "undo" "Undo last change"
+  print -Pr -- "  %-20s %-30s %s" "Alt+/" "redo" "Redo last undo"
+  print -Pr -- "  %-20s %-30s %s" "Alt+O" "z4m-stash-buffer" "Stash current buffer"
+  print -Pr -- "  %-20s %-30s %s" "Alt+H" "run-help" "Show help for command"
+  print -Pr -- ""
+  print -Pr -- "%F{6}Screen:%f"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+L" "z4m-clear-screen-*" "Clear screen"
+  print -Pr -- "  %-20s %-30s %s" "Ctrl+Alt+L" "z4m-clear-screen-hard-*" "Hard clear screen"
+  return 0
+fi
+
+if (( $#export_opt )); then
+  # Export bindings as z4m bindkey commands
+  print -r -- "# z4m key bindings export"
+  print -r -- "# Generated: $(strftime '%Y-%m-%d %H:%M:%S' $EPOCHSECONDS)"
+  print -r -- ""
+  print -r -- "# Navigation"
+  print -r -- "z4m bindkey z4m-up-prefix-local Up Ctrl+P"
+  print -r -- "z4m bindkey z4m-up-prefix-global Ctrl+Up"
+  print -r -- "z4m bindkey z4m-down-prefix-local Down Ctrl+N"
+  print -r -- "z4m bindkey z4m-down-prefix-global Ctrl+Down"
+  print -r -- "z4m bindkey backward-char Left"
+  print -r -- "z4m bindkey forward-char Right"
+  print -r -- "z4m bindkey beginning-of-line Home"
+  print -r -- "z4m bindkey end-of-line End"
+  print -r -- "z4m bindkey z4m-beginning-of-buffer Ctrl+Home Alt+Home"
+  print -r -- "z4m bindkey z4m-end-of-buffer Ctrl+End Alt+End"
+  print -r -- ""
+  print -r -- "# Word navigation"
+  print -r -- "z4m bindkey z4m-backward-word Alt+B Alt+Left Ctrl+Left"
+  print -r -- "z4m bindkey z4m-forward-word Alt+F Alt+Right Ctrl+Right"
+  print -r -- "z4m bindkey z4m-backward-zword Ctrl+Shift+Left"
+  print -r -- "z4m bindkey z4m-forward-zword Ctrl+Shift+Right"
+  print -r -- ""
+  print -r -- "# Deletion"
+  print -r -- "z4m bindkey delete-char Ctrl+D Delete"
+  print -r -- "z4m bindkey z4m-kill-word Alt+D Ctrl+Delete Alt+Delete"
+  print -r -- "z4m bindkey z4m-backward-kill-word Ctrl+W Alt+Backspace"
+  print -r -- "z4m bindkey z4m-kill-zword Ctrl+Shift+Delete"
+  print -r -- "z4m bindkey backward-kill-line Alt+K"
+  print -r -- "z4m bindkey kill-buffer Alt+J"
+  print -r -- ""
+  print -r -- "# Directory navigation"
+  print -r -- "z4m bindkey z4m-cd-back Shift+Left"
+  print -r -- "z4m bindkey z4m-cd-forward Shift+Right"
+  print -r -- "z4m bindkey z4m-cd-up Shift+Up"
+  print -r -- "z4m bindkey z4m-cd-down Shift+Down"
+  print -r -- "z4m bindkey z4m-fzf-dir-history Alt+R"
+  print -r -- ""
+  print -r -- "# Completion and history"
+  print -r -- "z4m bindkey z4m-fzf-complete Tab"
+  print -r -- "z4m bindkey z4m-fzf-history Ctrl+R"
+  print -r -- "z4m bindkey z4m-expand Ctrl+Space"
+  print -r -- "z4m bindkey z4m-autosuggest-accept Alt+M"
+  print -r -- ""
+  print -r -- "# Editing"
+  print -r -- "z4m bindkey undo Shift+Tab"
+  print -r -- "z4m bindkey redo Alt+/"
+  print -r -- "z4m bindkey z4m-stash-buffer Alt+O"
+  print -r -- "z4m bindkey run-help Alt+H"
+  print -r -- ""
+  print -r -- "# Screen"
+  print -r -- "z4m bindkey z4m-clear-screen-soft-top Ctrl+L"
+  print -r -- "z4m bindkey z4m-clear-screen-hard-top Ctrl+Alt+L"
+  return 0
+fi
+
+if (( ARGC < 2 )); then
+  -z4m-help-bindkey >&2
+  return 1
+fi
+
+(( ${+_z4m_key} )) || return 0
+
+local kb seq seqs new_seqs
+
+for kb in ${@:2}; do
+  seqs=('')
+  for kb in ${(@s: :)kb}; do
+    if [[ -n ${seq::=$_z4m_key[$kb]} ]]; then
+      seqs=(${^seqs}$seq)
+    else
+      case $kb in
+        ?~[a-z])
+          seqs=(${^seqs}$kb ${^seqs}${(L)kb})
+        ;;
+        Ctrl+[A-Z'[]\'])
+          seqs=(${^seqs}'^'$kb[-1])
+        ;;
+        (Alt|Option)+[A-Z'[]\/.,'])
+          new_seqs=(${^seqs}'^['$kb[-1] ${^seqs}'^['${(L)kb[-1]})
+          if zstyle -T :z4m:bindkey macos-option-as-alt &&
+            [[ -n ${seq::=$_z4m_macos_opt_key[$kb[-1]]} ]]; then
+            new_seqs+=(${^seqs}$seq)
+            if [[ -n ${seq::=$_z4m_macos_opt_key[${(L)kb[-1]}]} ]]; then
+              new_seqs+=(${^seqs}$seq)
+            fi
+          fi
+          seqs=($new_seqs)
+        ;;
+        Ctrl+(Alt|Option)+[A-Z'[]\'])
+          seqs=(${^seqs}'^[^'$kb[-1])
+        ;;
+        *)
+          print -Pru2 -- '%F{3}z4m%f: invalid key binding: %F{1}'${kb//\%/%%}'%f'
+          return '_z4m_err()'
+        ;;
+      esac
+    fi
+  done
+done
+
+for seq in ${(u)seqs}; do
+  builtin bindkey -- $seq $1
+done

@@ -1,0 +1,15 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+[[ -v _z4m_tty_fd ]] || return
+
+if [[ -n $_Z4M_TMUX ]]; then
+  (( ${+_z4m_saved_screen} )) || return
+  print -rnu $_z4m_tty_fd -- "$_z4m_saved_screen"
+elif [[ -n $Z4M_SSH && -n $_Z4M_SSH_MARKER ]]; then
+  printf '\001z4m.%s%s' "$_Z4M_SSH_MARKER" 'restore-screen  ' >&$_z4m_tty_fd
+else
+  return 1
+fi

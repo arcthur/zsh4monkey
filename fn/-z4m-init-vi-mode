@@ -1,0 +1,292 @@
+#!/usr/bin/env zsh
+#
+# z4m-init-vi-mode - Vi mode initialization
+#
+# This module provides:
+# - Vi mode keybindings for viins and vicmd keymaps
+# - Cursor shape control via zle-keymap-select
+# - Autosuggestion toggle based on keymap
+# - KEYTIMEOUT adjustments for ESC handling
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+# === Cursor Shape Constants (ANSI DECSCUSR) ===
+typeset -gr _Z4M_CURSOR_BLOCK='\e[2 q'           # Steady block (normal mode)
+typeset -gr _Z4M_CURSOR_BLOCK_BLINK='\e[1 q'     # Blinking block
+typeset -gr _Z4M_CURSOR_UNDERLINE='\e[4 q'       # Steady underline (replace mode)
+typeset -gr _Z4M_CURSOR_UNDERLINE_BLINK='\e[3 q' # Blinking underline
+typeset -gr _Z4M_CURSOR_BEAM='\e[6 q'            # Steady beam (insert mode)
+typeset -gr _Z4M_CURSOR_BEAM_BLINK='\e[5 q'      # Blinking beam
+
+# === Cursor Shape Control ===
+function -z4m-set-cursor-shape() {
+  local shape=${1:-block}
+  # Only output if we have a TTY
+  [[ -t 1 ]] || [[ -v _z4m_tty_fd ]] || return 0
+
+  local seq
+  case $shape in
+    block)     seq=$_Z4M_CURSOR_BLOCK ;;
+    beam)      seq=$_Z4M_CURSOR_BEAM ;;
+    underline) seq=$_Z4M_CURSOR_UNDERLINE ;;
+    *)         return 1 ;;
+  esac
+
+  if [[ -t 1 ]]; then
+    print -n -- $seq
+  elif [[ -v _z4m_tty_fd ]]; then
+    print -nu $_z4m_tty_fd -- $seq
+  fi
+}
+
+# === Keymap Select Hook ===
+function -z4m-zle-keymap-select() {
+  local -i ret=0
+
+  # Call original hook if it exists
+  if (( ${+widgets[-z4m-orig-zle-keymap-select]} )); then
+    zle -- -z4m-orig-zle-keymap-select "$@" || ret=$?
+  fi
+
+  # Update cursor shape based on current keymap
+  case $KEYMAP in
+    vicmd)
+      -z4m-set-cursor-shape block
+      # Disable autosuggestions in normal mode
+      if (( ${+functions[_zsh_autosuggest_widget_disable]} )); then
+        _zsh_autosuggest_widget_disable
+      fi
+      ;;
+    viins|main)
+      -z4m-set-cursor-shape beam
+      # Enable autosuggestions in insert mode
+      if (( ${+functions[_zsh_autosuggest_widget_enable]} )); then
+        _zsh_autosuggest_widget_enable
+      fi
+      ;;
+    replace)
+      -z4m-set-cursor-shape underline
+      ;;
+  esac
+
+  # Notify powerlevel10k of mode change for prompt update
+  (( ${+functions[p10k]} )) && zle reset-prompt 2>/dev/null
+
+  return ret
+}
+
+# === Setup Vi Bindings for viins keymap (Insert Mode) ===
+function -z4m-setup-viins-bindings() {
+  # Basic navigation (same as emacs for user convenience)
+  bindkey -M viins '^[[D'    backward-char                  # left
+  bindkey -M viins '^[[C'    forward-char                   # right
+  bindkey -M viins '^[[H'    beginning-of-line              # home
+  bindkey -M viins '^[[F'    end-of-line                    # end
+  bindkey -M viins '^[[3~'   delete-char                    # delete
+  bindkey -M viins '^?'      backward-delete-char           # backspace
+  bindkey -M viins '^H'      backward-delete-char           # ctrl+backspace
+
+  # History navigation
+  if (( ${+functions[z4m-up-substring-local]} )); then
+    bindkey -M viins '^P'      z4m-up-substring-local
+    bindkey -M viins '^[[A'    z4m-up-substring-local         # up
+    bindkey -M viins '^N'      z4m-down-substring-local
+    bindkey -M viins '^[[B'    z4m-down-substring-local       # down
+  else
+    bindkey -M viins '^P'      z4m-up-prefix-local
+    bindkey -M viins '^[[A'    z4m-up-prefix-local            # up
+    bindkey -M viins '^N'      z4m-down-prefix-local
+    bindkey -M viins '^[[B'    z4m-down-prefix-local          # down
+  fi
+
+  # Global history
+  bindkey -M viins '^[[1;5A' z4m-up-prefix-global           # ctrl+up
+  bindkey -M viins '^[[1;5B' z4m-down-prefix-global         # ctrl+down
+
+  # Word navigation
+  bindkey -M viins '^[[1;5D' z4m-backward-word              # ctrl+left
+  bindkey -M viins '^[[1;5C' z4m-forward-word               # ctrl+right
+  bindkey -M viins '^[[1;3D' z4m-backward-word              # alt+left
+  bindkey -M viins '^[[1;3C' z4m-forward-word               # alt+right
+  bindkey -M viins '^[b'     z4m-backward-word              # alt+b
+  bindkey -M viins '^[f'     z4m-forward-word               # alt+f
+
+  # Buffer navigation
+  bindkey -M viins '^[[1;5H' z4m-beginning-of-buffer        # ctrl+home
+  bindkey -M viins '^[[1;5F' z4m-end-of-buffer              # ctrl+end
+
+  # Deletion
+  bindkey -M viins '^W'      z4m-backward-kill-word         # ctrl+w
+  bindkey -M viins '^[d'     z4m-kill-word                  # alt+d
+  bindkey -M viins '^[[3;5~' z4m-kill-word                  # ctrl+del
+  bindkey -M viins '^[^?'    z4m-backward-kill-word         # alt+backspace
+  bindkey -M viins '^U'      backward-kill-line             # ctrl+u
+  bindkey -M viins '^K'      kill-line                      # ctrl+k
+
+  # Tab completion
+  bindkey -M viins '^I'      z4m-fzf-complete               # tab
+  bindkey -M viins '^[[Z'    undo                           # shift+tab
+
+  # History search with fzf
+  if (( ${+widgets[z4m-fzf-history]} )); then
+    bindkey -M viins '^R'    z4m-fzf-history                # ctrl+r
+  fi
+
+  # Directory navigation
+  bindkey -M viins '^[[1;2D' z4m-cd-back                    # shift+left
+  bindkey -M viins '^[[1;2C' z4m-cd-forward                 # shift+right
+  bindkey -M viins '^[[1;2A' z4m-cd-up                      # shift+up
+  if (( ${+widgets[z4m-cd-down]} )); then
+    bindkey -M viins '^[[1;2B' z4m-cd-down                  # shift+down
+  fi
+
+  # Autosuggestion accept
+  bindkey -M viins '^[m'     z4m-autosuggest-accept         # alt+m
+  bindkey -M viins '^[M'     z4m-autosuggest-accept         # alt+M
+
+  # Expand
+  bindkey -M viins '^ '      z4m-expand                     # ctrl+space
+
+  # Clear screen
+  bindkey -M viins '^L'      z4m-clear-screen-soft-top      # ctrl+l
+  bindkey -M viins '^[^L'    z4m-clear-screen-hard-top      # ctrl+alt+l
+
+  # Help
+  bindkey -M viins '^[h'     run-help                       # alt+h
+
+  # Stash buffer
+  bindkey -M viins '^[o'     z4m-stash-buffer               # alt+o
+}
+
+# === Setup Vi Bindings for vicmd keymap (Normal Mode) ===
+function -z4m-setup-vicmd-bindings() {
+  # History navigation with j/k
+  if (( ${+functions[z4m-up-substring-local]} )); then
+    bindkey -M vicmd 'k'      z4m-up-substring-local
+    bindkey -M vicmd 'j'      z4m-down-substring-local
+    bindkey -M vicmd '^P'     z4m-up-substring-local
+    bindkey -M vicmd '^[[A'   z4m-up-substring-local         # up
+    bindkey -M vicmd '^N'     z4m-down-substring-local
+    bindkey -M vicmd '^[[B'   z4m-down-substring-local       # down
+  else
+    bindkey -M vicmd 'k'      z4m-up-prefix-local
+    bindkey -M vicmd 'j'      z4m-down-prefix-local
+    bindkey -M vicmd '^P'     z4m-up-prefix-local
+    bindkey -M vicmd '^[[A'   z4m-up-prefix-local
+    bindkey -M vicmd '^N'     z4m-down-prefix-local
+    bindkey -M vicmd '^[[B'   z4m-down-prefix-local
+  fi
+
+  # Global history navigation
+  bindkey -M vicmd '^[[1;5A' z4m-up-prefix-global           # ctrl+up
+  bindkey -M vicmd '^[[1;5B' z4m-down-prefix-global         # ctrl+down
+
+  # Directory navigation
+  bindkey -M vicmd '^[[1;2D' z4m-cd-back                    # shift+left
+  bindkey -M vicmd '^[[1;2C' z4m-cd-forward                 # shift+right
+  bindkey -M vicmd '^[[1;2A' z4m-cd-up                      # shift+up
+  if (( ${+widgets[z4m-cd-down]} )); then
+    bindkey -M vicmd '^[[1;2B' z4m-cd-down                  # shift+down
+  fi
+
+  # History search with fzf
+  if (( ${+widgets[z4m-fzf-history]} )); then
+    bindkey -M vicmd '/'     z4m-fzf-history                # / for search
+    bindkey -M vicmd '^R'    z4m-fzf-history                # ctrl+r
+  fi
+
+  # Directory history
+  if (( ${+widgets[z4m-fzf-dir-history]} )); then
+    bindkey -M vicmd '^[r'   z4m-fzf-dir-history            # alt+r
+  fi
+
+  # Tab completion
+  bindkey -M vicmd '^I'      z4m-fzf-complete               # tab
+
+  # Clear screen
+  bindkey -M vicmd '^L'      z4m-clear-screen-soft-top      # ctrl+l
+
+  # Undo/redo (u is default for undo in vi)
+  bindkey -M vicmd 'U'       redo                           # U for redo
+
+  # Buffer navigation
+  bindkey -M vicmd 'gg'      z4m-beginning-of-buffer        # gg to top
+  bindkey -M vicmd 'G'       z4m-end-of-buffer              # G to bottom
+
+  # Help
+  bindkey -M vicmd '^[h'     run-help                       # alt+h
+}
+
+# === Enable Vi Mode ===
+function -z4m-enable-vi-mode() {
+  # Already enabled?
+  (( ${+_Z4M_VI_MODE_ENABLED} )) && return 0
+
+  # Switch to vi keymap
+  bindkey -v
+
+  # Reduce KEYTIMEOUT for faster ESC response (10 = 100ms)
+  typeset -gi _Z4M_PREV_KEYTIMEOUT=${KEYTIMEOUT:-20}
+  KEYTIMEOUT=10
+
+  # Register keymap-select hook
+  if (( $+widgets[zle-keymap-select] )); then
+    zle -A -- zle-keymap-select -z4m-orig-zle-keymap-select
+  fi
+  zle -N -- zle-keymap-select -z4m-zle-keymap-select
+
+  # Setup bindings
+  -z4m-setup-viins-bindings
+  -z4m-setup-vicmd-bindings
+
+  # Set initial cursor shape (insert mode)
+  -z4m-set-cursor-shape beam
+
+  # Mark vi mode as enabled
+  typeset -gi _Z4M_VI_MODE_ENABLED=1
+
+  return 0
+}
+
+# === Disable Vi Mode ===
+function -z4m-disable-vi-mode() {
+  # Not enabled?
+  (( ${+_Z4M_VI_MODE_ENABLED} )) || return 0
+
+  # Switch to emacs keymap
+  bindkey -e
+
+  # Restore previous KEYTIMEOUT
+  KEYTIMEOUT=${_Z4M_PREV_KEYTIMEOUT:-20}
+  unset _Z4M_PREV_KEYTIMEOUT
+
+  # Remove our keymap-select hook, restore original if exists
+  if (( $+widgets[-z4m-orig-zle-keymap-select] )); then
+    zle -A -- -z4m-orig-zle-keymap-select zle-keymap-select
+    zle -D -- -z4m-orig-zle-keymap-select
+  else
+    zle -D -- zle-keymap-select 2>/dev/null || true
+  fi
+
+  # Reset cursor to block
+  -z4m-set-cursor-shape block
+
+  # Re-enable autosuggestions
+  if (( ${+functions[_zsh_autosuggest_widget_enable]} )); then
+    _zsh_autosuggest_widget_enable
+  fi
+
+  # Mark vi mode as disabled
+  unset _Z4M_VI_MODE_ENABLED
+
+  return 0
+}
+
+# === Main Initialization ===
+# Check if vi mode is configured via zstyle
+local _z4m_editor_mode
+if zstyle -s ':z4m:' editor-mode _z4m_editor_mode && [[ $_z4m_editor_mode == vi ]]; then
+  -z4m-enable-vi-mode
+fi

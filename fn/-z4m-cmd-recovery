@@ -1,0 +1,48 @@
+#!/usr/bin/env zsh
+#
+# z4m recovery - Enter recovery shell mode
+#
+# Usage:
+#   z4m recovery       Enter recovery shell
+#   z4m recovery help  Show recovery help
+#
+
+'emulate' '-L' 'zsh' '-o' 'no_aliases'
+
+case ${1:-} in
+  help|-h|--help)
+    'print' -Pr -- "$(<<\END
+Usage: %F{2}z4m%f %Brecovery%b [help]
+
+Enter a minimal recovery shell environment.
+
+This is useful when:
+  - Your .zshrc has syntax errors preventing normal startup
+  - z4m initialization fails for some reason
+  - You need a clean environment to debug issues
+
+The recovery shell provides:
+  - Basic zsh with default settings
+  - No z4m features, plugins, or customizations
+  - Helper functions to edit and reload configuration
+
+%F{6}Recovery Commands:%f
+  %Bz4m-recovery-edit%b [file]  Edit .zshrc or specified file
+  %Bz4m-recovery-reload%b       Reload zsh with fixed configuration
+  %Bz4m-recovery-exit%b         Exit recovery mode
+  %Bz4m-recovery-help%b         Show help in recovery mode
+
+%F{6}Keyboard Shortcut:%f
+  You can bind this to a key in your .zshrc:
+    z4m bindkey z4m-recovery-shell Ctrl+Alt+R
+END
+)"
+    ;;
+  '')
+    -z4m-recovery-shell
+    ;;
+  *)
+    'print' -Pru2 -- '%F{3}z4m%f: %Brecovery%b: unknown argument: %F{1}'${1//\%/%%}'%f'
+    'return' 1
+    ;;
+esac

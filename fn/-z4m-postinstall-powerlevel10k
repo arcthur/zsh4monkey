@@ -1,0 +1,22 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+zf_mkdir -p -- $Z4M/cache/powerlevel10k/p10k-root || return
+
+if [[ $GITSTATUS_AUTO_INSTALL != 0 ]]; then
+  if [[ -e $Z4M/.updating ]]; then
+    print -ru2 -- ${(%):-"%F{3}z4m%f: updating %Bgitstatus%b binary"}
+  else
+    print -ru2 -- ${(%):-"%F{3}z4m%f: fetching %Bgitstatus%b binary"}
+  fi
+
+  (
+    unset -m 'GITSTATUS_*~GITSTATUS_CACHE_DIR'
+    export GITSTATUS_CACHE_DIR=$GITSTATUS_CACHE_DIR
+    $Z4M_PACKAGE_DIR/gitstatus/install -f
+  ) || return
+fi
+
+z4m compile -- $Z4M_PACKAGE_DIR/{*.zsh-theme,internal/*.zsh,gitstatus/*.zsh,gitstatus/install}(N)

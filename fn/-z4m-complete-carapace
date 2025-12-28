@@ -1,0 +1,88 @@
+#!/usr/bin/env zsh
+#
+# Carapace completion handler - called as a compdef function
+#
+# This integrates carapace into z4m's completion system with graceful fallback
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local cmd=${words[1]}
+
+# Fallback helper: unregister and use native completion
+function -z4m-carapace-fallback() {
+  unset "_comps[$cmd]"
+  _default "$@"
+}
+
+# Check if carapace is available
+if [[ -z $_z4m_carapace_bin || ! -x $_z4m_carapace_bin ]]; then
+  -z4m-carapace-fallback "$@"
+  return
+fi
+
+# Check if this command is in the exclusion list
+if (( ${_z4m_carapace_exclude[(Ie)$cmd]} )); then
+  -z4m-carapace-fallback "$@"
+  return
+fi
+
+# Check if carapace supports this command
+if (( ! ${_z4m_carapace_supported_commands[(Ie)$cmd]} )); then
+  -z4m-carapace-fallback "$@"
+  return
+fi
+
+# Generate and cache completion script
+local cache_file=$_z4m_carapace_cache/${cmd}.zsh
+local cmd_path=${commands[$cmd]-}
+
+# Ensure cache directory exists
+[[ -d $_z4m_carapace_cache ]] || zf_mkdir -p -- "$_z4m_carapace_cache"
+
+# Regenerate if binary is newer than cache or cache doesn't exist
+if [[ -n $cmd_path && ( ! -r $cache_file || $cmd_path -nt $cache_file ) ]]; then
+  local tmp=$cache_file.tmp.$$
+  # Use carapace to generate zsh completion for this command
+  if $_z4m_carapace_bin $cmd zsh >$tmp 2>/dev/null; then
+    zf_mv -f -- $tmp $cache_file
+    -z4m-compile $cache_file 2>/dev/null
+  else
+    zf_rm -f -- $tmp 2>/dev/null
+    # Carapace failed to generate completion, fallback
+    -z4m-carapace-fallback "$@"
+    return
+  fi
+elif [[ ! -r $cache_file ]]; then
+  # No cached completion and no command path, try generating anyway
+  local tmp=$cache_file.tmp.$$
+  if $_z4m_carapace_bin $cmd zsh >$tmp 2>/dev/null && [[ -s $tmp ]]; then
+    zf_mv -f -- $tmp $cache_file
+    -z4m-compile $cache_file 2>/dev/null
+  else
+    zf_rm -f -- $tmp 2>/dev/null
+    -z4m-carapace-fallback "$@"
+    return
+  fi
+fi
+
+# Source the completion in isolated scope
+local func="_${cmd}"
+if [[ -r $cache_file ]]; then
+  () {
+    emulate -L zsh
+    local -h funcstack=($func)
+    builtin source -- $cache_file
+  } || true
+
+  # Check if the completion function was loaded
+  if [[ -v functions[$func] ]]; then
+    _comps[$cmd]=$func
+    $func "$@"
+    return
+  fi
+fi
+
+# Final fallback if everything else failed
+-z4m-carapace-fallback "$@"

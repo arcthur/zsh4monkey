@@ -1,0 +1,65 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local widget=${WIDGET#z4m-}
+
+local -a cmd flags bindings
+zstyle -a :z4m:$widget fzf-command cmd || cmd=(fzf)
+zstyle -a :z4m:$widget fzf-flags flags || flags=()
+zstyle -a :z4m:$widget fzf-bindings bindings || bindings=()
+
+local -A keys=(
+  ctrl-h     backward-kill-word
+  alt-j      clear-query
+  ctrl-u     clear-query
+  ctrl-k     kill-line
+  alt-k      unix-line-discard
+  ctrl-space toggle-out
+  ctrl-a     toggle-all
+)
+
+if (( ${@[(I)--layout=default]} )); then
+  keys+=(
+    tab      up
+    btab     down
+    ctrl-r   up
+    ctrl-s   down
+  )
+else
+  keys+=(
+    tab      down
+    btab     up
+    ctrl-r   down
+    ctrl-s   up
+  )
+fi
+
+local kv
+for kv in $bindings; do
+  kv=(${(s.:.)kv})
+  (( $#kv == 2 )) || continue
+  keys[$kv[1]]=$kv[2]
+done
+
+local k v
+local -i expect
+for k v in ${(kv)keys}; do
+  if [[ +$v+ == *+repeat+* ]]; then
+    flags=(--expect=$k "${flags[@]}")
+    expect=1
+    if [[ $v == repeat(|+*) ]]; then
+      keys[$k]=ignore
+    else
+      keys[$k]=${v%%+repeat(|+*)}
+    fi
+  fi
+done
+
+local keymap
+printf -v keymap '%s:%s,' ${(kv)keys}
+local out=$("${cmd[@]}" "$@" --bind=${keymap%,} "${flags[@]}")
+[[ -n $out ]] || return
+(( expect )) || print
+print -r -- $out

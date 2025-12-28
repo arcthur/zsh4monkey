@@ -1,0 +1,2 @@
+#!/usr/bin/env zsh
+-z4m-postinstall-cli-tool fd sharkdp/fd

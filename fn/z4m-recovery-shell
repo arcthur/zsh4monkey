@@ -1,0 +1,19 @@
+#!/usr/bin/env zsh
+#
+# z4m-recovery-shell - ZLE widget to enter recovery mode
+#
+# When invoked, restarts zsh in recovery mode.
+# Bind with: z4m bindkey z4m-recovery-shell Ctrl+Alt+R
+#
+
+emulate -L zsh -o no_aliases
+
+# Clear the buffer and show message
+BUFFER=''
+CURSOR=0
+zle -M "Entering recovery mode..."
+zle -R
+
+# Set flag and restart zsh - the flag will be checked in z4m.zsh
+export _Z4M_RECOVERY_MODE=1
+exec zsh -i
