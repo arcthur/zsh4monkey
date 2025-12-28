@@ -1,0 +1,51 @@
+#!/usr/bin/env zsh
+#
+# z4m bench - Measure shell startup time
+#
+# Usage:
+#   z4m bench [count]   - Run startup benchmark (default: 10 iterations)
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local -i count=${1:-10}
+(( count >= 1 )) || count=1
+
+print -Pr -- "%F{3}z4m%f: benchmarking shell startup (%B$count%b iterations)..."
+
+local -a times=()
+local -F start end elapsed
+local i
+
+for (( i = 1; i <= count; i++ )); do
+  start=$EPOCHREALTIME
+  $_z4m_exe -ic 'exit' 2>/dev/null
+  end=$EPOCHREALTIME
+  elapsed=$(( (end - start) * 1000 ))
+  times+=($elapsed)
+  printf '\r%F{3}z4m%f: iteration %d/%d: %.1fms' $i $count $elapsed
+done
+
+print
+
+# Calculate statistics using (-) flag for proper numeric sorting
+local -a sorted=("${(@n)times}")
+local -F sum=0 min=${sorted[1]} max=${sorted[-1]} median
+local t
+for t in $times; do
+  (( sum += t ))
+done
+
+local -F avg=$(( sum / count ))
+if (( count % 2 == 1 )); then
+  median=${sorted[$(( (count + 1) / 2 ))]}
+else
+  median=$(( (sorted[$((count/2))] + sorted[$((count/2 + 1))]) / 2.0 ))
+fi
+
+print
+print -Pr -- "%F{3}z4m%f: results:"
+printf '  min:    %6.1fms\n' $min
+printf '  max:    %6.1fms\n' $max
+printf '  avg:    %6.1fms\n' $avg
+printf '  median: %6.1fms\n' $median

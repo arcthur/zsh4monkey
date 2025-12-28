@@ -1,0 +1,153 @@
+#!/usr/bin/env zsh
+
+autoload -Uz add-zsh-hook || return
+
+if [[ $commands[zsh] != $_z4m_exe ]]; then
+  export _Z4M_EXE=$_z4m_exe
+  path=($Z4M/zsh4monkey/zb $path)
+fi
+
+# Use lesspipe if available. It allows you to use less on binary files (*.tar.gz, *.jpg, etc.).
+if (( $+commands[lesspipe] || $+commands[lesspipe.sh] )); then
+  export LESSOPEN="| /usr/bin/env ${(q)${commands[lesspipe]:-${commands[lesspipe.sh]}}} %s 2>/dev/null"
+fi
+
+# This affects every invocation of `less`.
+#
+#   -i   case-insensitive search unless search string contains uppercase letters
+#   -R   color
+#   -F   exit if there is less than one page of content
+#   -X   keep content on screen after exit
+#   -M   show more info at the bottom prompt line
+#   -x4  tabs are 4 instead of 8
+export LESS='-iRFXMx4'
+
+(( $+commands[less] )) && export PAGER=less
+
+# GPG needs to know which TTY to use for passphrase prompts.
+# This is essential for GPG signing (e.g., git commits) in terminal.
+[[ -o interactive && -n $TTY ]] && export GPG_TTY=$TTY
+
+# LS_COLORS is used by GNU ls and Zsh completions. LSCOLORS is used by BSD ls.
+export LS_COLORS='fi=00:mi=00:mh=00:ln=01;36:or=01;31:di=01;34:ow=04;01;34:st=34:tw=04;34:'
+LS_COLORS+='pi=01;33:so=01;33:do=01;33:bd=01;33:cd=01;33:su=01;35:sg=01;35:ca=01;35:ex=01;32'
+export LSCOLORS='ExGxDxDxCxDxDxFxFxexEx'
+
+# TREE_COLORS is used by GNU tree. It looks awful with underlined text, so we turn it off.
+export TREE_COLORS=${LS_COLORS//04;}
+
+if (( $+commands[less] )); then
+  READNULLCMD=less
+elif (( $+commands[more] )); then
+  READNULLCMD=more
+elif (( $+commands[cat] )); then
+  READNULLCMD=cat
+fi
+
+TIMEFMT='user=%U system=%S cpu=%P total=%*E'  # output format of `time` reserved word
+
+: ${DIRSTACKSIZE:=10000}
+
+zstyle -t :z4m:ssh-agent: start && -z4m-start-ssh-agent
+
+function -z4m-wrap-commands() {
+  emulate -L zsh
+  if (( _z4m_wrap_ssh != 2 )); then
+    if (( _z4m_wrap_ssh )); then
+      if [[ ! -v functions[ssh] ]]; then
+        typeset -gi _z4m_wrap_ssh=2
+      elif [[ ! -v commands[ssh] ]]; then
+        unset _z4m_wrap_ssh
+        unfunction ssh
+      fi
+    else
+      if [[ -v functions[ssh] ]]; then
+        typeset -gi _z4m_wrap_ssh=2
+      elif [[ -v commands[ssh] ]]; then
+        function ssh() { z4m ssh "$@" }
+        typeset -gi _z4m_wrap_ssh=1
+      fi
+    fi
+  fi
+
+  if (( _z4m_wrap_sudo != 2 )); then
+    if (( _z4m_wrap_sudo )); then
+      if [[ ! -v functions[sudo] ]]; then
+        typeset -gi _z4m_wrap_sudo=2
+      elif [[ ! -v commands[sudo] ]]; then
+        unset _z4m_wrap_sudo
+        unfunction sudo
+      fi
+    else
+      if [[ -v functions[sudo] ]]; then
+        typeset -gi _z4m_wrap_sudo=2
+      elif [[ -v commands[sudo] ]]; then
+        function sudo() { z4m sudo "$@" }
+        typeset -gi _z4m_wrap_sudo=1
+      fi
+    fi
+  fi
+
+  if (( _z4m_wrap_docker != 2 )); then
+    if (( _z4m_wrap_docker )); then
+      if [[ ! -v functions[docker] ]]; then
+        typeset -gi _z4m_wrap_docker=2
+      elif [[ ! -v commands[docker] ]]; then
+        unset _z4m_wrap_docker
+        unfunction docker
+      fi
+    else
+      if [[ -v functions[docker] ]]; then
+        typeset -gi _z4m_wrap_docker=2
+      elif [[ -v commands[docker] ]]; then
+        function docker() { z4m docker "$@" }
+        typeset -gi _z4m_wrap_docker=1
+      fi
+    fi
+  fi
+}
+
+-z4m-wrap-commands
+
+if [[ ! -e $Z4M/zsh4monkey/fn/-z4m-compinit-impl ]]; then
+  -z4m-postinstall-self || return
+fi
+
+if (( _z4m_zle )); then
+  -z4m-init-zle || return
+else
+  -z4m-cmd-bindkey() {}
+  function compdef() {}
+  function complete() {}
+fi
+
+function compinit() {}
+function bashcompinit() {}
+
+# Aliases (fallback for when CLI tools are not available).
+if (( $+commands[dircolors] )); then  # proxy for GNU coreutils vs BSD
+  # Don't define aliases for commands that point to busybox.
+  [[ ${${:-diff}:c:A:t} == busybox* ]] || alias diff='diff --color=auto'
+  [[ ${${:-ls}:c:A:t}   == busybox* ]] || alias ls='ls --color=auto'
+else
+  [[ ${${:-ls}:c:A:t}   == busybox* ]] || alias ls='ls -G'
+fi
+[[ ${${:-grep}:c:A:t}   == busybox* ]] || alias grep='grep --color=auto --exclude-dir={.bzr,CVS,.git,.hg,.svn}'
+
+# Utility function: create directory and cd into it.
+# Usage: md <directory>
+function md() { [[ $# == 1 ]] && mkdir -p -- "$1" && cd -- "$1" }
+
+# Initialize CLI tools (eza, bat, zoxide).
+# Must be after default aliases so they can override them.
+-z4m-init-cli-tools
+
+# Initialize Carapace completion engine (with graceful degradation on remote).
+-z4m-init-carapace
+
+# Initialize Atuin history sync (with graceful degradation on remote).
+-z4m-init-atuin
+
+# Note: For glob options, use setopt directly in your .zshrc:
+#   setopt glob_dots     # globs match dotfiles without explicit dot prefix
+#   setopt case_paths    # (macOS) paths stay case-sensitive with NO_CASE_GLOB

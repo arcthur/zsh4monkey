@@ -1,0 +1,129 @@
+#!/usr/bin/env zsh
+#
+# z4m debug - Debug mode utilities for zsh4monkey
+#
+# Usage:
+#   z4m debug on              - Enable debug mode (WARN_NESTED_VAR + xtrace)
+#   z4m debug off             - Disable debug mode
+#   z4m debug trace <func>    - Define a traced function (uses function -T)
+#   z4m debug warn            - Enable WARN_NESTED_VAR only
+#   z4m debug status          - Show debug status
+#   z4m debug info            - Show detailed environment info
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+case ${1-} in
+  on)
+    typeset -g Z4M_DEBUG=1
+    # Enable WARN_NESTED_VAR to catch accidental outer scope variable modifications
+    setopt warn_nested_var
+    print -Pr -- "%F{3}z4m%f: debug mode %F{2}enabled%f"
+    print -Pr -- "%F{3}z4m%f: %BWARN_NESTED_VAR%b is now active"
+    print -Pr -- "%F{3}z4m%f: use %Bz4m debug trace <func>%b to trace functions"
+    ;;
+  off)
+    unset Z4M_DEBUG
+    unsetopt warn_nested_var 2>/dev/null
+    print -Pr -- "%F{3}z4m%f: debug mode %F{1}disabled%f"
+    ;;
+  warn)
+    # Enable only WARN_NESTED_VAR without full debug mode
+    setopt warn_nested_var
+    print -Pr -- "%F{3}z4m%f: %BWARN_NESTED_VAR%b enabled"
+    print -Pr -- "%F{3}z4m%f: warnings will appear when functions modify outer scope variables"
+    ;;
+  trace)
+    if (( ARGC < 2 )); then
+      print -Pru2 -- "%F{3}z4m%f: %Bdebug trace%b: missing function name"
+      return 1
+    fi
+    local func=$2
+    if (( ! ${+functions[$func]} )); then
+      print -Pru2 -- "%F{3}z4m%f: %Bdebug trace%b: function not found: %F{1}${func//\%/%%}%f"
+      return 1
+    fi
+    # Use function -T (zsh 5.9+) to define a traced version
+    # This enables XTRACE for this function only
+    functions -T $func
+    print -Pr -- "%F{3}z4m%f: tracing enabled for %B${func//\%/%%}%b"
+    print -Pr -- "%F{3}z4m%f: function will now print each command before execution"
+    ;;
+  untrace)
+    if (( ARGC < 2 )); then
+      print -Pru2 -- "%F{3}z4m%f: %Bdebug untrace%b: missing function name"
+      return 1
+    fi
+    local func=$2
+    if (( ! ${+functions[$func]} )); then
+      print -Pru2 -- "%F{3}z4m%f: %Bdebug untrace%b: function not found: %F{1}${func//\%/%%}%f"
+      return 1
+    fi
+    functions +T $func
+    print -Pr -- "%F{3}z4m%f: tracing disabled for %B${func//\%/%%}%b"
+    ;;
+  status)
+    print -Pr -- "%F{3}z4m%f: === Debug Status ==="
+    if [[ -v Z4M_DEBUG ]]; then
+      print -Pr -- "  Debug mode:      %F{2}enabled%f"
+    else
+      print -Pr -- "  Debug mode:      %F{1}disabled%f"
+    fi
+    if [[ -o warn_nested_var ]]; then
+      print -Pr -- "  WARN_NESTED_VAR: %F{2}enabled%f"
+    else
+      print -Pr -- "  WARN_NESTED_VAR: %F{1}disabled%f"
+    fi
+    # List traced functions
+    local -a traced_funcs
+    traced_funcs=(${(k)functions[(R)*]})
+    if (( ${#traced_funcs} )); then
+      print -Pr -- "  Traced functions: ${(j:, :)traced_funcs}"
+    fi
+    ;;
+  info)
+    print -Pr -- "%F{3}z4m%f: === Environment Info ==="
+    print -Pr -- "  zsh version:   %B$ZSH_VERSION%b"
+    print -Pr -- "  zsh patchlevel: %B${ZSH_PATCHLEVEL:-unknown}%b"
+    print -Pr -- "  OSTYPE:        %B$OSTYPE%b"
+    print -Pr -- "  TERM:          %B$TERM%b"
+    print -Pr -- "  Z4M:           %B$Z4M%b"
+    print -Pr -- "  ZDOTDIR:       %B${ZDOTDIR:-$HOME}%b"
+    print -Pr -- "  _z4m_exe:      %B${_z4m_exe:-unknown}%b"
+    print -Pr -- ""
+    print -Pr -- "%F{3}z4m%f: === Loaded Modules ==="
+    print -r -- "  ${(j:\n  :)${(k)modules[(R)loaded]}}"
+    print -Pr -- ""
+    print -Pr -- "%F{3}z4m%f: === Shell Options (non-default) ==="
+    local -a opts
+    opts=(${(k)options[(R)on]})
+    # Filter to show only interesting options
+    local -a interesting
+    for opt in warn_nested_var xtrace verbose err_exit pipe_fail extended_glob; do
+      [[ ${options[$opt]} == on ]] && interesting+=($opt)
+    done
+    if (( ${#interesting} )); then
+      print -r -- "  ${(j:, :)interesting}"
+    else
+      print -r -- "  (none)"
+    fi
+    ;;
+  *)
+    print -Pru2 -- "Usage: %F{2}z4m%f %Bdebug%b <command>"
+    print -Pru2 -- ""
+    print -Pru2 -- "Commands:"
+    print -Pru2 -- "  %Bon%b         Enable debug mode (WARN_NESTED_VAR + environment)"
+    print -Pru2 -- "  %Boff%b        Disable debug mode"
+    print -Pru2 -- "  %Bwarn%b       Enable WARN_NESTED_VAR only"
+    print -Pru2 -- "  %Btrace%b      Enable function tracing (function -T, zsh 5.9+)"
+    print -Pru2 -- "  %Buntrace%b    Disable function tracing"
+    print -Pru2 -- "  %Bstatus%b     Show current debug status"
+    print -Pru2 -- "  %Binfo%b       Show detailed environment info"
+    print -Pru2 -- ""
+    print -Pru2 -- "Examples:"
+    print -Pru2 -- "  z4m debug on                  # Enable debug mode"
+    print -Pru2 -- "  z4m debug trace -z4m-init     # Trace the init function"
+    print -Pru2 -- "  z4m debug info                # Show environment details"
+    return 1
+    ;;
+esac

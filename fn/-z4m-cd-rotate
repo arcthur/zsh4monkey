@@ -1,0 +1,12 @@
+#!/usr/bin/env zsh
+
+(( ${+_z4m_dir_hist_fd} )) && -z4m-update-dir-history
+
+() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  while (( $#dirstack )) && ! pushd -q $1 &>/dev/null; do
+    popd -q $1
+  done
+  (( $#dirstack ))
+} "$@" && -z4m-redraw-prompt

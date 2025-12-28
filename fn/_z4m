@@ -1,0 +1,214 @@
+#compdef z4m
+
+# z4m command completion
+# Provides completion for all z4m subcommands and their arguments
+
+_z4m_commands() {
+  local -a commands
+  commands=(
+    'init:Initialize zsh (call once from .zshrc)'
+    'update:Update z4m and all plugins'
+    'install:Install a plugin from GitHub'
+    'source:Source a zsh script file'
+    'compile:Compile zsh script to zwc'
+    'load:Load a plugin directory'
+    'bindkey:Bind key to ZLE widget'
+    'ssh:SSH with z4m teleportation'
+    'pack:Create offline installation package'
+    'docker:Run zsh in Docker container'
+    'sudo:Run as root preserving z4m'
+    'vi-mode:Toggle Vi editing mode'
+    'debug:Toggle debug mode'
+    'bench:Benchmark startup time'
+    'env:Show environment info'
+    'time:Time command execution'
+    'recovery:Enter recovery shell'
+    'version:Show version info'
+    'help:Show help'
+    'uninstall:Uninstall zsh4monkey'
+  )
+  _describe -t commands 'z4m command' commands
+}
+
+_z4m_widgets() {
+  local -a widgets
+  widgets=(${(f)"$(zle -la 2>/dev/null)"})
+  _describe -t widgets 'ZLE widget' widgets
+}
+
+_z4m_keybindings() {
+  local -a keys
+  keys=(
+    'Enter' 'Tab' 'Backspace' 'Delete' 'Escape'
+    'Up' 'Down' 'Left' 'Right'
+    'Home' 'End' 'PageUp' 'PageDown'
+    'Insert' 'Space'
+    'F1' 'F2' 'F3' 'F4' 'F5' 'F6' 'F7' 'F8' 'F9' 'F10' 'F11' 'F12'
+  )
+  # Add Ctrl+X combinations
+  local c
+  for c in {A..Z} '[' ']' '\\' '/'; do
+    keys+=("Ctrl+$c")
+  done
+  # Add Alt+X combinations
+  for c in {A..Z} {a..z} '[' ']' '\\' '/' '.' ','; do
+    keys+=("Alt+$c")
+  done
+  # Add Shift+arrow combinations
+  keys+=('Shift+Up' 'Shift+Down' 'Shift+Left' 'Shift+Right')
+  # Add Ctrl+arrow combinations
+  keys+=('Ctrl+Up' 'Ctrl+Down' 'Ctrl+Left' 'Ctrl+Right')
+  # Add Alt+arrow combinations
+  keys+=('Alt+Up' 'Alt+Down' 'Alt+Left' 'Alt+Right')
+
+  _describe -t keybindings 'key binding' keys
+}
+
+_z4m_ssh_hosts() {
+  local -a hosts
+  # From ~/.ssh/config
+  if [[ -r ~/.ssh/config ]]; then
+    hosts+=(${(f)"$(command grep -i '^Host ' ~/.ssh/config 2>/dev/null | command sed 's/^[Hh]ost //' | command tr ' ' '\n' | command grep -v '[*?]')"})
+  fi
+  # From /etc/hosts
+  if [[ -r /etc/hosts ]]; then
+    hosts+=(${(f)"$(command awk '/^[^#]/ {for(i=2;i<=NF;i++) print $i}' /etc/hosts 2>/dev/null)"})
+  fi
+  # From known_hosts
+  if [[ -r ~/.ssh/known_hosts ]]; then
+    hosts+=(${(f)"$(command awk -F'[, ]' '{print $1}' ~/.ssh/known_hosts 2>/dev/null | command grep -v '^\[' | sort -u)"})
+  fi
+  _describe -t hosts 'SSH host' hosts
+}
+
+_z4m_builtin_packages() {
+  local -a packages
+  packages=(
+    'eza:Modern replacement for ls'
+    'bat:Cat clone with syntax highlighting'
+    'fd:Simple and fast alternative to find'
+    'rg:Ripgrep - fast grep alternative'
+    'zoxide:Smarter cd command'
+    'carapace:Multi-shell completion library'
+    'atuin:Shell history sync'
+    'fzf:Fuzzy finder'
+    'powerlevel10k:Zsh prompt theme'
+    'tmux:Terminal multiplexer'
+  )
+  _describe -t packages 'built-in package' packages
+}
+
+_z4m_github_repos() {
+  # Allow user/repo format
+  if [[ $words[CURRENT] == */* ]]; then
+    _message 'GitHub user/repo (e.g., zsh-users/zsh-autosuggestions)'
+  else
+    _z4m_builtin_packages
+  fi
+}
+
+_z4m_files() {
+  _files
+}
+
+_z4m_directories() {
+  _files -/
+}
+
+_z4m() {
+  local curcontext="$curcontext" state line
+  typeset -A opt_args
+
+  _arguments -C \
+    '1: :_z4m_commands' \
+    '*::arg:->args'
+
+  case $state in
+    args)
+      case $line[1] in
+        install)
+          _arguments \
+            '(-f --force)'{-f,--force}'[Force reinstall even if already installed]' \
+            '*: :_z4m_github_repos'
+          ;;
+        source)
+          _arguments \
+            '(-c --compile)'{-c,--compile}'[Compile the file before sourcing]' \
+            '*: :_z4m_files'
+          ;;
+        compile)
+          _arguments \
+            '*: :_z4m_files'
+          ;;
+        load)
+          _arguments \
+            '(-c --compile)'{-c,--compile}'[Compile plugin files]' \
+            '*: :_z4m_directories'
+          ;;
+        bindkey)
+          _arguments \
+            '-l[List all current key bindings]' \
+            '-L[List bindings as z4m bindkey commands]' \
+            '1: :_z4m_widgets' \
+            '*: :_z4m_keybindings'
+          ;;
+        ssh)
+          _arguments \
+            '--force-sync[Force full file sync]' \
+            '*: :_z4m_ssh_hosts'
+          ;;
+        pack)
+          _arguments \
+            '-o[Output file]:file:_files' \
+            '-t[Configuration tag]:tag:'
+          ;;
+        docker)
+          # Docker container names
+          _arguments '*: :_docker_complete_containers'
+          ;;
+        sudo)
+          _arguments '*: :_command_names -e'
+          ;;
+        vi-mode)
+          local -a modes
+          modes=('on:Enable Vi mode' 'off:Disable Vi mode' 'toggle:Toggle mode' 'status:Show current mode')
+          _describe -t modes 'vi-mode command' modes
+          ;;
+        debug)
+          local -a debug_cmds
+          debug_cmds=('on:Enable debug mode' 'off:Disable debug mode' 'trace:Trace a function' 'status:Show debug status')
+          _describe -t debug_cmds 'debug command' debug_cmds
+          ;;
+        bench)
+          _arguments '1: :_message "iteration count (default: 10)"'
+          ;;
+        env)
+          local -a env_cmds
+          env_cmds=('summary:Show basic info' 'full:Show detailed info' 'paths:Show PATH and fpath')
+          _describe -t env_cmds 'env subcommand' env_cmds
+          ;;
+        time)
+          _arguments '*: :_command_names -e'
+          ;;
+        version)
+          _arguments \
+            '(-v --verbose)'{-v,--verbose}'[Show detailed component versions]' \
+            '(-c --check)'{-c,--check}'[Check for available updates]'
+          ;;
+        uninstall)
+          _arguments \
+            '(-f --force)'{-f,--force}'[Uninstall without confirmation]' \
+            '(-n --dry-run)'{-n,--dry-run}'[Show what would be removed]'
+          ;;
+        help)
+          _z4m_commands
+          ;;
+        *)
+          _default
+          ;;
+      esac
+      ;;
+  esac
+}
+
+_z4m "$@"

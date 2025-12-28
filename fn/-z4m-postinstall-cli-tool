@@ -1,0 +1,46 @@
+#!/usr/bin/env zsh
+#
+# Check for CLI tools and suggest installation if missing
+# Usage: -z4m-postinstall-cli-tool <tool-name> <github-repo>
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local tool=$1 repo=$2
+
+if (( $+commands[$tool] )); then
+  print -r -- "system" > "$Z4M_PACKAGE_DIR/.system-tool"
+  print -Pru2 -- "%F{3}z4m%f: %B${tool}%b found at %F{2}${commands[$tool]}%f"
+  return 0
+fi
+
+# Tool not found - suggest installation methods
+print -Pru2 -- "%F{3}z4m%f: %B${tool}%b not found"
+print -Pru2 -- ""
+
+local uname_s=${$(uname -s 2>/dev/null):-unknown}
+local -a suggestions=()
+
+case $uname_s in
+  Darwin)
+    suggestions+=("brew install $tool")
+    ;;
+  Linux)
+    (( $+commands[apt] )) && suggestions+=("sudo apt install $tool")
+    (( $+commands[dnf] )) && suggestions+=("sudo dnf install $tool")
+    (( $+commands[pacman] )) && suggestions+=("sudo pacman -S $tool")
+    ;;
+esac
+
+suggestions+=("cargo install $tool")
+(( $+commands[mise] )) && suggestions+=("mise use -g $tool")
+
+print -Pru2 -- "  Install with one of:"
+local s
+for s in $suggestions; do
+  print -Pru2 -- "    %F{6}$s%f"
+done
+print -Pru2 -- ""
+
+return 0

@@ -1,0 +1,11 @@
+#!/usr/bin/env zsh
+
+[[ -v _z4m_tty_fd ]] || return
+
+builtin echoti civis >&$_z4m_tty_fd
+local -i cursor_x cursor_y
+-z4m-get-cursor-pos || cursor_y=0
+builtin print -rnu $_z4m_tty_fd -- "${(pl:$((2 * LINES - cursor_y - 1))::\n:)}"
+builtin zle -I
+builtin zle -R
+-z4m-cursor-show

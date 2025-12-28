@@ -1,0 +1,134 @@
+#!/usr/bin/env zsh
+#
+# z4m uninstall - Uninstall zsh4monkey
+#
+# Usage:
+#   z4m uninstall           - Interactive uninstall
+#   z4m uninstall --force   - Force uninstall without confirmation
+#   z4m uninstall --dry-run - Show what would be removed
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local -i force=0 dry_run=0
+
+while (( $# )); do
+  case $1 in
+    -f|--force)
+      force=1
+      shift
+      ;;
+    -n|--dry-run)
+      dry_run=1
+      shift
+      ;;
+    -h|--help)
+      print -Pr -- "Usage: %F{2}z4m%f %Buninstall%b [options]"
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-f, --force%b     Uninstall without confirmation"
+      print -Pr -- "  %B-n, --dry-run%b   Show what would be removed"
+      print -Pr -- "  %B-h, --help%b      Show this help"
+      return 0
+      ;;
+    *)
+      print -Pru2 -- "%F{3}z4m%f: %Buninstall%b: unknown option: %F{1}$1%f"
+      return 1
+      ;;
+  esac
+done
+
+# Files to remove
+local -a files_to_remove=(
+  "${ZDOTDIR:-$HOME}/.zshenv"
+  "${ZDOTDIR:-$HOME}/.zshrc"
+  "${ZDOTDIR:-$HOME}/.zprofile"
+  "${ZDOTDIR:-$HOME}/.zlogin"
+  "${ZDOTDIR:-$HOME}/.zlogout"
+  "${ZDOTDIR:-$HOME}/.p10k.zsh"
+  "${ZDOTDIR:-$HOME}/.p10k-ascii.zsh"
+  "${ZDOTDIR:-$HOME}/.p10k-8color.zsh"
+  "${ZDOTDIR:-$HOME}/.p10k-ascii-8color.zsh"
+)
+
+# Directories to remove
+local -a dirs_to_remove=(
+  "$Z4M"
+)
+
+print -Pr -- "%F{3}z4m%f: === Uninstall zsh4monkey ==="
+print -Pr -- ""
+
+# Show what will be removed
+print -Pr -- "%F{3}z4m%f: The following will be removed:"
+print -Pr -- ""
+
+local f
+for f in "${files_to_remove[@]}"; do
+  if [[ -e $f ]]; then
+    print -Pr -- "  %F{1}file%f: ${f//\%/%%}"
+  fi
+done
+
+for f in "${dirs_to_remove[@]}"; do
+  if [[ -d $f ]]; then
+    print -Pr -- "  %F{1}directory%f: ${f//\%/%%}"
+  fi
+done
+
+print -Pr -- ""
+
+if (( dry_run )); then
+  print -Pr -- "%F{3}z4m%f: %B--dry-run%b: No changes made"
+  return 0
+fi
+
+# Confirm unless forced
+if (( !force )); then
+  print -Prn -- "%F{3}z4m%f: Continue? [y/N] "
+  local answer
+  read -q answer
+  print
+  if [[ $answer != y ]]; then
+    print -Pr -- "%F{3}z4m%f: Aborted"
+    return 1
+  fi
+fi
+
+# Create backup directory
+local backup_dir="${ZDOTDIR:-$HOME}/.z4m-backup-$(date +%Y%m%d-%H%M%S)"
+zf_mkdir -p -- "$backup_dir" || {
+  print -Pru2 -- "%F{3}z4m%f: %F{1}error%f: Failed to create backup directory"
+  return 1
+}
+
+print -Pr -- "%F{3}z4m%f: Creating backup in: ${backup_dir//\%/%%}"
+
+# Backup and remove files
+for f in "${files_to_remove[@]}"; do
+  if [[ -e $f ]]; then
+    cp -a -- "$f" "$backup_dir/" 2>/dev/null
+    zf_rm -f -- "$f" 2>/dev/null
+    print -Pr -- "%F{3}z4m%f: Removed: ${f//\%/%%}"
+  fi
+done
+
+# Backup and remove directories
+for f in "${dirs_to_remove[@]}"; do
+  if [[ -d $f ]]; then
+    cp -a -- "$f" "$backup_dir/" 2>/dev/null
+    zf_rm -rf -- "$f" 2>/dev/null
+    print -Pr -- "%F{3}z4m%f: Removed: ${f//\%/%%}"
+  fi
+done
+
+print -Pr -- ""
+print -Pr -- "%F{3}z4m%f: %F{2}Uninstall complete%f"
+print -Pr -- "%F{3}z4m%f: Backup saved to: ${backup_dir//\%/%%}"
+print -Pr -- ""
+print -Pr -- "%F{3}z4m%f: To restore your default shell configuration:"
+print -Pr -- "  %Bchsh -s /bin/zsh%b  (or your preferred shell)"
+print -Pr -- ""
+print -Pr -- "%F{3}z4m%f: To restore from backup:"
+print -Pr -- "  %Bcp -a ${backup_dir//\%/%%}/* ${ZDOTDIR:-$HOME}/%b"

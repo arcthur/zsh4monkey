@@ -1,0 +1,67 @@
+#!/usr/bin/env zsh
+#
+# z4m-defer: Queue commands for deferred execution after prompt display
+#
+# Usage:
+#   z4m-defer <command>
+#
+# Example:
+#   z4m-defer source ~/.local/share/slow-plugin/plugin.zsh
+#   z4m-defer eval "$(slow-tool init zsh)"
+#
+# Benefits:
+#   - User sees prompt immediately
+#   - Heavy plugins load in ZLE idle time
+#
+# Note: z4m already defers syntax-highlighting and compinit internally.
+# This is for user plugins that can tolerate delayed loading.
+#
+
+emulate -L zsh -o typeset_silent -o extended_glob
+
+(( $# )) || return 0
+
+# Initialize queue on first call
+(( ${+_z4m_defer_queue} )) || typeset -ga _z4m_defer_queue=()
+
+# Deferred execution handler
+if (( ! ${+functions[_z4m_defer_execute]} )); then
+  function _z4m_defer_execute() {
+    emulate -L zsh -o typeset_silent -o extended_glob
+
+    # Unregister the fd handler
+    local fd=$1
+    zle -F $fd
+    exec {fd}>&-
+    unset _z4m_defer_fd
+
+    # Execute all queued commands
+    local cmd
+    for cmd in "${_z4m_defer_queue[@]}"; do
+      eval "$cmd" &>/dev/null || true
+    done
+    _z4m_defer_queue=()
+
+    # Redraw prompt (syntax highlighting may have loaded)
+    [[ -o zle ]] && zle && zle reset-prompt 2>/dev/null
+  }
+fi
+
+# Add command to queue
+_z4m_defer_queue+=("$*")
+
+# Schedule execution if not already scheduled
+if [[ ! -v _z4m_defer_fd ]]; then
+  typeset -gi _z4m_defer_fd
+  if zmodload -e zsh/system && sysopen -o cloexec -ru _z4m_defer_fd /dev/null 2>/dev/null; then
+    zle -F $_z4m_defer_fd _z4m_defer_execute
+  else
+    # Fallback: immediate execution if sysopen unavailable
+    unset _z4m_defer_fd
+    local cmd
+    for cmd in "${_z4m_defer_queue[@]}"; do
+      eval "$cmd" || true
+    done
+    _z4m_defer_queue=()
+  fi
+fi

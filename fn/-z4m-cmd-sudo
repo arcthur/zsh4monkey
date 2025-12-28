@@ -1,0 +1,8 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local term
+zstyle -s :z4m:sudo term term || term=${TERM:/tmux-256color/screen-256color}
+TERM=${term:-$TERM} command sudo "$@"

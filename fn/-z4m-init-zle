@@ -1,0 +1,1107 @@
+#!/usr/bin/env zsh
+
+# Shell integration (OSC 133) for modern terminals (Ghostty, kitty, etc.)
+# Enabled by default. Disable with: zstyle ':z4m:' term-shell-integration no
+if zstyle -T :z4m: term-shell-integration &&
+   [[ $TERM != (dumb|linux) && -z $NVIM_LISTEN_ADDRESS && -z $NVIM ]]; then
+  -z4m-enable-shell-integration
+else
+  function -z4m-shell-integration-precmd() { }
+  function -z4m-shell-integration-preexec() { }
+fi
+
+# When a command is running, display it in the terminal title.
+function -z4m-set-term-title-preexec() {
+  emulate -L zsh
+  local _z4m_fmt
+  if [[ -n $SSH_CONNECTION || $P9K_SSH == 1 ]]; then
+    zstyle -s :z4m:term-title:ssh   preexec _z4m_fmt || _z4m_fmt='%n@%m: ${1//\%/%%}'
+  else
+    zstyle -s :z4m:term-title:local preexec _z4m_fmt || _z4m_fmt='${1//\%/%%}'
+  fi
+  -z4m-shell-integration-preexec
+  [[ -z $_z4m_fmt ]] || -z4m-set-term-title $_z4m_fmt "$@"
+}
+
+# When no command is running, display the current directory in the terminal title.
+function -z4m-set-term-title-precmd() {
+  local -i err=$?
+  emulate -L zsh
+  local _z4m_fmt
+  if [[ -n $SSH_CONNECTION || $P9K_SSH == 1 ]]; then
+    zstyle -s :z4m:term-title:ssh   precmd _z4m_fmt || _z4m_fmt='%n@%m: %~'
+  else
+    zstyle -s :z4m:term-title:local precmd _z4m_fmt || _z4m_fmt='%~'
+  fi
+  -z4m-shell-integration-precmd $err
+  [[ -z $_z4m_fmt ]] || -z4m-set-term-title $_z4m_fmt
+}
+
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search || return
+autoload -Uz run-help ${^fpath}/run-help-^*.zwc(N:t)                   || return
+autoload -Uz zmv  # batch rename utility: zmv '(*).txt' '$1.md'
+add-zsh-hook -- preexec -z4m-set-term-title-preexec                    || return
+add-zsh-hook -- precmd  -z4m-set-term-title-precmd                     || return
+[[ -v aliases[run-help] ]] && unalias run-help
+
+local pkg
+typeset -gA _z4m_use
+for pkg in fzf powerlevel10k zsh-history-substring-search \
+          zsh-completions zsh-autosuggestions zsh-syntax-highlighting; do
+  zstyle -t :z4m:$pkg channel none || _z4m_use[$pkg]=1
+done
+typeset -grA _z4m_use
+
+if (( _z4m_use[powerlevel10k] && ! $#POWERLEVEL9K_CONFIG_FILE )) ; then
+  POWERLEVEL9K_CONFIG_FILE=$ZDOTDIR/.p10k
+  if [[ $langinfo[CODESET] != (utf|UTF)(-|)8 || $TERM == (dumb|linux) ]]; then
+    POWERLEVEL9K_CONFIG_FILE+=-ascii
+  fi
+  (( terminfo[colors] >= 256 )) || POWERLEVEL9K_CONFIG_FILE+=-8color
+  POWERLEVEL9K_CONFIG_FILE+=.zsh
+fi
+
+# Enable command_not_found_handler if possible.
+if [[ -v functions[command_not_found_handler] ]]; then
+  # Already installed or not needed.
+elif [[ -v commands[brew] &&
+        -n $HOMEBREW_REPOSITORY &&
+        -e $HOMEBREW_REPOSITORY/Library/Homebrew/cmd/which-formula.rb ||
+        -x /usr/lib/command-not-found ]]; then
+  autoload +X -Uz -- -z4m-command-not-found
+  builtin functions -c -- -z4m-command-not-found command_not_found_handler
+elif [[ -e /etc/zsh_command_not_found ]]; then
+  builtin source /etc/zsh_command_not_found
+elif [[ -e /usr/share/doc/pkgfile/command-not-found.zsh ]]; then
+  builtin source /usr/share/doc/pkgfile/command-not-found.zsh
+elif [[ -x /usr/libexec/pk-command-not-found && -S /var/run/dbus/system_bus_socket ]]; then
+  command_not_found_handler() { /usr/libexec/pk-command-not-found "$@" }
+elif [[ -x /data/data/com.termux/files/usr/libexec/termux/command-not-found ]]; then
+  command_not_found_handler() { /data/data/com.termux/files/usr/libexec/termux/command-not-found "$1" }
+elif [[ -x /run/current-system/sw/bin/command-not-found ]]; then
+  command_not_found_handler() { /run/current-system/sw/bin/command-not-found "$@" }
+fi
+
+function z4m-up-prefix-local() {
+  -z4m-with-local-history 1 up-line-or-beginning-search "$@"
+}
+function z4m-down-prefix-local() {
+  -z4m-with-local-history 1 down-line-or-beginning-search "$@"
+}
+function z4m-up-prefix-global() {
+  -z4m-with-local-history 0 up-line-or-beginning-search "$@"
+}
+function z4m-down-prefix-global() {
+  -z4m-with-local-history 0 down-line-or-beginning-search "$@"
+}
+
+if (( _z4m_use[zsh-history-substring-search] )); then
+  function z4m-up-substring-local() {
+    -z4m-with-local-history 1 history-substring-search-up "$@"
+  }
+  function z4m-down-substring-local() {
+    -z4m-with-local-history 1 history-substring-search-down "$@"
+  }
+  function z4m-up-substring-global() {
+    -z4m-with-local-history 0 history-substring-search-up "$@"
+  }
+  function z4m-down-substring-global() {
+    -z4m-with-local-history 0 history-substring-search-down "$@"
+  }
+fi
+
+function z4m-kill-word()           { -z4m-move-and-kill z4m-forward-word   }
+function z4m-backward-kill-word()  { -z4m-move-and-kill z4m-backward-word  }
+function z4m-kill-zword()          { -z4m-move-and-kill z4m-forward-zword  }
+function z4m-backward-kill-zword() { -z4m-move-and-kill z4m-backward-zword }
+
+function z4m-beginning-of-buffer() { CURSOR=0 }
+function z4m-end-of-buffer() {
+  typeset -gi CURSOR='_z4m_cursor_max()'
+}
+function z4m-expand() { zle _expand_alias || zle .expand-word || true }
+
+function z4m-cd-back() { -z4m-cd-rotate +1 }
+function z4m-cd-forward() { -z4m-cd-rotate -0 }
+function z4m-cd-up() { builtin cd -q .. && -z4m-redraw-prompt }
+
+function z4m-do-nothing() {}
+
+if (( $+terminfo[civis] && $+terminfo[cnorm] )) && [[ -v _z4m_tty_fd ]]; then
+  function -z4m-cursor-hide() {
+    [[ -t 1 ]] && echoti civis || echoti civis >&$_z4m_tty_fd
+  }
+  function -z4m-cursor-show() {
+    # See https://github.com/romkatv/powerlevel10k/issues/1699.
+    local cnorm=${${terminfo[cnorm]-}:/*$'\e[?25h'(|'\e'*)/$'\e[?25h'}
+    [[ -t 1 ]] && print -rn -- $cnorm || print -rnu $_z4m_tty_fd -- $cnorm
+  }
+else
+  function -z4m-cursor-hide() {}
+  function -z4m-cursor-show() {}
+fi
+
+functions -M -- _z4m_cursor_max 0 0
+
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+zle -N z4m-accept-line
+zle -N z4m-eof
+zle -N z4m-exit
+zle -N z4m-expand
+zle -N z4m-forward-word
+zle -N z4m-kill-word
+zle -N z4m-backward-word
+zle -N z4m-backward-kill-word
+zle -N z4m-forward-zword
+zle -N z4m-kill-zword
+zle -N z4m-backward-zword
+zle -N z4m-backward-kill-zword
+zle -N z4m-quote-prev-zword
+zle -N z4m-beginning-of-buffer
+zle -N z4m-end-of-buffer
+zle -N z4m-stash-buffer
+zle -N z4m-fzf-complete
+zle -N z4m-up-prefix-local
+zle -N z4m-down-prefix-local
+zle -N z4m-up-prefix-global
+zle -N z4m-down-prefix-global
+if (( _z4m_use[zsh-history-substring-search] )); then
+  zle -N z4m-up-substring-local
+  zle -N z4m-down-substring-local
+  zle -N z4m-up-substring-global
+  zle -N z4m-down-substring-global
+fi
+zle -N z4m-cd-back
+zle -N z4m-cd-forward
+zle -N z4m-cd-up
+zle -N z4m-cd-down
+zle -N z4m-fzf-history
+zle -N z4m-fzf-dir-history
+zle -N z4m-autosuggest-accept
+zle -N z4m-do-nothing
+zle -N z4m-clear-screen-soft-top
+zle -N z4m-clear-screen-soft-bottom
+zle -N z4m-clear-screen-hard-top
+zle -N z4m-clear-screen-hard-bottom
+
+zle -C -- -z4m-comp-insert-all complete-word -z4m-comp-insert-all
+
+PROMPT_EOL_MARK='%K{red} %k'   # mark the missing \n at the end of a comand output with a red block
+WORDCHARS=''                   # only alphanums make up words in word-based zle widgets
+ZLE_REMOVE_SUFFIX_CHARS=''     # don't eat space when typing '|' after a tab completion
+KEYTIMEOUT=20                  # wait for 200ms for the continuation of a key sequence
+zle_highlight=('paste:none')   # disable highlighting of text pasted into the command line
+
+if (( ! _z4m_custom_histfile )); then
+  HISTFILE=${ZDOTDIR:-~}/.zsh_history
+fi
+HISTSIZE=1000000000  # infinite command history
+SAVEHIST=1000000000  # infinite command history
+
+# Delete all existing keymaps and reset to the default state.
+bindkey -d
+bindkey -e
+
+local keymap
+for keymap in emacs viins vicmd; do
+  # If NumLock is off, translate keys to make them appear the same as with NumLock on.
+  bindkey -M $keymap -s '^[OM'     '^M'      # enter
+  bindkey -M $keymap -s '^[OX'     '='
+  bindkey -M $keymap -s '^[Oj'     '*'
+  bindkey -M $keymap -s '^[Ok'     '+'
+  bindkey -M $keymap -s '^[Ol'     '+'
+  bindkey -M $keymap -s '^[Om'     '-'
+  bindkey -M $keymap -s '^[On'     '.'
+  bindkey -M $keymap -s '^[Oo'     '/'
+  bindkey -M $keymap -s '^[Op'     '0'
+  bindkey -M $keymap -s '^[Oq'     '1'
+  bindkey -M $keymap -s '^[Or'     '2'
+  bindkey -M $keymap -s '^[Os'     '3'
+  bindkey -M $keymap -s '^[Ot'     '4'
+  bindkey -M $keymap -s '^[Ou'     '5'
+  bindkey -M $keymap -s '^[Ov'     '6'
+  bindkey -M $keymap -s '^[Ow'     '7'
+  bindkey -M $keymap -s '^[Ox'     '8'
+  bindkey -M $keymap -s '^[Oy'     '9'
+
+  # If someone switches our terminal to application mode (smkx), translate keys to make
+  # them appear the same as in raw mode (rmkx).
+  bindkey -M $keymap -s '^[OA'     '^[[A'    # up
+  bindkey -M $keymap -s '^[OB'     '^[[B'    # down
+  bindkey -M $keymap -s '^[OD'     '^[[D'    # left
+  bindkey -M $keymap -s '^[OC'     '^[[C'    # right
+  bindkey -M $keymap -s '^[OH'     '^[[H'    # home
+  bindkey -M $keymap -s '^[OF'     '^[[F'    # end
+
+  # TTY sends different key codes. Translate them to xterm equivalents.
+  # Missing: {ctrl,alt,shift}+{up,down,left,right,home,end}, {ctrl,alt}+delete.
+  bindkey -M $keymap -s '^[[1~'    '^[[H'    # home
+  bindkey -M $keymap -s '^[[4~'    '^[[F'    # end
+
+  # Urxvt sends different key codes. Translate them to xterm equivalents.
+  bindkey -M $keymap -s '^[[7~'    '^[[H'    # home
+  bindkey -M $keymap -s '^[[8~'    '^[[F'    # end
+  bindkey -M $keymap -s '^[Oa'     '^[[1;5A' # ctrl+up
+  bindkey -M $keymap -s '^[Ob'     '^[[1;5B' # ctrl+down
+  bindkey -M $keymap -s '^[Od'     '^[[1;5D' # ctrl+left
+  bindkey -M $keymap -s '^[Oc'     '^[[1;5C' # ctrl+right
+  bindkey -M $keymap -s '^[[7\^'   '^[[1;5H' # ctrl+home
+  bindkey -M $keymap -s '^[[8\^'   '^[[1;5F' # ctrl+end
+  bindkey -M $keymap -s '^[[3\^'   '^[[3;5~' # ctrl+delete
+  bindkey -M $keymap -s '^[^[[A'   '^[[1;3A' # alt+up
+  bindkey -M $keymap -s '^[^[[B'   '^[[1;3B' # alt+down
+  bindkey -M $keymap -s '^[^[[D'   '^[[1;3D' # alt+left
+  bindkey -M $keymap -s '^[^[[C'   '^[[1;3C' # alt+right
+  bindkey -M $keymap -s '^[^[[7~'  '^[[1;3H' # alt+home
+  bindkey -M $keymap -s '^[^[[8~'  '^[[1;3F' # alt+end
+  bindkey -M $keymap -s '^[^[[3~'  '^[[3;3~' # alt+delete
+  bindkey -M $keymap -s '^[[a'     '^[[1;2A' # shift+up
+  bindkey -M $keymap -s '^[[b'     '^[[1;2B' # shift+down
+  bindkey -M $keymap -s '^[[d'     '^[[1;2D' # shift+left
+  bindkey -M $keymap -s '^[[c'     '^[[1;2C' # shift+right
+  bindkey -M $keymap -s '^[[7$'    '^[[1;2H' # shift+home
+  bindkey -M $keymap -s '^[[8$'    '^[[1;2F' # shift+end
+
+  # Tmux sends different key codes. Translate them to xterm equivalents.
+  bindkey -M $keymap -s '^[[1~'    '^[[H'    # home
+  bindkey -M $keymap -s '^[[4~'    '^[[F'    # end
+  bindkey -M $keymap -s '^[^[[A'   '^[[1;3A' # alt+up
+  bindkey -M $keymap -s '^[^[[B'   '^[[1;3B' # alt+down
+  bindkey -M $keymap -s '^[^[[D'   '^[[1;3D' # alt+left
+  bindkey -M $keymap -s '^[^[[C'   '^[[1;3C' # alt+right
+  bindkey -M $keymap -s '^[^[[1~'  '^[[1;3H' # alt+home
+  bindkey -M $keymap -s '^[^[[4~'  '^[[1;3F' # alt+end
+  bindkey -M $keymap -s '^[^[[3~'  '^[[3;3~' # alt+delete
+
+  # Common alt+backspace sequences
+  bindkey -M $keymap -s '^[^H'     '^W'      # alt+backspace -> backward-kill-word
+  bindkey -M $keymap -s '^[^?'     '^W'      # alt+backspace (DEL variant) -> backward-kill-word
+done
+
+# Move cursor one char backward.
+bindkey   '^[[D'    backward-char                  # left
+# Move cursor one char forward.
+bindkey   '^[[C'    forward-char                   # right
+if (( _z4m_use[zsh-history-substring-search] )); then
+  # Move cursor one line up or fetch the previous command from LOCAL history.
+  bindkey '^P'      z4m-up-substring-local         # ctrl+p
+  bindkey '^[[A'    z4m-up-substring-local         # up
+  # Move cursor one line down or fetch the next command from LOCAL history.
+  bindkey   '^N'    z4m-down-substring-local       # ctrl+n
+  bindkey   '^[[B'  z4m-down-substring-local       # down
+else
+  # Move cursor one line up or fetch the previous command from LOCAL history.
+  bindkey '^P'      z4m-up-prefix-local            # ctrl+p
+  bindkey '^[[A'    z4m-up-prefix-local            # up
+  # Move cursor one line down or fetch the next command from LOCAL history.
+  bindkey '^N'      z4m-down-prefix-local          # ctrl+n
+  bindkey '^[[B'    z4m-down-prefix-local          # down
+fi
+
+# Move cursor one line up or fetch the previous command from GLOBAL history.
+bindkey   '^[[1;5A' z4m-up-prefix-global           # ctrl+up
+# Move cursor one line down or fetch the next command from GLOBAL history.
+bindkey   '^[[1;5B' z4m-down-prefix-global         # ctrl+down
+# Move cursor to the beginning of line.
+bindkey   '^[[H'    beginning-of-line              # home
+# Move cursor to the end of line.
+bindkey   '^[[F'    end-of-line                    # end
+# Move cursor to the beginning of buffer.
+bindkey   '^[[1;5H' z4m-beginning-of-buffer        # ctrl+home
+bindkey   '^[[1;3H' z4m-beginning-of-buffer        # alt+home
+# Move cursor to the end of buffer.
+bindkey   '^[[1;5F' z4m-end-of-buffer              # ctrl+end
+bindkey   '^[[1;3F' z4m-end-of-buffer              # alt+end
+# Delete the character under the cursor.
+bindkey   '^D'      delete-char                    # ctrl+d
+bindkey   '^[[3~'   delete-char                    # delete
+# Delete next word.
+bindkey   '^[d'     z4m-kill-word                  # alt+d
+bindkey   '^[D'     z4m-kill-word                  # alt+D
+bindkey   '^[[3;5~' z4m-kill-word                  # ctrl+del
+bindkey   '^[[3;3~' z4m-kill-word                  # alt+del
+# Delete previous word.
+bindkey   '^W'      z4m-backward-kill-word         # ctrl+w
+bindkey   '^[^?'    z4m-backward-kill-word         # alt+bs
+bindkey   '^[^H'    z4m-backward-kill-word         # ctrl+alt+bs
+
+# Move cursor one zsh word forward.
+bindkey   '^[[1;6C' z4m-forward-zword              # ctrl+shift+right
+# Move cursor one zsh word backward.
+bindkey   '^[[1;6D' z4m-backward-zword             # ctrl+shift+left
+# Delete next zsh word.
+bindkey   '^[[3;6~' z4m-kill-zword                 # ctrl+shift+del
+
+# Delete line before cursor.
+bindkey   '^[k'     backward-kill-line             # alt+k
+bindkey   '^[K'     backward-kill-line             # alt+K
+# Delete all lines.
+bindkey   '^[j'     kill-buffer                    # alt+j
+bindkey   '^[J'     kill-buffer                    # alt+J
+# Push buffer to ephemeral history (won't be saved to HISTFILE) and delete all lines.
+bindkey   '^[o'     z4m-stash-buffer               # alt+o
+bindkey   '^[O'     z4m-stash-buffer               # alt+O
+# Accept autosuggestion.
+bindkey   '^[m'     z4m-autosuggest-accept         # alt+m
+bindkey   '^[M'     z4m-autosuggest-accept         # alt+M
+# Undo and redo.
+bindkey   '^[[Z'    undo                           # shift+tab
+bindkey   '^[/'     redo                           # alt+/
+# Expand alias/glob/parameter.
+bindkey   '^ '      z4m-expand                     # ctrl+space
+# Generic command completion.
+bindkey   '^I'      z4m-fzf-complete               # tab
+# Command history - prefer Atuin if available, fallback to fzf.
+if (( ${_z4m_atuin_available:-0} )); then
+  # Atuin handles Ctrl+R binding via init script
+  :
+elif (( _z4m_use[fzf] )); then
+  bindkey '^R'      z4m-fzf-history                # ctrl+r
+fi
+# Show help for the command at cursor.
+bindkey   '^[h'     run-help                       # alt+h
+bindkey   '^[H'     run-help                       # alt+H
+# Do nothing (better than printing '~').
+bindkey   '^[[5~'   z4m-do-nothing                 # pageup
+bindkey   '^[[6~'   z4m-do-nothing                 # pagedown
+
+# Move cursor one word backward.
+bindkey   '^[b'     z4m-backward-word              # alt+b
+bindkey   '^[B'     z4m-backward-word              # alt+B
+bindkey   '^[[1;3D' z4m-backward-word              # alt+left
+bindkey   '^[[1;5D' z4m-backward-word              # ctrl+left
+
+# Move cursor one word forward.
+bindkey   '^[f'     z4m-forward-word               # alt+f
+bindkey   '^[F'     z4m-forward-word               # alt+F
+bindkey   '^[[1;3C' z4m-forward-word               # alt+right
+bindkey   '^[[1;5C' z4m-forward-word               # ctrl+right
+
+# cd into the previous directory.
+bindkey   '^[[1;2D' z4m-cd-back                    # shift+left
+# cd into the next directory.
+bindkey   '^[[1;2C' z4m-cd-forward                 # shift+right
+# cd into the parent directory.
+bindkey   '^[[1;2A' z4m-cd-up                      # shift+up
+if (( _z4m_use[fzf] )); then
+  # cd into a subdirectory (interactive).
+  bindkey '^[[1;2B' z4m-cd-down                    # shift+down
+fi
+
+# Directory history.
+bindkey   '^[r'     z4m-fzf-dir-history            # alt+r
+bindkey   '^[R'     z4m-fzf-dir-history            # alt+R
+
+if (( _z4m_can_save_restore_screen )) &&
+   zstyle -T :z4m: prompt-at-bottom; then
+  bindkey '^L'      z4m-clear-screen-soft-bottom   # ctrl+l
+  bindkey '^[^L'    z4m-clear-screen-hard-bottom   # ctrl+alt+l
+else
+  bindkey '^L'      z4m-clear-screen-soft-top      # ctrl+l
+  bindkey '^[^L'    z4m-clear-screen-hard-top      # ctrl+alt+l
+fi
+
+if zstyle -T :z4m:bindkey macos-option-as-alt; then
+  typeset -grA _z4m_macos_opt_key=(
+    q  'œ'
+    w  '∑'
+    r  '®'
+    t  '†'
+    o  'ø'
+    p  'π'
+    [ '“'
+    ] '‘'
+    a  'å'
+    s  'ß'
+    d  '∂'
+    f  'ƒ'
+    g  '©'
+    h  '˙'
+    j  '∆'
+    k  '˚'
+    l  '¬'
+    z  'Ω'
+    x  '≈'
+    c  'ç'
+    v  '√'
+    b  '∫'
+    m  'µ'
+    ,  '≤'
+    .  '≥'
+    /  '÷'
+    \\ '«'
+    # Option+y is just '\'.
+    # Dead key functionality: e, u, i, n.
+    Q  'Œ'
+    W  '„'
+    E  '´'
+    R  '‰'
+    T  'ˇ'
+    Y  'Á'
+    U  '¨'
+    I  'ˆ'
+    O  'Ø'
+    P  '∏'
+    A  'Å'
+    S  'Í'
+    D  'Î'
+    F  'Ï'
+    G  '˝'
+    H  'Ó'
+    J  'Ô'
+    K  '\357\243\277'
+    L  'Ò'
+    Z  '¸'
+    X  '˛'
+    C  'Ç'
+    V  '◊'
+    B  'ı'
+    N  '˜'
+    M  'Â'
+  )
+
+  bindkey '∂'            z4m-kill-word                  # opt+d
+  bindkey 'Î'            z4m-kill-word                  # opt+D
+  bindkey '˚'            backward-kill-line             # opt+k
+  bindkey '\357\243\277' backward-kill-line             # opt+K (U+F8FF)
+  bindkey '∆'            kill-buffer                    # opt+j
+  bindkey 'Ô'            kill-buffer                    # opt+J
+  bindkey 'ø'            z4m-stash-buffer               # opt+o
+  bindkey 'Ø'            z4m-stash-buffer               # opt+O
+  bindkey 'µ'            z4m-autosuggest-accept         # opt+m
+  bindkey 'Â'            z4m-autosuggest-accept         # opt+M
+  bindkey '÷'            redo                           # opt+/
+  bindkey '˙'            run-help                       # opt+h
+  bindkey 'Ó'            run-help                       # opt+H
+  bindkey '∫'            z4m-backward-word              # opt+b
+  bindkey 'ı'            z4m-backward-word              # opt+B
+  bindkey '®'            z4m-fzf-dir-history            # opt+r
+  bindkey '‰'            z4m-fzf-dir-history            # opt+R
+else
+  typeset -grA _z4m_macos_opt_key=()
+fi
+
+if zstyle -t :z4m:bindkey keyboard mac; then
+  local del=Fn+Delete
+else
+  local del=Delete
+fi
+
+typeset -gA _z4m_key=(
+  Tab                         '^I'
+  Space                       ' '
+  Enter                       '^M'
+  Escape                      '^['
+  Ctrl+/                      '^_'
+  Ctrl+_                      '^_'
+  Ctrl+Space                  '^ '
+  Alt+Space                   '^[ '
+  Shift+Tab                   '^[[Z'
+
+  Up                          '^[[A'
+  Down                        '^[[B'
+  Right                       '^[[C'
+  Left                        '^[[D'
+  Home                        '^[[H'
+  End                         '^[[F'
+  Insert                      '^[[2~'
+  $del                        '^[[3~'
+  PageUp                      '^[[5~'
+  PageDown                    '^[[6~'
+  Backspace                   '^?'
+
+  Shift+Up                    '^[[1;2A'
+  Shift+Down                  '^[[1;2B'
+  Shift+Right                 '^[[1;2C'
+  Shift+Left                  '^[[1;2D'
+  Shift+Home                  '^[[1;2H'
+  Shift+End                   '^[[1;2F'
+  Shift+Insert                '^[[2;2~'
+  Shift+$del                  '^[[3;2~'
+  Shift+PageUp                '^[[5;2~'
+  Shift+PageDown              '^[[6;2~'
+  Shift+Backspace             '^?'
+
+  Alt+Up                      '^[[1;3A'
+  Alt+Down                    '^[[1;3B'
+  Alt+Right                   '^[[1;3C'
+  Alt+Left                    '^[[1;3D'
+  Alt+Home                    '^[[1;3H'
+  Alt+End                     '^[[1;3F'
+  Alt+Insert                  '^[[2;3~'
+  Alt+$del                    '^[[3;3~'
+  Alt+PageUp                  '^[[5;3~'
+  Alt+PageDown                '^[[6;3~'
+  Alt+Backspace               '^[^?'
+
+  Alt+Shift+Up                '^[[1;4A'
+  Alt+Shift+Down              '^[[1;4B'
+  Alt+Shift+Right             '^[[1;4C'
+  Alt+Shift+Left              '^[[1;4D'
+  Alt+Shift+Home              '^[[1;4H'
+  Alt+Shift+End               '^[[1;4F'
+  Alt+Shift+Insert            '^[[2;4~'
+  Alt+Shift+$del              '^[[3;4~'
+  Alt+Shift+PageUp            '^[[5;4~'
+  Alt+Shift+PageDown          '^[[6;4~'
+  Alt+Shift+Backspace         '^[^H'
+
+  Ctrl+Up                     '^[[1;5A'
+  Ctrl+Down                   '^[[1;5B'
+  Ctrl+Right                  '^[[1;5C'
+  Ctrl+Left                   '^[[1;5D'
+  Ctrl+Home                   '^[[1;5H'
+  Ctrl+End                    '^[[1;5F'
+  Ctrl+Insert                 '^[[2;5~'
+  Ctrl+$del                   '^[[3;5~'
+  Ctrl+PageUp                 '^[[5;5~'
+  Ctrl+PageDown               '^[[6;5~'
+  Ctrl+Backspace              '^H'
+
+  Ctrl+Shift+Up               '^[[1;6A'
+  Ctrl+Shift+Down             '^[[1;6B'
+  Ctrl+Shift+Right            '^[[1;6C'
+  Ctrl+Shift+Left             '^[[1;6D'
+  Ctrl+Shift+Home             '^[[1;6H'
+  Ctrl+Shift+End              '^[[1;6F'
+  Ctrl+Shift+Insert           '^[[2;6~'
+  Ctrl+Shift+$del             '^[[3;6~'
+  Ctrl+Shift+PageUp           '^[[5;6~'
+  Ctrl+Shift+PageDown         '^[[6;6~'
+  Ctrl+Shift+Backspace        '^?'
+
+  Ctrl+Alt+Up                 '^[[1;7A'
+  Ctrl+Alt+Down               '^[[1;7B'
+  Ctrl+Alt+Right              '^[[1;7C'
+  Ctrl+Alt+Left               '^[[1;7D'
+  Ctrl+Alt+Home               '^[[1;7H'
+  Ctrl+Alt+End                '^[[1;7F'
+  Ctrl+Alt+Insert             '^[[2;7~'
+  Ctrl+Alt+$del               '^[[3;7~'
+  Ctrl+Alt+PageUp             '^[[5;7~'
+  Ctrl+Alt+PageDown           '^[[6;7~'
+  Ctrl+Alt+Backspace          '^[^H'
+
+  Ctrl+Alt+Shift+Up           '^[[1;8A'
+  Ctrl+Alt+Shift+Down         '^[[1;8B'
+  Ctrl+Alt+Shift+Right        '^[[1;8C'
+  Ctrl+Alt+Shift+Left         '^[[1;8D'
+  Ctrl+Alt+Shift+Home         '^[[1;8H'
+  Ctrl+Alt+Shift+End          '^[[1;8F'
+  Ctrl+Alt+Shift+Insert       '^[[2;8~'
+  Ctrl+Alt+Shift+$del         '^[[3;8~'
+  Ctrl+Alt+Shift+PageUp       '^[[5;8~'
+  Ctrl+Alt+Shift+PageDown     '^[[6;8~'
+  Ctrl+Alt+Shift+Backspace    '^?'
+
+  # Duplicate all Alt bindings with s/Alt/Option/.
+  Option+Space                '^[ '
+
+  Option+Up                   '^[[1;3A'
+  Option+Down                 '^[[1;3B'
+  Option+Right                '^[[1;3C'
+  Option+Left                 '^[[1;3D'
+  Option+Home                 '^[[1;3H'
+  Option+End                  '^[[1;3F'
+  Option+Insert               '^[[2;3~'
+  Option+$del                 '^[[3;3~'
+  Option+PageUp               '^[[5;3~'
+  Option+PageDown             '^[[6;3~'
+  Option+Backspace            '^[^?'
+
+  Option+Shift+Up             '^[[1;4A'
+  Option+Shift+Down           '^[[1;4B'
+  Option+Shift+Right          '^[[1;4C'
+  Option+Shift+Left           '^[[1;4D'
+  Option+Shift+Home           '^[[1;4H'
+  Option+Shift+End            '^[[1;4F'
+  Option+Shift+Insert         '^[[2;4~'
+  Option+Shift+$del           '^[[3;4~'
+  Option+Shift+PageUp         '^[[5;4~'
+  Option+Shift+PageDown       '^[[6;4~'
+  Option+Shift+Backspace      '^[^H'
+
+  Ctrl+Option+Up              '^[[1;7A'
+  Ctrl+Option+Down            '^[[1;7B'
+  Ctrl+Option+Right           '^[[1;7C'
+  Ctrl+Option+Left            '^[[1;7D'
+  Ctrl+Option+Home            '^[[1;7H'
+  Ctrl+Option+End             '^[[1;7F'
+  Ctrl+Option+Insert          '^[[2;7~'
+  Ctrl+Option+$del            '^[[3;7~'
+  Ctrl+Option+PageUp          '^[[5;7~'
+  Ctrl+Option+PageDown        '^[[6;7~'
+  Ctrl+Option+Backspace       '^[^H'
+
+  Ctrl+Option+Shift+Up        '^[[1;8A'
+  Ctrl+Option+Shift+Down      '^[[1;8B'
+  Ctrl+Option+Shift+Right     '^[[1;8C'
+  Ctrl+Option+Shift+Left      '^[[1;8D'
+  Ctrl+Option+Shift+Home      '^[[1;8H'
+  Ctrl+Option+Shift+End       '^[[1;8F'
+  Ctrl+Option+Shift+Insert    '^[[2;8~'
+  Ctrl+Option+Shift+$del      '^[[3;8~'
+  Ctrl+Option+Shift+PageUp    '^[[5;8~'
+  Ctrl+Option+Shift+PageDown  '^[[6;8~'
+  Ctrl+Option+Shift+Backspace '^?'
+)
+
+if zstyle -t :z4m:bindkey keyboard mac; then
+  # Duplicate all Backspace bindings with s/Backspace/Delete/.
+  _z4m_key+=(
+    Delete                    '^?'
+    Shift+Delete              '^?'
+    Alt+Delete                '^[^?'
+    Alt+Shift+Delete          '^[^H'
+    Ctrl+Delete               '^H'
+    Ctrl+Shift+Delete         '^?'
+    Ctrl+Alt+Delete           '^[^H'
+    Ctrl+Alt+Shift+Delete     '^?'
+    Option+Delete             '^[^?'
+    Option+Shift+Delete       '^[^H'
+    Ctrl+Option+Delete        '^[^H'
+    Ctrl+Option+Shift+Delete  '^?'
+  )
+fi
+
+typeset -grA _z4m_key
+
+# Configure completions.
+zstyle ':completion:*'               matcher-list      "m:{a-z}={A-Z}"
+zstyle ':completion:*'               menu              "false"
+zstyle ':completion:*'               verbose           "true"
+zstyle ':completion:::::'            insert-tab        "pending"
+zstyle ':completion:*:-subscript-:*' tag-order         "indexes parameters"
+zstyle ':completion:*:-tilde-:*'     tag-order         "directory-stack" "named-directories" "users"
+zstyle ':completion:*'               squeeze-slashes   "true"
+zstyle ':completion:*:rm:*'          ignore-line       "other"
+zstyle ':completion:*:kill:*'        ignore-line       "other"
+zstyle ':completion:*:diff:*'        ignore-line       "other"
+zstyle ':completion:*:rm:*'          file-patterns     "*:all-files"
+zstyle ':completion:*:paths'         accept-exact-dirs "true"
+zstyle ':completion:*'               single-ignored    "show"
+zstyle ':completion:*:functions'     ignored-patterns  "-*|_*"
+zstyle ':completion:*:parameters'    ignored-patterns  \
+  "_(z4m|p9k|_p9k|POWERLEVEL9K|gitstatus|GITSTATUS|zsh_highlight|zsh_autosuggest|ZSH_HIGHLIGHT|ZSH_AUTOSUGGEST)*"
+
+if (( ! _z4m_dangerous_root )); then
+  zstyle ':completion:*'             use-cache         "true"
+  zstyle ':completion:*'             cache-path        "$Z4M/cache/zcompcache-$ZSH_VERSION"
+fi
+
+zstyle ':completion:*:ssh:argument-1:*'                    sort             'true'
+zstyle ':completion:*:scp:argument-rest:*'                 sort             'true'
+
+zstyle ':completion:*:git-*:argument-rest:heads'           ignored-patterns '(FETCH_|ORIG_|*/|)HEAD'
+zstyle ':completion:*:git-*:argument-rest:heads-local'     ignored-patterns '(FETCH_|ORIG_|)HEAD'
+zstyle ':completion:*:git-*:argument-rest:heads-remote'    ignored-patterns '*/HEAD'
+zstyle ':completion:*:git-*:argument-rest:commits'         ignored-patterns '*'
+zstyle ':completion:*:git-*:argument-rest:commit-objects'  ignored-patterns '*'
+zstyle ':completion:*:git-*:argument-rest:recent-branches' ignored-patterns '*'
+
+# Make it possible to use completion specifications and functions written for bash.
+autoload -Uz bashcompinit
+bashcompinit
+
+if (( _z4m_use[powerlevel10k] )); then
+  # Initialize prompt. Type `p10k configure` or edit $POWERLEVEL9K_CONFIG_FILE to customize it.
+  () {
+    local XDG_CACHE_HOME=$Z4M/cache/powerlevel10k
+    builtin source $Z4M/powerlevel10k/powerlevel10k.zsh-theme
+  }
+  z4m source -c $POWERLEVEL9K_CONFIG_FILE
+fi
+
+-z4m-set-term-title-precmd || return
+
+if (( _z4m_use[zsh-autosuggestions] )); then
+  if (( terminfo[colors] >= 256 )); then
+    LS_COLORS+=':no=38;5;248'
+    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=244'        # the default is hard to see
+  else
+    LS_COLORS+=':no=1;30'
+    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=black,bold' # the default is outside of 8-color range
+  fi
+
+  ZSH_AUTOSUGGEST_MANUAL_REBIND=1
+
+  # Tell zsh-autosuggestions how to handle different widgets.
+  typeset -g ZSH_AUTOSUGGEST_EXECUTE_WIDGETS=()
+  typeset -g ZSH_AUTOSUGGEST_CLEAR_WIDGETS=(
+    z4m-fzf-history
+    z4m-down-prefix-global
+    z4m-down-prefix-local
+    z4m-up-prefix-global
+    z4m-up-prefix-local
+  )
+  # Add Atuin search widget to clear list if available
+  if (( ${_z4m_atuin_available:-0} )); then
+    ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(_atuin_search_widget)
+  fi
+  if (( _z4m_use[zsh-history-substring-search] )); then
+    ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(
+      z4m-down-substring-global
+      z4m-down-substring-local
+      z4m-up-substring-global
+      z4m-up-substring-local
+    )
+  fi
+  typeset -g ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS=(
+    emacs-forward-word
+    forward-word
+    vi-find-next-char
+    vi-find-next-char-skip
+    vi-forward-blank-word
+    vi-forward-blank-word-end
+    vi-forward-word
+    vi-forward-word-end
+    z4m-forward-word
+    z4m-forward-zword
+  )
+  typeset -g ZSH_AUTOSUGGEST_ACCEPT_WIDGETS=(
+    z4m-end-of-buffer
+  )
+
+  if zstyle -T :z4m:autosuggestions forward-char accept; then
+    ZSH_AUTOSUGGEST_ACCEPT_WIDGETS+=(forward-char vi-forward-char)
+  else
+    ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS+=(forward-char vi-forward-char)
+  fi
+
+  if zstyle -T :z4m:autosuggestions end-of-line accept; then
+    ZSH_AUTOSUGGEST_ACCEPT_WIDGETS+=(end-of-line vi-add-eol vi-end-of-line)
+  else
+    ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS+=(end-of-line vi-add-eol vi-end-of-line)
+  fi
+
+  # Auto-configure atuin_top strategy if Atuin is available
+  if (( ${_z4m_atuin_available:-0} )); then
+    ZSH_AUTOSUGGEST_STRATEGY=(atuin_top completion)
+  fi
+
+  builtin source $Z4M/zsh-autosuggestions/zsh-autosuggestions.zsh
+  precmd_functions=(${precmd_functions:#_zsh_autosuggest_start})
+
+  _zsh_autosuggest_widget_execute() {
+    -z4m-autosuggest-fetch
+    if [[ -n $POSTDISPLAY ]]; then
+      BUFFER=$BUFFER$POSTDISPLAY
+      region_highlight[-1]=()
+      typeset -g _z4m_autosuggest_buffer=$BUFFER
+      unset _z4m_autosuggestion POSTDISPLAY
+    fi
+    zle .accept-line
+  }
+
+  _zsh_autosuggest_widget_clear() {
+    _zsh_autosuggest_invoke_original_widget "$@"
+    local -i ret=$?
+    if [[ $CONTEXT == start ]]; then
+      [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
+      if (( ret )); then
+        -z4m-autosuggest-fetch
+      else
+        typeset -g _z4m_autosuggest_buffer=$BUFFER
+        unset _z4m_autosuggestion POSTDISPLAY
+      fi
+    fi
+    return ret
+  }
+
+  _zsh_autosuggest_widget_accept() {
+    -z4m-autosuggest-fetch
+    if (( ${#POSTDISPLAY} == 0 || CURSOR < _z4m_cursor_max() )); then
+      _zsh_autosuggest_invoke_original_widget "$@"
+      return
+    fi
+    BUFFER="$BUFFER$POSTDISPLAY"
+    region_highlight[-1]=()
+    unset _z4m_autosuggestion POSTDISPLAY
+    _zsh_autosuggest_invoke_original_widget "$@"
+    local -i ret=$?
+    typeset -g _z4m_autosuggest_buffer="$BUFFER"
+    typeset -gi CURSOR='_z4m_cursor_max()'
+    return ret
+  }
+
+  _zsh_autosuggest_widget_partial_accept() {
+    -z4m-autosuggest-fetch
+    if (( ${#POSTDISPLAY} == 0 || CURSOR < _z4m_cursor_max() )); then
+      _zsh_autosuggest_invoke_original_widget "$@"
+      return
+    fi
+    local -i buf_len=${#BUFFER}
+    BUFFER="$BUFFER$POSTDISPLAY"
+    _zsh_autosuggest_invoke_original_widget "$@"
+    local -i ret=$?
+    local -i cursor=CURSOR
+    if [[ $KEYMAP == vicmd && -n ${BUFFER##*$'\n'} ]]; then
+      (( ++cursor ))
+    fi
+    if (( cursor > buf_len )); then
+      BUFFER=${BUFFER:0:$cursor}
+      POSTDISPLAY=${POSTDISPLAY:$((cursor - buf_len))}
+    else
+      BUFFER=${BUFFER:0:$buf_len}
+    fi
+    typeset -g _z4m_autosuggest_buffer=$BUFFER
+    return ret
+  }
+
+  _zsh_autosuggest_widget_modify() {
+    _zsh_autosuggest_invoke_original_widget "$@"
+    local -i retval=$?
+    [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
+    -z4m-autosuggest-fetch
+    return retval
+  }
+
+  _zsh_autosuggest_widget_fetch() {
+    [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
+    -z4m-autosuggest-fetch
+  }
+
+  _zsh_autosuggest_widget_suggest() {
+    [[ -z $BUFFER || $CONTEXT != start ]] && return
+    [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
+    POSTDISPLAY=${1-}
+    typeset -g _z4m_autosuggest_buffer="$BUFFER"
+    typeset -g _z4m_autosuggestion="${BUFFER}${POSTDISPLAY}"
+    if [[ -n $POSTDISPLAY ]]; then
+      region_highlight+=(
+        "${#BUFFER} $((${#BUFFER} + ${#POSTDISPLAY})) $ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE")
+    fi
+  }
+
+  _zsh_autosuggest_widget_enable() {
+    (( ${+_ZSH_AUTOSUGGEST_DISABLED} )) || return 0
+    unset _ZSH_AUTOSUGGEST_DISABLED
+    _zsh_autosuggest_widget_fetch
+  }
+
+  _zsh_autosuggest_widget_disable() {
+    (( ${+_ZSH_AUTOSUGGEST_DISABLED} )) && return
+    typeset -g _ZSH_AUTOSUGGEST_DISABLED
+    [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
+    unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
+  }
+
+  _zsh_autosuggest_widget_toggle() {
+    if (( ${+_ZSH_AUTOSUGGEST_DISABLED} )); then
+      _zsh_autosuggest_widget_enable
+    else
+      _zsh_autosuggest_widget_disable
+    fi
+  }
+else
+  function -z4m-autosuggest-fetch() {
+    unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
+  }
+fi
+
+# Define _zsh_highlight before sourcing history-substring-search to work around bugs
+# in the latter: https://github.com/romkatv/zsh4monkey/issues/58.
+function _zsh_highlight() {
+  if [[ $WIDGET == zle-line-finish || ! -v _z4m_substring_search_highlight ]]; then
+    region_highlight=()
+  else
+    region_highlight=("${_z4m_substring_search_highlight[@]}")
+  fi
+}
+
+if (( _z4m_use[zsh-history-substring-search] )); then
+  builtin source $Z4M/zsh-history-substring-search/zsh-history-substring-search.zsh
+fi
+
+if (( _z4m_use[zsh-syntax-highlighting] )); then
+  if (( terminfo[colors] >= 256 )); then
+    typeset -gA ZSH_HIGHLIGHT_STYLES=(comment fg=96)  # the default is hard to see
+  fi
+  ZSH_HIGHLIGHT_MAXLENGTH=1024                # don't colorize long command lines (slow)
+  ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets)  # main syntax highlighting plus matching brackets
+  typeset -gi zsh_highlight__memo_feature=0
+fi
+
+local event
+for event in pre-redraw init finish; do
+  if (( $+widgets[zle-line-$event] )); then
+    zle -A -- zle-line-$event -z4m-orig-zle-line-$event
+  fi
+  zle -N -- zle-line-$event -z4m-zle-line-$event
+done
+
+function -z4m-post-init() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  precmd_functions=(${precmd_functions:#-z4m-post-init})
+
+  if zstyle -t :z4m:direnv enable; then
+    if [[ -v functions[_direnv_hook] ]]; then
+      unfunction _direnv_hook
+      chpwd_functions=(${chpwd_functions:#_direnv_hook})
+      precmd_functions=(${precmd_functions:#_direnv_hook})
+    fi
+    [[ -v _z4m_direnv_initialized ]] || -z4m-direnv-init 1
+  fi
+  if [[ -v _z4m_direnv_initialized ]]; then
+    precmd_functions=(-z4m-direnv-hook $precmd_functions)
+    chpwd_functions=(-z4m-direnv-hook $chpwd_functions)
+    unset _z4m_direnv_initialized
+  fi
+
+  typeset -gi _z4m_compinit_fd
+  if [[ -v __p9k_fd_0 ]] && zselect -t0 -r $__p9k_fd_0 &&
+     sysopen -o cloexec -ru _z4m_compinit_fd /dev/null; then
+    zle -F $_z4m_compinit_fd -z4m-compinit
+  else
+    unset _z4m_compinit_fd
+    -z4m-compinit
+    -z4m-update-dir-history
+  fi
+
+  if (( _z4m_use[zsh-syntax-highlighting] )); then
+    () {
+      local -hA widgets=(
+        zle-line-finish    user:_zsh_highlight_widget_zle-line-finish
+        zle-isearch-update user:_zsh_highlight_widget_zle-isearch-update
+      )
+      builtin source $Z4M/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+    }
+    preexec_functions=(${preexec_functions:#_zsh_highlight_preexec_hook})
+    eval '_zsh_highlight() {
+      [[ ${WIDGET-} == zle-line-pre-redraw && ${LASTWIDGET-} == accept-line ]] && return
+      {
+        if [[ ${#BUFFER} -gt ${ZSH_HIGHLIGHT_MAXLENGTH:-${#BUFFER}} ]]; then
+          region_highlight=()
+        else
+          local -ih PENDING=0 KEYS_QUEUED_COUNT=0
+          '$functions[_zsh_highlight]'
+        fi
+      } always {
+        [[ $WIDGET == zle-line-finish ]] || region_highlight+=("${_z4m_substring_search_highlight[@]}")
+      }
+    }'
+  fi
+
+  if (( _z4m_use[zsh-history-substring-search] )); then
+    function _history-substring-search-end() {
+      builtin emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+      if (( _history_substring_search_refresh_display )); then
+        typeset -gi CURSOR='_z4m_cursor_max()'
+      fi
+      typeset -g _history_substring_search_result=$BUFFER
+      typeset -gi _history_substring_search_cursor=CURSOR
+      unset _z4m_substring_search_highlight
+      [[ -z $_history_substring_search_query_highlight ]] && return
+      local query_part escaped_query_part REPLY
+      local -i highlight_start_index highlight_end_index query_part_match_index
+      for query_part in $_history_substring_search_query_parts; do
+        escaped_query_part=${query_part//(#m)[\][()|\\*?#<>~^]/\\$MATCH}
+        query_part_match_index=${${BUFFER:$highlight_start_index}[(i)(#$HISTORY_SUBSTRING_SEARCH_GLOBBING_FLAGS)${escaped_query_part}]}
+        (( query_part_match_index > $#BUFFER - highlight_start_index )) && continue
+        highlight_start_index=$(( highlight_start_index + query_part_match_index ))
+        highlight_end_index=$(( highlight_start_index + ${#query_part} ))
+        _z4m_substring_search_highlight+=(
+            "$((highlight_start_index - 1)) $((highlight_end_index - 1)) $_history_substring_search_query_highlight")
+      done
+    }
+
+    # This function is buggy in the original implementation when vicmd is active.
+    _history-substring-search-up-buffer() {
+      builtin emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+      # The original implementation is equivalent to this one with the exception
+      # of the condition on the next line being (( CURSOR != $#BUFFER )).
+      (( CURSOR != _z4m_cursor_max() )) || return
+
+      [[ $LBUFFER == *$'\n'* ]]         || return
+      builtin zle up-line-or-history    || true
+    }
+
+    # See _history-substring-search-up-buffer above.
+    _history-substring-search-down-buffer() {
+      builtin emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+      (( CURSOR != _z4m_cursor_max() )) || return
+      [[ $RBUFFER == *$'\n'* ]]         || return
+      builtin zle down-line-or-history  || true
+    }
+  elif (( $+functions[_history-substring-search-end] )); then
+    # Turn off highlighting in _history-substring-search-end. It doesn't work anyway.
+    function _history-substring-search-end() {
+      emulate -L zsh
+      _history_substring_search_result=$BUFFER
+      if (( _history_substring_search_refresh_display )); then
+        typeset -gi CURSOR='_z4m_cursor_max()'
+      fi
+    }
+  fi
+
+  if (( _z4m_use[zsh-autosuggestions] )); then
+    local suggest_special=(
+      $ZSH_AUTOSUGGEST_EXECUTE_WIDGETS
+      $ZSH_AUTOSUGGEST_CLEAR_WIDGETS
+      $ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS
+      $ZSH_AUTOSUGGEST_ACCEPT_WIDGETS)
+    typeset -g ZSH_AUTOSUGGEST_IGNORE_WIDGETS=(${${(k)widgets}:|suggest_special})
+    unset ZSH_AUTOSUGGEST_USE_ASYNC
+    _zsh_autosuggest_start
+  fi
+
+  if [[ -v functions[bracketed-paste-magic] ]]; then
+    builtin unfunction bracketed-paste-magic
+    builtin autoload -Uz -- $Z4M/zsh4monkey/fn/bracketed-paste-magic
+  fi
+
+  if [[ -v _z4m_tty_fd ]]; then
+    if [[ -v function[__vte_osc7] ]]; then
+      builtin functions -c -- -z4m-vte-osc7 __vte_osc7
+    fi
+    if zstyle -T :z4m: term-shell-integration && [[ $TERM != (dumb|linux) ]]; then
+      builtin functions -c -- -z4m-vte-osc7 __vte_osc7
+      if (( ! $precmd_functions[(I)__vte_osc7] )); then
+        precmd_functions=(__vte_osc7 $precmd_functions)
+        __vte_osc7
+      fi
+    fi
+  fi
+
+  precmd_functions=(-z4m-wrap-commands $precmd_functions)
+
+  # Send WINCH just in case we've set incorrect TTY dimensions manually.
+  builtin kill -WINCH $$
+}
+
+precmd_functions=(-z4m-post-init $precmd_functions)
+[[ -e $Z4M/welcome ]] && precmd_functions+=(-z4m-welcome)
+
+# === Vi Mode Support ===
+# Load vi mode module (defines all vi mode functions)
+autoload -Uz -- -z4m-init-vi-mode
+
+# Check for vi mode configuration
+local _z4m_editor_mode
+if zstyle -s ':z4m:' editor-mode _z4m_editor_mode && [[ $_z4m_editor_mode == vi ]]; then
+  -z4m-init-vi-mode
+fi
+
+typeset -ga _z4m_dir_history
+
+function compdef() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  _z4m_compdef+=("${(pj:\0:)@}")
+}
+
+compdef _ssh  ssh
+compdef _sudo sudo
+compdef _directories md  # complete directories for md() function
+
+typeset -g VIRTUAL_ENV_DISABLE_PROMPT=1
+
+PS2=
+RPS2='%F{3}%^%f'

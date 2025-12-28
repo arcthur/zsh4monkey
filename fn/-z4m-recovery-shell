@@ -1,0 +1,90 @@
+#!/usr/bin/env zsh
+#
+# z4m-recovery-shell - Minimal recovery shell when configuration breaks
+#
+# This provides a safe environment to fix broken .zshrc configurations.
+# All z4m features are disabled, only basic zsh functionality remains.
+#
+
+# Use builtin commands explicitly to avoid functions shadowing them
+'emulate' '-L' 'zsh' '-o' 'no_aliases'
+
+# Save current state
+'local' _z4m_recovery_old_prompt=${PS1:-'%n@%m %~ %# '}
+'local' _z4m_recovery_old_rprompt=${RPS1:-}
+
+# Enter recovery mode
+() {
+  'emulate' '-L' 'zsh' '-o' 'no_aliases'
+
+  # Disable all z4m hooks and widgets
+  'local' hook
+  for hook in chpwd precmd preexec periodic zshaddhistory zshexit; do
+    add-zsh-hook -D $hook '*z4m*' 2>/dev/null || 'true'
+  done
+
+  # Reset to default key bindings
+  'bindkey' '-d'
+  'bindkey' '-e'
+
+  # Set minimal prompt indicating recovery mode
+  PS1=$'%F{yellow}[RECOVERY]%f %F{red}%n@%m%f %F{blue}%~%f %# '
+  RPS1=''
+
+  # Disable autosuggestions and syntax highlighting if loaded
+  (( ${+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE} )) && ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=''
+  (( ${+ZSH_HIGHLIGHT_HIGHLIGHTERS} )) && ZSH_HIGHLIGHT_HIGHLIGHTERS=()
+
+  # Basic useful aliases
+  'alias' ls='command ls --color=auto 2>/dev/null || command ls'
+  'alias' ll='ls -la'
+  'alias' grep='command grep --color=auto'
+
+  # Define recovery helper functions
+  function z4m-recovery-edit() {
+    'local' editor=${EDITOR:-${VISUAL:-vi}}
+    if [[ -n $1 ]]; then
+      "$editor" "$1"
+    else
+      "$editor" "${ZDOTDIR:-$HOME}/.zshrc"
+    fi
+  }
+
+  function z4m-recovery-reload() {
+    'print' -P '%F{yellow}Attempting to reload zsh configuration...%f'
+    'exec' 'zsh' '-i'
+  }
+
+  function z4m-recovery-exit() {
+    'print' -P '%F{green}Exiting recovery mode and reloading zsh...%f'
+    'exec' 'zsh' '-i'
+  }
+
+  function z4m-recovery-help() {
+    'print' -P '%F{cyan}z4m Recovery Shell%f'
+    'print' ''
+    'print' -P 'You are in a minimal recovery environment because z4m'
+    'print' -P 'initialization failed or you entered recovery mode manually.'
+    'print' ''
+    'print' -P '%F{yellow}Available commands:%f'
+    'print' -P '  %Bz4m-recovery-edit%b [file]  Edit .zshrc (or specified file)'
+    'print' -P '  %Bz4m-recovery-reload%b       Reload zsh configuration'
+    'print' -P '  %Bz4m-recovery-exit%b         Exit recovery and restart zsh'
+    'print' -P '  %Bz4m-recovery-help%b         Show this help'
+    'print' ''
+    'print' -P '%F{yellow}Common fixes:%f'
+    'print' -P '  1. Edit ~/.zshrc to fix syntax errors'
+    'print' -P '  2. Comment out problematic lines'
+    'print' -P '  3. Run z4m-recovery-reload to test'
+    'print' ''
+    'print' -P '%F{yellow}Useful paths:%f'
+    'print' -P "  ZDOTDIR: ${ZDOTDIR:-$HOME}"
+    'print' -P "  Z4M:     ${Z4M:-\$HOME/.cache/z4m}"
+  }
+
+  # Show welcome message
+  'print' ''
+  'print' -P '%F{yellow}=== z4m Recovery Shell ===%f'
+  'print' -P 'Type %Bz4m-recovery-help%b for available commands.'
+  'print' ''
+}

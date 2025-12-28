@@ -1,0 +1,84 @@
+#!/usr/bin/env zsh
+#
+# z4m vi-mode - Toggle Vi editing mode at runtime
+#
+# Usage:
+#   z4m vi-mode on       - Enable Vi mode
+#   z4m vi-mode off      - Disable Vi mode (switch to emacs)
+#   z4m vi-mode toggle   - Toggle between vi and emacs mode
+#   z4m vi-mode status   - Show current editor mode
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+# Ensure vi mode functions are loaded
+if (( ! ${+functions[-z4m-enable-vi-mode]} )); then
+  autoload -Uz -- -z4m-init-vi-mode
+  -z4m-init-vi-mode
+fi
+
+case ${1-} in
+  on|enable)
+    if (( ${+_Z4M_VI_MODE_ENABLED} )); then
+      print -Pr -- "%F{3}z4m%f: Vi mode is already %F{2}enabled%f"
+    else
+      -z4m-enable-vi-mode
+      print -Pr -- "%F{3}z4m%f: Vi mode %F{2}enabled%f"
+      print -Pr -- ""
+      print -Pr -- "  Press %BESC%b to enter normal mode"
+      print -Pr -- "  Press %Bi%b to return to insert mode"
+      print -Pr -- "  Use %Bj/k%b for history in normal mode"
+    fi
+    ;;
+  off|disable)
+    if (( ! ${+_Z4M_VI_MODE_ENABLED} )); then
+      print -Pr -- "%F{3}z4m%f: Vi mode is already %F{1}disabled%f"
+    else
+      -z4m-disable-vi-mode
+      print -Pr -- "%F{3}z4m%f: Vi mode %F{1}disabled%f (emacs mode active)"
+    fi
+    ;;
+  toggle)
+    if (( ${+_Z4M_VI_MODE_ENABLED} )); then
+      -z4m-disable-vi-mode
+      print -Pr -- "%F{3}z4m%f: Switched to %F{2}emacs%f mode"
+    else
+      -z4m-enable-vi-mode
+      print -Pr -- "%F{3}z4m%f: Switched to %F{2}vi%f mode"
+    fi
+    ;;
+  status)
+    if (( ${+_Z4M_VI_MODE_ENABLED} )); then
+      print -Pr -- "%F{3}z4m%f: Editor mode: %F{2}vi%f"
+      print -Pr -- ""
+      print -Pr -- "  Current keymap: %B${KEYMAP:-viins}%b"
+      print -Pr -- "  KEYTIMEOUT:     %B$KEYTIMEOUT%b (${KEYTIMEOUT}0ms)"
+      print -Pr -- ""
+      print -Pr -- "  Cursor shapes:"
+      print -Pr -- "    Insert mode:  beam |"
+      print -Pr -- "    Normal mode:  block"
+    else
+      print -Pr -- "%F{3}z4m%f: Editor mode: %F{2}emacs%f"
+    fi
+    ;;
+  -h|--help|'')
+    print -Pr -- "Usage: %F{2}z4m%f %Bvi-mode%b <command>"
+    print -Pr -- ""
+    print -Pr -- "Commands:"
+    print -Pr -- "  %Bon%b       Enable Vi mode"
+    print -Pr -- "  %Boff%b      Disable Vi mode (switch to emacs)"
+    print -Pr -- "  %Btoggle%b   Toggle between vi and emacs mode"
+    print -Pr -- "  %Bstatus%b   Show current editor mode"
+    print -Pr -- ""
+    print -Pr -- "To enable Vi mode by default, add to %U.zshrc%u before %Bz4m init%b:"
+    print -Pr -- "  %F{2}zstyle%f ':z4m:' editor-mode vi"
+    [[ -z ${1-} ]] && return 1
+    ;;
+  *)
+    print -Pru2 -- "%F{3}z4m%f: %Bvi-mode%b: unknown command: %F{1}$1%f"
+    print -Pru2 -- ""
+    print -Pru2 -- "Run %Bz4m vi-mode --help%b for usage."
+    return 1
+    ;;
+esac

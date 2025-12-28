@@ -1,0 +1,41 @@
+#!/usr/bin/env zsh
+#
+# Check for fzf and suggest installation if missing
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+if (( $+commands[fzf] )); then
+  print -r -- "system" > "$Z4M_PACKAGE_DIR/.system-tool"
+  print -Pru2 -- "%F{3}z4m%f: %Bfzf%b found at %F{2}${commands[fzf]}%f"
+  return 0
+fi
+
+print -Pru2 -- "%F{3}z4m%f: %Bfzf%b not found"
+print -Pru2 -- ""
+
+local uname_s=${$(uname -s 2>/dev/null):-unknown}
+local -a suggestions=()
+
+case $uname_s in
+  Darwin)
+    suggestions+=("brew install fzf")
+    ;;
+  Linux)
+    (( $+commands[apt] )) && suggestions+=("sudo apt install fzf")
+    (( $+commands[dnf] )) && suggestions+=("sudo dnf install fzf")
+    (( $+commands[pacman] )) && suggestions+=("sudo pacman -S fzf")
+    ;;
+esac
+
+(( $+commands[mise] )) && suggestions+=("mise use -g fzf")
+
+print -Pru2 -- "  Install with one of:"
+local s
+for s in $suggestions; do
+  print -Pru2 -- "    %F{6}$s%f"
+done
+print -Pru2 -- ""
+
+return 0

@@ -1,0 +1,51 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+print -Pr -- "$(<<\END
+Usage: %F{2}z4m%f %Bbindkey%b [options] [--] %Uzle-widget%u [%Ukey-binding%u]...
+
+Bind key(s) to a ZLE widget with proper terminal handling.
+
+%F{6}Options:%f
+  %B-l%b          List all current key bindings in a readable table
+  %B-L%b          List bindings as z4m bindkey commands (can be eval'd)
+
+%F{6}Key Binding Syntax:%f
+
+  Single keys:
+    %BEnter%b, %BTab%b, %BBackspace%b, %BDelete%b, %BEscape%b
+    %BUp%b, %BDown%b, %BLeft%b, %BRight%b, %BHome%b, %BEnd%b
+    %BPageUp%b, %BPageDown%b, %BInsert%b, %BSpace%b
+    %BF1%b-%BF12%b (function keys)
+
+  Modifier combinations:
+    %BCtrl+X%b     Control + X (where X is A-Z, [, ], \, /)
+    %BAlt+X%b      Alt/Meta + X (A-Z, a-z, [, ], \, /, ., ,)
+    %BOption+X%b   Same as Alt+X (for macOS)
+    %BShift+X%b    With arrow keys: Shift+Up, Shift+Down, etc.
+
+  Combined modifiers:
+    %BCtrl+Alt+X%b    Control + Alt + X
+    %BCtrl+Shift+X%b  With arrows: Ctrl+Shift+Left, etc.
+
+  Space-separated sequences:
+    %BCtrl+X Ctrl+C%b   Ctrl+X followed by Ctrl+C
+
+%F{6}Examples:%f
+  z4m bindkey z4m-cd-back Alt+Left Shift+Left
+  z4m bindkey z4m-cd-up Alt+Up Shift+Up
+  z4m bindkey accept-line Enter
+  z4m bindkey z4m-fzf-history Ctrl+R
+  z4m bindkey undo Ctrl+Z
+
+%F{6}macOS Note:%f
+  By default, Option key works as Alt. This can be configured:
+    zstyle ':z4m:bindkey' macos-option-as-alt yes
+
+%F{6}See Also:%f
+  z4m bindkey -l     List all current bindings
+  z4m help           Show all z4m commands
+END
+)"

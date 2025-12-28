@@ -1,0 +1,79 @@
+#!/usr/bin/env zsh
+#
+# z4m env - Display environment information
+#
+# Usage:
+#   z4m env           - Show environment summary
+#   z4m env full      - Show detailed information
+#   z4m env paths     - Show PATH components
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+case ${1-} in
+  ''|summary)
+    print -Pr -- "%F{3}z4m%f: environment summary"
+    print
+    print -Pr -- "  %Bzsh%b:     $ZSH_VERSION ($ZSH_PATCHLEVEL)"
+    print -Pr -- "  %Bz4m%b:     ${$(<$Z4M/zsh4monkey/version):-unknown}"
+    print -Pr -- "  %Bos%b:      $OSTYPE"
+    print -Pr -- "  %Barch%b:    $CPUTYPE"
+    print -Pr -- "  %Bterm%b:    $TERM"
+    print -Pr -- "  %Bshell%b:   $_z4m_exe"
+    print -Pr -- "  %Bzdotdir%b: ${ZDOTDIR:-$HOME}"
+    print -Pr -- "  %Bz4m dir%b: $Z4M"
+    if [[ -v TMUX ]]; then
+      print -Pr -- "  %Btmux%b:    yes"
+    fi
+    if [[ -v Z4M_SSH ]]; then
+      print -Pr -- "  %Bssh%b:     ${Z4M_SSH##*:}"
+    fi
+    ;;
+  full)
+    $0 summary
+    print
+    print -Pr -- "%F{3}z4m%f: modules loaded"
+    print
+    local mod
+    for mod in ${(ko)modules}; do
+      [[ ${modules[$mod]} == loaded ]] && print "  $mod"
+    done
+    print
+    print -Pr -- "%F{3}z4m%f: function count"
+    print
+    print -Pr -- "  %Btotal%b:    ${#functions}"
+    print -Pr -- "  %Bz4m%b:      ${#${(M)${(k)functions}:#(|-|_)z4m*}}"
+    print
+    print -Pr -- "%F{3}z4m%f: options (non-default)"
+    print
+    local opt
+    for opt in ${(o)options[(R)on]}; do
+      [[ $opt == *'(on)'* ]] || print "  +$opt"
+    done
+    for opt in ${(o)options[(R)off]}; do
+      [[ $opt == *'(off)'* ]] || print "  -$opt"
+    done
+    ;;
+  paths)
+    print -Pr -- "%F{3}z4m%f: PATH components"
+    print
+    local -i i=1
+    local p
+    for p in $path; do
+      printf '  %2d: %s\n' $i $p
+      (( i++ ))
+    done
+    print
+    print -Pr -- "%F{3}z4m%f: fpath components"
+    print
+    i=1
+    for p in $fpath; do
+      printf '  %2d: %s\n' $i $p
+      (( i++ ))
+    done
+    ;;
+  *)
+    print -Pru2 -- "Usage: %F{2}z4m%f %Benv%b [summary|full|paths]"
+    return 1
+    ;;
+esac

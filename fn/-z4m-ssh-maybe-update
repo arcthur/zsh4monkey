@@ -1,0 +1,19 @@
+#!/usr/bin/env zsh
+
+# Requires: [[ $Z4M_SSH == <1->:* ]]
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local min_version=${Z4M_SSH%%:*}
+
+local got_version
+got_version=${$(<$Z4M/zsh4monkey/version)%$'\r'} &&
+  [[ $got_version == <-> ]]                      &&
+  (( got_version >= min_version ))               &&
+  return
+
+print -Pru2 -- "%F{3}z4m%f: %Binitiating update%b (cached version too old)"
+
+Z4M_SSH=0:${Z4M_SSH#*:}
+-z4m-cmd-update

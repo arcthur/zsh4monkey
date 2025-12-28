@@ -1,0 +1,14 @@
+#!/usr/bin/env zsh
+
+z4m compile -- $Z4M/zsh4monkey/{main.zsh,sc/exec-zsh-i,fn/(|-|_)z4m[^.]#~*.zwc} $Z4M/z4m.zsh || return
+
+[[ -v functions[compinit] ]] && unfunction compinit
+autoload -Uz +X compinit || return
+local orig="bindkey '^i' | IFS=\$' \t' read -A _i_line"
+local replacement="_i_line=( '\"^I\"' z4m-fzf-complete )"
+print -r -- ${functions[compinit]/$orig/$replacement} >$Z4M/zsh4monkey/fn/tmp.$$.compinit || return
+zf_mv -- $Z4M/zsh4monkey/fn/tmp.$$.compinit $Z4M/zsh4monkey/fn/-z4m-compinit-impl || return
+z4m compile -- $Z4M/zsh4monkey/fn/-z4m-compinit-impl || return
+autoload -Uz -- -z4m-compinit-impl
+
+function compinit() {}

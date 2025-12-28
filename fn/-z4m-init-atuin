@@ -1,0 +1,65 @@
+#!/usr/bin/env zsh
+#
+# Initialize Atuin history
+#
+# Configuration:
+#   zstyle ':z4m:atuin' enabled yes/no           - Enable/disable Atuin (default: yes)
+#   zstyle ':z4m:atuin' up-arrow yes/no          - Enable up-arrow integration (default: no)
+#   zstyle ':z4m:atuin' force-remote yes/no      - Force Atuin on remote (default: no)
+#   zstyle ':z4m:atuin' debug yes/no             - Enable debug output (default: no)
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+zstyle -T :z4m:atuin enabled || return 0
+
+# Skip on remote SSH environments
+[[ -n $Z4M_SSH ]] && return 0
+[[ -n $SSH_CONNECTION ]] && ! zstyle -t :z4m:atuin force-remote && return 0
+
+# Require system atuin
+(( $+commands[atuin] )) || return 0
+
+typeset -g _z4m_atuin_bin=$commands[atuin]
+
+# Cache directory
+local cache_dir=$Z4M/cache/atuin-$EUID
+[[ -d $cache_dir ]] || zf_mkdir -p -- "$cache_dir"
+
+# Init arguments
+local -a init_args=(--disable-up-arrow)
+zstyle -t :z4m:atuin up-arrow && init_args=()
+
+# Generate or use cached init script
+local cache_file=$cache_dir/init.zsh
+local cache_valid=0
+
+if [[ -r $cache_file ]]; then
+  local -a cache_stat bin_stat
+  if zstat -A cache_stat +mtime -- $cache_file 2>/dev/null &&
+     zstat -A bin_stat +mtime -- $commands[atuin] 2>/dev/null &&
+     (( cache_stat[1] >= bin_stat[1] )); then
+    cache_valid=1
+  fi
+fi
+
+if (( ! cache_valid )); then
+  local init_output
+  init_output=$(atuin init zsh $init_args 2>/dev/null) || {
+    zstyle -t :z4m:atuin debug && print -Pru2 -- "%F{3}z4m%f: %Batuin init%b failed"
+    return 0
+  }
+  print -r -- "$init_output" >$cache_file 2>/dev/null
+  -z4m-compile $cache_file 2>/dev/null
+fi
+
+source $cache_file
+
+typeset -gi _z4m_atuin_available=1
+
+if zstyle -t :z4m:atuin debug; then
+  print -Pru2 -- "%F{3}z4m%f: atuin initialized"
+  print -Pru2 -- "  binary: $commands[atuin]"
+  print -Pru2 -- "  up-arrow: $(zstyle -t :z4m:atuin up-arrow && echo 'enabled' || echo 'disabled')"
+fi

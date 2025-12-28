@@ -1,0 +1,33 @@
+#!/usr/bin/env zsh
+#
+# Shell integration using OSC 133 escape sequences
+#
+# Supported terminals: Ghostty, kitty, iTerm2, WezTerm, VS Code, etc.
+#
+# OSC 133 sequences:
+#   A - Prompt start
+#   B - Command start (after enter)
+#   C - Command output start
+#   D - Command end with exit code
+#
+
+# Precmd hook: mark command end and prompt region
+function -z4m-shell-integration-precmd() {
+  zle && return
+  if (( _z4m_shell_cmd )); then
+    (( _z4m_shell_cmd == 1 )) && -z4m-tmux-bypass '\e]133;C;\a'
+    -z4m-tmux-bypass '\e]133;D;%s\a' $1
+  fi
+  typeset -gi _z4m_shell_cmd=1
+}
+
+# Preexec hook: mark command execution start
+function -z4m-shell-integration-preexec() {
+  -z4m-tmux-bypass '\e]133;C;\a'
+  typeset -gi _z4m_shell_cmd=2
+}
+
+typeset -gi _z4m_shell_cmd=0
+
+unfunction -- -z4m-enable-shell-integration
+autoload -Uz -- -z4m-enable-shell-integration

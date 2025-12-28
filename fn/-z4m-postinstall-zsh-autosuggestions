@@ -1,0 +1,6 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+z4m compile -- $Z4M_PACKAGE_DIR/{zsh-autosuggestions.zsh,src/**/*.zsh}(N)

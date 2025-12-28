@@ -1,0 +1,33 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local -a timeout pattern
+zparseopts -D -F --                   \
+  {t,-timeout-seconds}:=timeout       \
+  {p,-lines-columns-pattern}:=pattern \
+  || return '_z4m_err()'
+
+if (( $#pattern == 2 )); then
+  pattern=$pattern[2]
+else
+  return '_z4m_err()'
+fi
+
+if (( $#timeout == 2 )); then
+  [[ $timeout[2] == <->(|.<->) ]] || return '_z4m_err()'
+  typeset -F timeout=$timeout[2]
+else
+  return '_z4m_err()'
+fi
+
+[[ $TERM == (screen|tmux)* ]] && return 0
+[[ -v commands[true]       ]] || return 0
+
+local -F deadline='EPOCHREALTIME + timeout'
+while [[ "$LINES $COLUMNS" != $~pattern ]] && (( EPOCHREALTIME < deadline )); do
+  command true
+done
+
+return 0
