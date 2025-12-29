@@ -1,0 +1,257 @@
+.\" z4m - zsh4monkey shell configuration framework
+.\" Keep in sync with fn/-z4m-cmd-help
+.Dd December 29, 2024
+.Dt Z4M 1
+.Os
+.Sh NAME
+.Nm z4m
+.Nd zsh4monkey shell configuration framework
+.Sh SYNOPSIS
+.Nm z4m
+.Ar command
+.Op Ar arguments ...
+.Sh DESCRIPTION
+.Nm
+is a modern, feature-rich Zsh configuration framework that provides:
+.Bl -bullet -compact
+.It
+Zero-config excellence with sub-50ms startup
+.It
+Syntax highlighting and smart autosuggestions
+.It
+Fuzzy search with fzf integration
+.It
+SSH teleportation to remote hosts
+.It
+Vi mode with cursor shape changes
+.It
+Powerlevel10k prompt integration
+.It
+Unified tmux/neovim navigation
+.El
+.Sh COMMANDS
+.Ss Core Commands
+.Bl -tag -width Ds
+.It Cm init
+Initialize Zsh.
+Should be called exactly once from
+.Pa ~/.zshrc .
+This sets up completion, keybindings, prompt, and all features.
+.It Cm update
+Update
+.Nm zsh4monkey
+and all installed dependencies including fzf, powerlevel10k,
+zsh-autosuggestions, and fast-syntax-highlighting.
+.It Cm install Oo Fl f | Fl -force Oc Ar user/project Ns Op @ Ns Ar branch
+Clone or update GitHub project(s) to
+.Ev Z4M
+directory.
+Use
+.Fl f
+to force reinstall even if already installed.
+.El
+.Ss Plugin Management
+.Bl -tag -width Ds
+.It Cm source Oo Fl c | Fl -compile Oc Ar file ...
+Source zsh script file(s) with proper error handling.
+Use
+.Fl c
+to compile the file before sourcing for faster load.
+.It Cm compile Ar file ...
+Compile zsh script file(s) to zwc format for faster loading.
+Compiled files are created alongside the original.
+.It Cm load Oo Fl c | Fl -compile Oc Ar dir ...
+Load a plugin from directory.
+Adds functions to fpath and sources the main plugin file.
+.It Cm bindkey Ar widget Ar key ...
+Bind key(s) to a ZLE widget with proper terminal handling.
+See
+.Xr z4m-bindkey 1
+for detailed documentation.
+.El
+.Ss Remote Access
+.Bl -tag -width Ds
+.It Cm ssh Oo Fl -force-sync Oc Ar ssh-options Ar host
+SSH with zsh4monkey teleportation.
+Automatically installs and configures zsh4monkey on the remote host.
+See
+.Xr z4m-ssh 1
+for detailed documentation.
+.It Cm pack Oo Fl o Ar output Oc Oo Fl t Ar tag Oc
+Create an offline installation package.
+The generated script can install z4m on machines without internet access.
+.It Cm docker Ar container Op Ar command
+Run zsh in a Docker container with zsh4monkey.
+.It Cm sudo Op Ar command
+Run command as root with zsh4monkey environment preserved.
+.El
+.Ss Editor Mode
+.Bl -tag -width Ds
+.It Cm vi-mode Oo on | off | toggle | status Oc
+Toggle Vi editing mode at runtime.
+When enabled, provides normal/insert modes with cursor shape changes:
+thin beam for insert mode, block for normal mode.
+.Pp
+To enable by default, add to
+.Pa ~/.zshrc
+before
+.Cm z4m init :
+.Bd -literal -offset indent
+zstyle ':z4m:' editor-mode vi
+.Ed
+.El
+.Ss Diagnostics
+.Bl -tag -width Ds
+.It Cm debug Oo on | off | trace Ar func | status Oc
+Debug mode utilities for troubleshooting.
+.Bl -tag -width "trace func" -compact
+.It Cm on
+Enable debug mode (WARN_NESTED_VAR)
+.It Cm off
+Disable debug mode
+.It Cm trace Ar func
+Enable tracing for function
+.It Cm status
+Show current debug status
+.El
+.It Cm bench Op Ar count
+Measure shell startup time.
+Default: 10 iterations.
+Reports min, max, and average startup time.
+.It Cm env Oo summary | full | paths Oc
+Display environment information.
+.Bl -tag -width "summary" -compact
+.It Cm summary
+Show basic info (default)
+.It Cm full
+Show detailed info including modules and options
+.It Cm paths
+Show PATH and fpath components
+.El
+.It Cm time Ar command Op Ar args ...
+Measure command execution time with nanosecond precision.
+More accurate than the built-in
+.Cm time
+keyword.
+.It Cm recovery
+Enter a minimal recovery shell environment.
+Useful when
+.Pa .zshrc
+has errors that prevent normal startup.
+.El
+.Ss Information
+.Bl -tag -width Ds
+.It Cm version Oo Fl v | Fl -verbose Oc Oo Fl c | Fl -check Oc
+Display version information for zsh4monkey and components.
+Use
+.Fl v
+for detailed component versions or
+.Fl c
+to check for available updates.
+.It Cm help Op Ar command
+Print help.
+Without arguments, shows all commands.
+With a command name, shows detailed help.
+.It Cm uninstall Oo Fl f | Fl -force Oc Oo Fl n | Fl -dry-run Oc
+Uninstall zsh4monkey.
+Creates a backup before removing files.
+Use
+.Fl n
+to show what would be removed without changing anything.
+.El
+.Sh CONFIGURATION
+Configuration is done via
+.Cm zstyle
+commands in
+.Pa ~/.zshrc
+before
+.Cm z4m init .
+.Pp
+Example configuration:
+.Bd -literal -offset indent
+# Keyboard layout: pc or mac
+zstyle ':z4m:bindkey' keyboard 'pc'
+
+# Editor mode: emacs or vi
+zstyle ':z4m:' editor-mode 'vi'
+
+# Enable SSH teleportation
+zstyle ':z4m:ssh:*' enable 'yes'
+
+# Prompt at bottom of terminal
+zstyle ':z4m:' prompt-at-bottom 'yes'
+.Ed
+.Pp
+See
+.Pa config.md
+in the zsh4monkey repository for complete configuration reference.
+.Sh ENVIRONMENT
+.Bl -tag -width ZDOTDIR
+.It Ev Z4M
+Cache directory for zsh4monkey.
+Default:
+.Pa ~/.cache/zsh4monkey .
+.It Ev Z4M_URL
+URL to fetch zsh4monkey from.
+Default: GitHub repository.
+.It Ev ZDOTDIR
+Directory containing zsh configuration files.
+Default:
+.Pa ~ .
+.El
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa ~/.zshenv
+Bootstrap file that sources z4m.
+.It Pa ~/.zshrc
+User configuration file.
+.It Pa ~/.p10k.zsh
+Powerlevel10k prompt configuration.
+.It Pa $Z4M/zsh4monkey/
+Core framework files.
+.It Pa $Z4M/fzf/
+Bundled fzf installation.
+.It Pa $Z4M/powerlevel10k/
+Powerlevel10k prompt theme.
+.El
+.Sh EXIT STATUS
+.Ex -std
+.Sh EXAMPLES
+Initialize zsh (in .zshrc):
+.Bd -literal -offset indent
+z4m init
+.Ed
+.Pp
+Install a plugin from GitHub:
+.Bd -literal -offset indent
+z4m install romkatv/powerlevel10k
+z4m install -f zsh-users/zsh-autosuggestions
+z4m install ohmyzsh/ohmyzsh@master
+.Ed
+.Pp
+SSH with teleportation:
+.Bd -literal -offset indent
+z4m ssh user@host
+z4m ssh -J jumphost user@target
+.Ed
+.Pp
+Benchmark startup time:
+.Bd -literal -offset indent
+z4m bench 20
+.Ed
+.Pp
+Toggle Vi mode:
+.Bd -literal -offset indent
+z4m vi-mode toggle
+.Ed
+.Sh SEE ALSO
+.Xr z4m-ssh 1 ,
+.Xr z4m-bindkey 1 ,
+.Xr zsh 1 ,
+.Xr tmux 1 ,
+.Xr fzf 1
+.Sh AUTHORS
+.An arcthur
+.Sh BUGS
+Report bugs at:
+.Lk https://github.com/arcthur/zsh4monkey/issues

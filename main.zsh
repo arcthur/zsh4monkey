@@ -111,7 +111,7 @@ functions -Ms _z4m_err
 
 () {
   manpath=(${@:|manpath} "${manpath[@]}" '')
-} {${HOMEBREW_PREFIX:+$HOMEBREW_PREFIX/share/man},/opt/local/share/man}(-/N)
+} {$Z4M/zsh4monkey/man,${HOMEBREW_PREFIX:+$HOMEBREW_PREFIX/share/man},/opt/local/share/man}(-/N)
 
 () {
   infopath=(${@:|infopath} $infopath '')

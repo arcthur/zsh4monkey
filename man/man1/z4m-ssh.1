@@ -1,0 +1,226 @@
+.\" z4m-ssh - SSH with zsh4monkey teleportation
+.\" Keep in sync with fn/-z4m-cmd-ssh and config.md
+.Dd December 29, 2024
+.Dt Z4M-SSH 1
+.Os
+.Sh NAME
+.Nm z4m ssh
+.Nd SSH with zsh4monkey teleportation
+.Sh SYNOPSIS
+.Nm z4m ssh
+.Op Fl -force-sync
+.Op Ar ssh-options
+.Oo Ar user Ns @ Oc Ns Ar hostname
+.Sh DESCRIPTION
+.Nm
+connects to a remote host and automatically installs and configures
+zsh4monkey on the remote, providing the same shell environment as local.
+.Pp
+The teleportation system:
+.Bl -bullet -compact
+.It
+Installs zsh4monkey on first connection
+.It
+Uses incremental sync for subsequent connections
+.It
+Supports ProxyJump
+.Pq Fl J
+for bastion hosts
+.It
+Works without git, zsh, or sudo on remote
+.It
+Propagates environment variables securely
+.It
+Supports offline mode for air-gapped hosts
+.El
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl -force-sync
+Force full file sync, ignoring cached state.
+Useful when local configuration has changed significantly.
+.El
+.Pp
+All standard
+.Xr ssh 1
+options are supported, including:
+.Bl -tag -width Ds
+.It Fl J Ar destination
+Connect via jump host (ProxyJump).
+Multiple
+.Fl J
+options can be chained for multi-hop connections.
+.It Fl p Ar port
+Connect to specified port.
+.It Fl i Ar identity_file
+Use specified identity file.
+.El
+.Sh CONFIGURATION
+Configuration is done via
+.Cm zstyle
+commands in
+.Pa ~/.zshrc
+before
+.Cm z4m init .
+.Ss Enable/Disable Teleportation
+.Bd -literal -offset indent
+# Whitelist approach (default: disabled)
+zstyle ':z4m:ssh:*'          enable 'no'
+zstyle ':z4m:ssh:myserver'   enable 'yes'
+
+# Blacklist approach (enable by default)
+zstyle ':z4m:ssh:*'          enable 'yes'
+zstyle ':z4m:ssh:production-*' enable 'no'
+.Ed
+.Ss Extra Files
+.Bd -literal -offset indent
+# Send additional files to remote
+zstyle ':z4m:ssh:*' send-extra-files '~/.nanorc' '~/.env.zsh'
+
+# Retrieve files from remote after session
+zstyle ':z4m:ssh:*' retrieve-extra-files '~/.local/notes'
+
+# Retrieve remote history
+zstyle ':z4m:ssh:*' retrieve-history '$ZDOTDIR/.zsh_history.remote'
+.Ed
+.Ss Environment Propagation
+.Bd -literal -offset indent
+# Specific variables
+zstyle ':z4m:ssh:*' propagate-env 'EDITOR' 'VISUAL' 'FZF_DEFAULT_OPTS'
+
+# Glob patterns for bulk matching
+zstyle ':z4m:ssh:*' propagate-env-patterns 'FZF_*' 'ATUIN_*'
+
+# Additional exclusion patterns
+zstyle ':z4m:ssh:*' propagate-env-exclude 'MY_INTERNAL_*'
+.Ed
+.Pp
+.Sy Built-in security exclusions
+(always enforced):
+.Bl -bullet -compact
+.It
+AWS_SECRET_*, AWS_SESSION_*
+.It
+*_TOKEN, *_KEY, *_SECRET, *_PASSWORD
+.It
+GITHUB_TOKEN, GH_TOKEN
+.It
+SSH_AUTH_SOCK, SSH_AGENT_PID
+.El
+.Ss Sync Mode
+.Bd -literal -offset indent
+zstyle ':z4m:ssh:*' sync-mode 'smart'
+.Ed
+.Pp
+Available values:
+.Bl -tag -width "incremental" -compact
+.It Cm smart
+Incremental if state file exists, full otherwise (default)
+.It Cm full
+Always sync all files
+.It Cm incremental
+Only sync changed files based on hash
+.El
+.Ss Offline Mode
+For hosts without internet access:
+.Bd -literal -offset indent
+zstyle ':z4m:ssh:airgapped-host' offline-mode yes
+.Ed
+.Pp
+This bundles z4m with the SSH connection, increasing transfer size
+but allowing z4m to work in air-gapped environments.
+.Ss Terminal Configuration
+.Bd -literal -offset indent
+# Override TERM for compatibility
+zstyle ':z4m:ssh:oldserver' term 'screen-256color'
+
+# Custom ssh command
+zstyle ':z4m:ssh:*' ssh-command 'command ssh'
+.Ed
+.Ss Custom Configuration Function
+.Bd -literal -offset indent
+zstyle ':z4m:ssh:myhost' configure 'my-ssh-configure'
+
+function my-ssh-configure() {
+  z4m_ssh_send_files+=('~/.custom-config')
+  z4m_ssh_setup+=('export MY_VAR=value')
+}
+.Ed
+.Pp
+Available arrays for customization:
+.Bl -bullet -compact
+.It
+.Va z4m_ssh_prelude
+\(em commands run before setup
+.It
+.Va z4m_ssh_send_files
+\(em files to send
+.It
+.Va z4m_ssh_setup
+\(em setup commands
+.It
+.Va z4m_ssh_run
+\(em main commands
+.It
+.Va z4m_ssh_teardown
+\(em cleanup commands
+.It
+.Va z4m_ssh_retrieve_files
+\(em files to retrieve
+.El
+.Sh EXAMPLES
+Basic connection:
+.Bd -literal -offset indent
+z4m ssh user@host
+.Ed
+.Pp
+Via jump host (bastion):
+.Bd -literal -offset indent
+z4m ssh -J jumphost user@target
+.Ed
+.Pp
+Multi-hop connection:
+.Bd -literal -offset indent
+z4m ssh -J jump1 -J jump2 user@target
+.Ed
+.Pp
+Force full sync after config changes:
+.Bd -literal -offset indent
+z4m ssh --force-sync user@host
+.Ed
+.Pp
+With custom port and identity:
+.Bd -literal -offset indent
+z4m ssh -p 2222 -i ~/.ssh/mykey user@host
+.Ed
+.Sh SSH CONFIG INTEGRATION
+ProxyJump directives in
+.Pa ~/.ssh/config
+are automatically supported:
+.Bd -literal -offset indent
+Host target
+    HostName target.internal.example.com
+    User admin
+    ProxyJump bastion.example.com
+.Ed
+.Pp
+Then simply:
+.Bd -literal -offset indent
+z4m ssh target
+.Ed
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa ~/.ssh/config
+SSH client configuration, ProxyJump directives are honored.
+.It Pa ~/.ssh/known_hosts
+Known host keys.
+.It Pa ~/.ssh/s/
+ControlMaster socket directory for connection sharing.
+.It Pa $Z4M/ssh-state/
+Cached sync state for incremental updates.
+.El
+.Sh SEE ALSO
+.Xr z4m 1 ,
+.Xr ssh 1 ,
+.Xr ssh_config 5
+.Sh AUTHORS
+.An arcthur

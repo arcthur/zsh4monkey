@@ -1,0 +1,265 @@
+.\" z4m-bindkey - Bind keys to ZLE widgets
+.\" Keep in sync with fn/-z4m-cmd-bindkey and fn/-z4m-help-bindkey
+.Dd December 29, 2024
+.Dt Z4M-BINDKEY 1
+.Os
+.Sh NAME
+.Nm z4m bindkey
+.Nd bind keys to ZLE widgets with proper terminal handling
+.Sh SYNOPSIS
+.Nm z4m bindkey
+.Fl l
+.Nm z4m bindkey
+.Fl L
+.Nm z4m bindkey
+.Ar widget
+.Ar key ...
+.Sh DESCRIPTION
+.Nm
+binds one or more keys to a ZLE (Zsh Line Editor) widget with proper
+terminal handling across different terminal emulators and operating systems.
+.Pp
+Unlike the built-in
+.Cm bindkey
+command,
+.Nm
+uses human-readable key names and automatically handles terminal-specific
+escape sequences.
+.Sh OPTIONS
+.Bl -tag -width Ds
+.It Fl l
+List all current key bindings in a readable table format,
+organized by category.
+.It Fl L
+List all bindings as
+.Nm z4m bindkey
+commands that can be saved and replayed via
+.Cm eval .
+.El
+.Sh KEY BINDING SYNTAX
+.Ss Single Keys
+.Bl -tag -width "PageDown" -compact
+.It Cm Enter
+Return/Enter key
+.It Cm Tab
+Tab key
+.It Cm Backspace
+Backspace key
+.It Cm Delete
+Delete key
+.It Cm Escape
+Escape key
+.It Cm Space
+Space bar
+.It Cm Up , Down , Left , Right
+Arrow keys
+.It Cm Home , End
+Home and End keys
+.It Cm PageUp , PageDown
+Page Up and Page Down keys
+.It Cm Insert
+Insert key
+.It Cm F1 Ns \(en Ns Cm F12
+Function keys
+.El
+.Ss Modifier Combinations
+.Bl -tag -width "Ctrl+Shift+X" -compact
+.It Cm Ctrl+X
+Control + X (where X is A-Z, [, ], \e, /)
+.It Cm Alt+X
+Alt/Meta + X (A-Z, a-z, [, ], \e, /, ., ,)
+.It Cm Option+X
+Same as Alt+X (for macOS compatibility)
+.It Cm Shift+Arrow
+Shift + arrow keys (Up, Down, Left, Right)
+.It Cm Ctrl+Alt+X
+Control + Alt + X
+.It Cm Ctrl+Shift+Arrow
+Control + Shift + arrow keys
+.El
+.Ss Key Sequences
+Multiple keys separated by spaces form a sequence:
+.Bd -literal -offset indent
+Ctrl+X Ctrl+C    # Ctrl+X followed by Ctrl+C
+.Ed
+.Sh DEFAULT BINDINGS
+.Nm
+sets up the following default bindings:
+.Ss Navigation
+.Bl -tag -width "Ctrl+Home, Alt+Home" -compact
+.It Cm Up , Ctrl+P
+Search local history with prefix
+.It Cm Ctrl+Up
+Search global history with prefix
+.It Cm Down , Ctrl+N
+Navigate history forward
+.It Cm Ctrl+Down
+Navigate global history forward
+.It Cm Left , Right
+Move cursor
+.It Cm Home , End
+Go to line start/end
+.It Cm Ctrl+Home , Alt+Home
+Go to buffer start
+.It Cm Ctrl+End , Alt+End
+Go to buffer end
+.El
+.Ss Word Navigation
+.Bl -tag -width "Ctrl+Shift+Left" -compact
+.It Cm Alt+B , Alt+Left , Ctrl+Left
+Move back one word
+.It Cm Alt+F , Alt+Right , Ctrl+Right
+Move forward one word
+.It Cm Ctrl+Shift+Left
+Move back one zword
+.It Cm Ctrl+Shift+Right
+Move forward one zword
+.El
+.Ss Deletion
+.Bl -tag -width "Ctrl+Shift+Delete" -compact
+.It Cm Ctrl+D , Delete
+Delete character
+.It Cm Alt+D , Ctrl+Delete , Alt+Delete
+Delete word forward
+.It Cm Ctrl+W , Alt+Backspace
+Delete word backward
+.It Cm Ctrl+Shift+Delete
+Delete zword forward
+.It Cm Alt+K
+Kill to line start
+.It Cm Alt+J
+Kill entire buffer
+.El
+.Ss Directory Navigation
+.Bl -tag -width "Shift+Left" -compact
+.It Cm Shift+Left
+Go to previous directory (cd back)
+.It Cm Shift+Right
+Go to next directory (cd forward)
+.It Cm Shift+Up
+Go to parent directory (cd up)
+.It Cm Shift+Down
+Fuzzy select subdirectory (cd down)
+.It Cm Alt+R
+Fuzzy directory history
+.El
+.Ss Completion and History
+.Bl -tag -width "Ctrl+Space" -compact
+.It Cm Tab
+Fuzzy completion (z4m-fzf-complete)
+.It Cm Ctrl+R
+Fuzzy history search (z4m-fzf-history)
+.It Cm Ctrl+Space
+Expand alias/glob
+.It Cm Alt+M
+Accept autosuggestion
+.El
+.Ss Editing
+.Bl -tag -width "Shift+Tab" -compact
+.It Cm Shift+Tab
+Undo last change
+.It Cm Alt+/
+Redo last undo
+.It Cm Alt+O
+Stash current buffer
+.It Cm Alt+H
+Show help for command (run-help)
+.El
+.Ss Screen
+.Bl -tag -width "Ctrl+Alt+L" -compact
+.It Cm Ctrl+L
+Clear screen (soft)
+.It Cm Ctrl+Alt+L
+Hard clear screen
+.El
+.Sh CONFIGURATION
+.Ss macOS Option Key
+By default, the Option key works as Alt on macOS.
+This can be controlled with:
+.Bd -literal -offset indent
+zstyle ':z4m:bindkey' macos-option-as-alt yes
+.Ed
+.Ss Keyboard Layout
+Set keyboard layout to adjust certain bindings:
+.Bd -literal -offset indent
+zstyle ':z4m:bindkey' keyboard 'pc'   # or 'mac'
+.Ed
+.Sh EXAMPLES
+Bind directory navigation to Alt+arrows:
+.Bd -literal -offset indent
+z4m bindkey z4m-cd-back Alt+Left Shift+Left
+z4m bindkey z4m-cd-up Alt+Up Shift+Up
+.Ed
+.Pp
+Bind Enter to accept-line:
+.Bd -literal -offset indent
+z4m bindkey accept-line Enter
+.Ed
+.Pp
+Bind Ctrl+R to history search:
+.Bd -literal -offset indent
+z4m bindkey z4m-fzf-history Ctrl+R
+.Ed
+.Pp
+Bind undo to Ctrl+Z:
+.Bd -literal -offset indent
+z4m bindkey undo Ctrl+Z
+.Ed
+.Pp
+List all current bindings:
+.Bd -literal -offset indent
+z4m bindkey -l
+.Ed
+.Pp
+Export bindings for backup:
+.Bd -literal -offset indent
+z4m bindkey -L > my-bindings.zsh
+.Ed
+.Sh AVAILABLE WIDGETS
+Common ZLE widgets that can be bound:
+.Bl -tag -width "z4m-fzf-dir-history" -compact
+.It Cm z4m-up-prefix-local
+Search local history with current prefix
+.It Cm z4m-up-prefix-global
+Search global history with current prefix
+.It Cm z4m-forward-word
+Move forward one word
+.It Cm z4m-backward-word
+Move back one word
+.It Cm z4m-kill-word
+Delete word forward
+.It Cm z4m-backward-kill-word
+Delete word backward
+.It Cm z4m-cd-back
+Navigate to previous directory
+.It Cm z4m-cd-forward
+Navigate to next directory
+.It Cm z4m-cd-up
+Navigate to parent directory
+.It Cm z4m-cd-down
+Fuzzy select subdirectory
+.It Cm z4m-fzf-complete
+Fuzzy completion with fzf
+.It Cm z4m-fzf-history
+Fuzzy history search
+.It Cm z4m-fzf-dir-history
+Fuzzy directory history
+.It Cm z4m-autosuggest-accept
+Accept current autosuggestion
+.It Cm z4m-expand
+Expand alias or glob
+.It Cm z4m-stash-buffer
+Stash current command line
+.It Cm z4m-clear-screen-soft-top
+Clear screen (soft)
+.It Cm z4m-clear-screen-hard-top
+Clear screen (hard)
+.It Cm z4m-recovery-shell
+Enter recovery shell
+.El
+.Sh SEE ALSO
+.Xr z4m 1 ,
+.Xr zshzle 1 ,
+.Xr bindkey 1
+.Sh AUTHORS
+.An arcthur
