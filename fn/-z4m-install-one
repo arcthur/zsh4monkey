@@ -20,7 +20,7 @@ if [[ $1 == */* ]]; then
       wfxr/forgit)
         postinstall=-z4m-postinstall-forgit
       ;;
-      zsh-users/(zsh-syntax-highlighting|zsh-autosuggestions|zsh-history-substring-search))
+      zsh-users/(zsh-autosuggestions|zsh-history-substring-search))
         postinstall=-z4m-postinstall-zsh-users
       ;;
       *)
@@ -43,7 +43,7 @@ else
         powerlevel10k)                url=https://github.com/romkatv/$1/archive/master.tar.gz;;
         zsh-completions)              url=https://github.com/zsh-users/$1/archive/master.tar.gz;;
         zsh-autosuggestions)          url=https://github.com/zsh-users/$1/archive/master.tar.gz;;
-        zsh-syntax-highlighting)      url=https://github.com/zsh-users/$1/archive/master.tar.gz;;
+        fast-syntax-highlighting)     url=https://github.com/zdharma-continuum/$1/archive/master.tar.gz;;
         zsh-history-substring-search) url=https://github.com/zsh-users/$1/archive/master.tar.gz;;
         *)
           print -Pru2 -- "%F{3}z4m%f: %F{1}internal error%f: unknown package: ${1//\%/%%}"

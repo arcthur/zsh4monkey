@@ -52,7 +52,7 @@ add-zsh-hook -- precmd  -z4m-set-term-title-precmd                     || return
 local pkg
 typeset -gA _z4m_use
 for pkg in fzf powerlevel10k zsh-history-substring-search \
-          zsh-completions zsh-autosuggestions zsh-syntax-highlighting; do
+          zsh-completions zsh-autosuggestions fast-syntax-highlighting; do
   zstyle -t :z4m:$pkg channel none || _z4m_use[$pkg]=1
 done
 typeset -grA _z4m_use
@@ -914,13 +914,9 @@ if (( _z4m_use[zsh-history-substring-search] )); then
   builtin source $Z4M/zsh-history-substring-search/zsh-history-substring-search.zsh
 fi
 
-if (( _z4m_use[zsh-syntax-highlighting] )); then
-  if (( terminfo[colors] >= 256 )); then
-    typeset -gA ZSH_HIGHLIGHT_STYLES=(comment fg=96)  # the default is hard to see
-  fi
+if (( _z4m_use[fast-syntax-highlighting] )); then
   ZSH_HIGHLIGHT_MAXLENGTH=1024                # don't colorize long command lines (slow)
   ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets)  # main syntax highlighting plus matching brackets
-  typeset -gi zsh_highlight__memo_feature=0
 fi
 
 local event
@@ -961,13 +957,13 @@ function -z4m-post-init() {
     -z4m-update-dir-history
   fi
 
-  if (( _z4m_use[zsh-syntax-highlighting] )); then
+  if (( _z4m_use[fast-syntax-highlighting] )); then
     () {
       local -hA widgets=(
         zle-line-finish    user:_zsh_highlight_widget_zle-line-finish
         zle-isearch-update user:_zsh_highlight_widget_zle-isearch-update
       )
-      builtin source $Z4M/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+      builtin source $Z4M/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh
     }
     preexec_functions=(${preexec_functions:#_zsh_highlight_preexec_hook})
     eval '_zsh_highlight() {

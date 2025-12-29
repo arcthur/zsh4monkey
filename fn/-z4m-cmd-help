@@ -33,7 +33,7 @@ if (( ARGC == 1 )); then
       print -Pr -- "  - fzf"
       print -Pr -- "  - powerlevel10k"
       print -Pr -- "  - zsh-autosuggestions"
-      print -Pr -- "  - zsh-syntax-highlighting"
+      print -Pr -- "  - fast-syntax-highlighting"
       print -Pr -- "  - User-installed plugins"
     ;;
     init)

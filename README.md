@@ -6,7 +6,7 @@ A modern, feature-rich Zsh configuration that just works. Built for developers w
 
 - **Zero-config excellence** - Works great out of the box
 - **Blazing fast** - Sub-50ms startup with [zsh-bench](https://github.com/romkatv/zsh-bench)
-- **Syntax highlighting** - Real-time [syntax highlighting](https://github.com/zsh-users/zsh-syntax-highlighting)
+- **Syntax highlighting** - Feature-rich [fast-syntax-highlighting](https://github.com/zdharma-continuum/fast-syntax-highlighting) with 256-color themes
 - **Smart autosuggestions** - [Fish-like suggestions](https://github.com/zsh-users/zsh-autosuggestions)
 - **Beautiful prompt** - Powered by [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
 - **Fuzzy search** - [fzf](https://github.com/junegunn/fzf) for completions and history

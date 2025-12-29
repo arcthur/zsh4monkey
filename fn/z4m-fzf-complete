@@ -276,7 +276,7 @@ done
       builtin zle .split-undo || return
       [[ $LBUFFER == *' ' ]] && return
     } always {
-      if (( _z4m_use[zsh-autosuggestions] || _z4m_use[zsh-syntax-highlighting] )); then
+      if (( _z4m_use[zsh-autosuggestions] || _z4m_use[fast-syntax-highlighting] )); then
         -z4m-redraw-buffer
       fi
     }

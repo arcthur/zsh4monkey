@@ -101,13 +101,13 @@ if (( verbose )); then
     print -Pr -- "  %Bautosuggestions%b: $zas_version"
   fi
 
-  # zsh-syntax-highlighting
-  if [[ -d $Z4M/zsh-users/zsh-syntax-highlighting ]]; then
-    local zsh_version="installed"
-    if [[ -r $Z4M/zsh-users/zsh-syntax-highlighting/.version ]]; then
-      zsh_version=$(<$Z4M/zsh-users/zsh-syntax-highlighting/.version)
+  # fast-syntax-highlighting
+  if [[ -d $Z4M/fast-syntax-highlighting ]]; then
+    local fsh_version="installed"
+    if [[ -r $Z4M/fast-syntax-highlighting/.version ]]; then
+      fsh_version=$(<$Z4M/fast-syntax-highlighting/.version)
     fi
-    print -Pr -- "  %Bsyntax-highlighting%b: $zsh_version"
+    print -Pr -- "  %Bfast-syntax-highlighting%b: $fsh_version"
   fi
 
   # tmux
