@@ -28,6 +28,11 @@ zstyle ':z4m:ssh:*' send-extra-files '~/.nanorc' '~/.env.zsh'
 # example. If you don't plan to use Oh My Zsh, delete this line.
 z4m install ohmyzsh/ohmyzsh || return
 
+# Install CLI tools (eza, bat, fd, rg, zoxide, fzf).
+# These provide modern replacements for ls, cat, find, grep, and smart cd.
+# Disable individual tools with: zstyle ':z4m:eza' enabled no
+z4m install eza bat fd rg zoxide || return
+
 # Install or update core components (fzf, zsh-autosuggestions, etc.) and
 # initialize Zsh. After this point console I/O is unavailable until Zsh
 # is fully initialized. Everything that requires user interaction or can
@@ -66,10 +71,9 @@ function md() { [[ $# == 1 ]] && mkdir -p -- "$1" && cd -- "$1" }
 compdef _directories md
 
 # Define aliases.
-alias tree='tree -a -I .git'
-
-# Add flags to existing aliases.
-alias ls="${aliases[ls]:-ls} -A"
+# Note: ls, cat, tree aliases are handled by CLI tools (eza, bat) when installed.
+# alias tree='tree -a -I .git'
+# alias ls="${aliases[ls]:-ls} -A"
 
 # Set shell options: http://zsh.sourceforge.net/Doc/Release/Options.html.
 setopt glob_dots     # no special treatment for file names with a leading dot

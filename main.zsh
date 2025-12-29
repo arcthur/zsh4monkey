@@ -447,7 +447,8 @@ function -z4m-cmd-install() {
 
   # Allow both user/repo format and simple names for built-in packages (eza, bat, fd, rg, zoxide)
   local -a builtin_pkgs=(eza bat fd rg zoxide carapace atuin)
-  local invalid=("${@:#(([^/]##/)##[^/]##|${(j:|:)builtin_pkgs})}")
+  local pattern="(([^/]##/)##[^/]##|${(j:|:)builtin_pkgs})"
+  local invalid=("${@:#$~pattern}")
   if (( $#invalid )); then
     print -Pru2 -- '%F{3}z4m%f: %Binstall%b: invalid project name(s)'
     print -Pru2 -- ''

@@ -293,7 +293,7 @@ fi
 url='https://raw.githubusercontent.com/arcthur/zsh4monkey/main'
 
 >&2 'printf' '\n'
->&2 'printf' 'Settings up \033[33mZsh For Humans\033[0m...\n'
+>&2 'printf' 'Setting up \033[33mZsh for Monkey\033[0m...\n'
 >&2 'printf' '\n'
 
 >&2 printf '\033[33mz4m\033[0m: fetching \033[4mz4m.zsh\033[0m from \033[1mgithub.com/arcthur/zsh4monkey\033[0m\n'

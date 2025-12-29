@@ -31,11 +31,11 @@ function -z4m-shell-integration-precmd() {
   # Skip if called from ZLE (e.g., during completion)
   zle && return
 
-  local -i status=$1
+  local -i exit_code=$1
 
   # End previous command if one ran
   if (( _z4m_shell_cmd == 2 )); then
-    -z4m-tmux-bypass '\e]133;D;%d\a' $status
+    -z4m-tmux-bypass '\e]133;D;%d\a' $exit_code
   fi
 
   # Mark prompt start
