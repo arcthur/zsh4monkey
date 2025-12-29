@@ -11,8 +11,20 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 
 [[ -v _z4m_tty_fd ]] || return
 
+# Detect fzf version for --scheme support
+autoload +X -Uz -- -z4m-fzf-version
+-z4m-fzf-version 2>/dev/null || true
+local -i ver=${_z4m_fzf_version_num:-0}
+
+# Build preview command with enhanced formatting
 local preview='printf "%s" {} | command cut -f2- -d'$'\1'
-(( $+commands[bat] )) && preview+=' | command bat -l bash --color always -pp --wrap=character --terminal-width=$((FZF_PREVIEW_COLUMNS-1))'
+if (( $+commands[bat] )); then
+  # Use bat with bash syntax highlighting
+  preview+=' | command bat -l bash --color always -pp --wrap=character --terminal-width=$((FZF_PREVIEW_COLUMNS-1))'
+elif (( $+commands[highlight] )); then
+  # Fallback to highlight if available
+  preview+=' | command highlight -O ansi -S bash'
+fi
 
 {
   -z4m-show-dots ''
@@ -35,13 +47,14 @@ local preview='printf "%s" {} | command cut -f2- -d'$'\1'
       --no-mouse
       --tabstop 1
       --query=$query
-      --color=hl:201,hl+:201
       --no-clear
       --layout=default
       --preview-window=wrap:4:down:noborder
       --preview=$preview
       --height=$LINES
     )
+    # Use history-optimized scoring (fzf 0.59+)
+    (( ver >= 5900 )) && opts+=(--scheme=history)
     local move=$'\e[0m\e[H'
     local _z4m_saved_screen
     -z4m-save-screen || return
@@ -68,8 +81,9 @@ local preview='printf "%s" {} | command cut -f2- -d'$'\1'
       --no-mouse
       --tabstop 1
       --query=$query
-      --color=hl:201,hl+:201
     )
+    # Use history-optimized scoring (fzf 0.59+)
+    (( ver >= 5900 )) && opts+=(--scheme=history)
 
     local -i preview_lines=6
     local -i height=$(($#history + 2))

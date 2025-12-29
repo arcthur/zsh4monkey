@@ -162,10 +162,58 @@ zstyle ':z4m:' start-tmux 'command tmux -u new -A -D -t z4m'
 
 ## FZF Settings
 
+z4m automatically detects your fzf version and enables advanced features when available.
+
 ### Global fzf-flags
 
 ```zsh
 zstyle ':z4m:*' fzf-flags '--color=hl:5,hl+:5'
+```
+
+### Theme Configuration
+
+Choose from popular color themes (requires fzf to apply):
+
+```zsh
+zstyle ':z4m:*' fzf-theme 'catppuccin'
+```
+
+| Theme | Description |
+|-------|-------------|
+| `default` | Default highlight colors (magenta) |
+| `dracula` | Purple/pink Dracula theme |
+| `gruvbox` | Retro groove colors |
+| `catppuccin` | Catppuccin Mocha (dark) |
+| `catppuccin-latte` | Catppuccin Latte (light) |
+| `nord` | Arctic, north-bluish colors |
+| `tokyonight` | Tokyo Night theme |
+| `onedark` | Atom One Dark theme |
+| `solarized-dark` | Solarized Dark |
+| `solarized-light` | Solarized Light |
+| `rose-pine` | Rose Pine theme |
+| `kanagawa` | Kanagawa wave theme |
+
+### Tmux Popup Mode (fzf 0.54+)
+
+Use fzf in a tmux popup window instead of inline:
+
+```zsh
+zstyle ':z4m:*' fzf-tmux 'center'   # or: top, bottom, left, right
+zstyle ':z4m:*' fzf-tmux 'no'       # disable (default)
+```
+
+### Visual Enhancements (fzf 0.52+)
+
+```zsh
+# Highlight entire current line
+zstyle ':z4m:*' fzf-highlight-line 'yes'
+
+# Enable line wrapping (fzf 0.56+)
+zstyle ':z4m:*' fzf-wrap 'yes'
+
+# Custom pointer and marker symbols (fzf 0.54+)
+zstyle ':z4m:*' fzf-pointer '▶'
+zstyle ':z4m:*' fzf-marker '✓'
 ```
 
 ### fzf-complete
@@ -181,11 +229,16 @@ zstyle ':z4m:fzf-complete' fzf-bindings 'tab:repeat'
 zstyle ':z4m:(cd-down|fzf-complete)' find-command 'command find'
 ```
 
+> **Note:** fzf 0.48+ uses built-in `--walker` for faster directory traversal.
+> Custom `find-command` disables this optimization.
+
 ### fzf-history
 
 ```zsh
 zstyle ':z4m:fzf-history' fzf-preview 'no'
 ```
+
+> fzf 0.59+ uses `--scheme=history` for better history matching.
 
 ### fzf-dir-history / cd-down
 
@@ -194,7 +247,22 @@ zstyle ':z4m:fzf-dir-history' fzf-bindings 'tab:repeat'
 zstyle ':z4m:cd-down'         fzf-bindings 'tab:repeat'
 ```
 
+> fzf 0.59+ uses `--scheme=path` for better path matching.
+
 **fzf-bindings values:** `tab:down`, `tab:up`, `tab:repeat`
+
+### Advanced Keybindings
+
+The following keybindings are automatically enabled based on fzf version:
+
+| Key | Action | Requires |
+|-----|--------|----------|
+| `Ctrl+/` | Toggle preview | fzf 0.45+ |
+| `Alt+P` | Toggle preview | fzf 0.45+ |
+| `Alt+T` | Track current item | fzf 0.49+ |
+| `Ctrl+F` | Preview page down | (with preview) |
+| `Ctrl+B` | Preview page up | (with preview) |
+| `Alt+Up/Down` | Preview scroll | (with preview) |
 
 ---
 

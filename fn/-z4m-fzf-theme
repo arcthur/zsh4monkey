@@ -1,0 +1,96 @@
+#!/usr/bin/env zsh
+
+# Get fzf color theme based on zstyle configuration
+# Sets reply array with --color flags
+#
+# Usage: -z4m-fzf-theme [widget-name]
+#
+# Themes: default, dracula, gruvbox, catppuccin, nord, tokyonight, onedark, solarized-dark, solarized-light
+
+emulate -L zsh -o typeset_silent
+
+local widget=${1:-$WIDGET}
+widget=${widget#z4m-}
+
+local theme
+zstyle -s ":z4m:$widget" fzf-theme theme ||
+zstyle -s ':z4m:*' fzf-theme theme ||
+theme='default'
+
+typeset -ga reply=()
+
+case $theme in
+  dracula)
+    reply+=(--color='fg:#f8f8f2,bg:#282a36,hl:#bd93f9')
+    reply+=(--color='fg+:#f8f8f2,bg+:#44475a,hl+:#bd93f9')
+    reply+=(--color='info:#ffb86c,prompt:#50fa7b,pointer:#ff79c6')
+    reply+=(--color='marker:#ff79c6,spinner:#ffb86c,header:#6272a4')
+    reply+=(--color='border:#6272a4,gutter:#282a36')
+    ;;
+  gruvbox)
+    reply+=(--color='bg+:#3c3836,bg:#282828,spinner:#fb4934,hl:#83a598')
+    reply+=(--color='fg:#ebdbb2,header:#83a598,info:#fabd2f,pointer:#fb4934')
+    reply+=(--color='marker:#fb4934,fg+:#ebdbb2,prompt:#fabd2f,hl+:#83a598')
+    reply+=(--color='border:#665c54,gutter:#282828')
+    ;;
+  catppuccin|catppuccin-mocha)
+    reply+=(--color='bg+:#313244,bg:#1e1e2e,spinner:#f5e0dc,hl:#f38ba8')
+    reply+=(--color='fg:#cdd6f4,header:#f38ba8,info:#cba6f7,pointer:#f5e0dc')
+    reply+=(--color='marker:#b4befe,fg+:#cdd6f4,prompt:#cba6f7,hl+:#f38ba8')
+    reply+=(--color='border:#6c7086,gutter:#1e1e2e')
+    ;;
+  catppuccin-latte)
+    reply+=(--color='bg+:#ccd0da,bg:#eff1f5,spinner:#dc8a78,hl:#d20f39')
+    reply+=(--color='fg:#4c4f69,header:#d20f39,info:#8839ef,pointer:#dc8a78')
+    reply+=(--color='marker:#7287fd,fg+:#4c4f69,prompt:#8839ef,hl+:#d20f39')
+    reply+=(--color='border:#9ca0b0,gutter:#eff1f5')
+    ;;
+  nord)
+    reply+=(--color='bg+:#3b4252,bg:#2e3440,spinner:#81a1c1,hl:#88c0d0')
+    reply+=(--color='fg:#d8dee9,header:#88c0d0,info:#5e81ac,pointer:#81a1c1')
+    reply+=(--color='marker:#bf616a,fg+:#eceff4,prompt:#81a1c1,hl+:#8fbcbb')
+    reply+=(--color='border:#4c566a,gutter:#2e3440')
+    ;;
+  tokyonight)
+    reply+=(--color='bg+:#292e42,bg:#1a1b26,spinner:#bb9af7,hl:#7aa2f7')
+    reply+=(--color='fg:#c0caf5,header:#7aa2f7,info:#7dcfff,pointer:#bb9af7')
+    reply+=(--color='marker:#f7768e,fg+:#c0caf5,prompt:#bb9af7,hl+:#7aa2f7')
+    reply+=(--color='border:#3b4261,gutter:#1a1b26')
+    ;;
+  onedark)
+    reply+=(--color='bg+:#31353f,bg:#282c34,spinner:#c678dd,hl:#61afef')
+    reply+=(--color='fg:#abb2bf,header:#61afef,info:#e5c07b,pointer:#c678dd')
+    reply+=(--color='marker:#e06c75,fg+:#abb2bf,prompt:#c678dd,hl+:#61afef')
+    reply+=(--color='border:#4b5263,gutter:#282c34')
+    ;;
+  solarized-dark)
+    reply+=(--color='bg+:#073642,bg:#002b36,spinner:#2aa198,hl:#268bd2')
+    reply+=(--color='fg:#839496,header:#268bd2,info:#b58900,pointer:#2aa198')
+    reply+=(--color='marker:#cb4b16,fg+:#93a1a1,prompt:#859900,hl+:#268bd2')
+    reply+=(--color='border:#586e75,gutter:#002b36')
+    ;;
+  solarized-light)
+    reply+=(--color='bg+:#eee8d5,bg:#fdf6e3,spinner:#2aa198,hl:#268bd2')
+    reply+=(--color='fg:#657b83,header:#268bd2,info:#b58900,pointer:#2aa198')
+    reply+=(--color='marker:#cb4b16,fg+:#586e75,prompt:#859900,hl+:#268bd2')
+    reply+=(--color='border:#93a1a1,gutter:#fdf6e3')
+    ;;
+  rose-pine)
+    reply+=(--color='bg+:#26233a,bg:#191724,spinner:#f6c177,hl:#ebbcba')
+    reply+=(--color='fg:#e0def4,header:#ebbcba,info:#9ccfd8,pointer:#c4a7e7')
+    reply+=(--color='marker:#eb6f92,fg+:#e0def4,prompt:#c4a7e7,hl+:#ebbcba')
+    reply+=(--color='border:#6e6a86,gutter:#191724')
+    ;;
+  kanagawa)
+    reply+=(--color='bg+:#2a2a37,bg:#1f1f28,spinner:#957fb8,hl:#7e9cd8')
+    reply+=(--color='fg:#dcd7ba,header:#7e9cd8,info:#e6c384,pointer:#957fb8')
+    reply+=(--color='marker:#ff5d62,fg+:#dcd7ba,prompt:#957fb8,hl+:#7e9cd8')
+    reply+=(--color='border:#54546d,gutter:#1f1f28')
+    ;;
+  default|*)
+    # Use default highlight colors (magenta)
+    reply+=(--color='hl:201,hl+:201')
+    ;;
+esac
+
+return 0
