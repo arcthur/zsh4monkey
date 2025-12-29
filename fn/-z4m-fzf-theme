@@ -17,7 +17,8 @@ zstyle -s ":z4m:$widget" fzf-theme theme ||
 zstyle -s ':z4m:*' fzf-theme theme ||
 theme='default'
 
-typeset -ga reply=()
+# Use dynamic scoping to set reply in caller's scope
+reply=()
 
 case $theme in
   dracula)

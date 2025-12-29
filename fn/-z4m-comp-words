@@ -4,11 +4,6 @@
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
-  # Detect fzf version for new features
-  autoload +X -Uz -- -z4m-fzf-version
-  -z4m-fzf-version 2>/dev/null || true
-  local -i ver=${_z4m_fzf_version_num:-0}
-
   local -i list_types
   [[ $1 == on ]] && list_types=1
 

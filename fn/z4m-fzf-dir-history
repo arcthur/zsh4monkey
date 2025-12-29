@@ -2,7 +2,11 @@
 
 [[ -v _z4m_tty_fd ]] || return
 
-autoload +X -Uz -- -z4m-present-files -z4m-cursor-show -z4m-find -z4m-fzf
+autoload +X -Uz -- -z4m-present-files -z4m-cursor-show -z4m-find -z4m-fzf -z4m-fzf-version
+
+# Detect fzf version for --scheme support
+-z4m-fzf-version 2>/dev/null || true
+local -i ver=${_z4m_fzf_version_num:-0}
 
 local -i dot_glob list_types
 [[ -o dot_glob   ]] && dot_glob=1
@@ -60,6 +64,9 @@ local -i list_colors=$((!$?))
           --no-multi
           --border=horizontal
         )
+
+        # Path-optimized scoring (fzf 0.59+)
+        (( ver >= 5900 )) && opts+=(--scheme=path)
 
         if (( first )); then
           opts+=(--no-sort)
