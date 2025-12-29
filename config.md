@@ -456,12 +456,47 @@ zstyle ':z4m:direnv:success' notify 'yes'
 
 ## Shell Integration
 
-OSC 133 shell integration for modern terminals (Ghostty, kitty, WezTerm, VS Code, iTerm2). **Enabled by default.**
+OSC 133 shell integration for modern terminals. **Enabled by default.**
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| Semantic jumping | `C-Up`/`C-Down` in tmux copy-mode jumps between prompts |
+| Output capture | Navigate to output region and yank in copy-mode |
+| Command notification | Desktop notification when long commands finish |
+
+### OSC 133 (Prompt Marking)
 
 ```zsh
-# Disable if needed:
+# Disable prompt marking:
 zstyle ':z4m:' term-shell-integration 'no'
 ```
+
+Supported terminals: Ghostty, kitty, iTerm2, WezTerm, VS Code, Windows Terminal
+
+**Tmux requirements:**
+- tmux 3.3a+ with `allow-passthrough on`
+- Copy-mode bindings: `C-Up` (previous-prompt), `C-Down` (next-prompt)
+
+### Command Notification (OSC 9)
+
+Desktop notification when commands exceed a time threshold.
+
+```zsh
+# Disable notifications
+zstyle ':z4m:cmd-notify' enable no
+
+# Set threshold in seconds (default: 30)
+zstyle ':z4m:cmd-notify' threshold 30
+
+# Exclude specific commands
+zstyle ':z4m:cmd-notify' exclude 'docker' 'kubectl'
+```
+
+**Default exclusions** (interactive commands): vim, nvim, less, man, top, htop, ssh, tmux, python, node, mysql, etc.
+
+Supported terminals: Ghostty, kitty, iTerm2, WezTerm, Windows Terminal
 
 ---
 
@@ -699,7 +734,8 @@ z4m install eza bat fd rg zoxide carapace atuin || return
 ```
 
 **Already enabled by default:**
-- Shell integration (OSC 133)
+- Shell integration (OSC 133) with semantic prompt jumping
+- Command completion notification (OSC 9, > 30s)
 - Recursive directory completion
 - CWD propagation in tmux
 - Tmux unified navigation (`Ctrl+h/j/k/l`)

@@ -1,0 +1,102 @@
+#!/usr/bin/env zsh
+#
+# Command Completion Notification using OSC 9
+#
+# Sends desktop notification when long-running commands finish.
+# Uses OSC 9 escape sequence supported by modern terminals:
+#   Ghostty, kitty, iTerm2, WezTerm, Windows Terminal
+#
+# Configuration:
+#   zstyle ':z4m:cmd-notify' enable yes       # Enable/disable (default: yes)
+#   zstyle ':z4m:cmd-notify' threshold 30     # Seconds before notify (default: 30)
+#   zstyle ':z4m:cmd-notify' exclude cmd...   # Commands to skip
+#
+
+emulate -L zsh -o typeset_silent
+
+# Check if notification feature is enabled
+if ! zstyle -T :z4m:cmd-notify enable; then
+  return 0
+fi
+
+# =============================================================================
+# State Variables
+# =============================================================================
+typeset -gi _z4m_cmd_start_time=0
+typeset -g _z4m_cmd_notify_cmd=''
+
+# =============================================================================
+# Default Exclusions (interactive/long-running by nature)
+# =============================================================================
+typeset -ga _z4m_cmd_notify_default_exclude=(
+  vim nvim vi nano emacs
+  less more man
+  top htop btop btm glances
+  ssh mosh telnet
+  watch
+  tmux screen
+  python python3 node ruby irb ghci lua
+  mysql psql sqlite3 mongosh redis-cli
+  fzf
+)
+
+# =============================================================================
+# Preexec Hook: Record command start time
+# =============================================================================
+function -z4m-cmd-notify-preexec() {
+  local cmd=${1[(w)1]}  # First word of command
+  cmd=${cmd:t}          # Remove path prefix
+
+  # Handle sudo/env/time prefixes
+  if [[ $cmd == (sudo|env|time|nohup|nice|ionice|caffeinate) ]]; then
+    cmd=${1[(w)2]:t}
+  fi
+
+  # Check exclusions
+  local -a exclude
+  zstyle -a ':z4m:cmd-notify' exclude exclude
+  exclude+=($_z4m_cmd_notify_default_exclude)
+
+  if (( ${exclude[(I)$cmd]} )); then
+    _z4m_cmd_start_time=0
+    return
+  fi
+
+  _z4m_cmd_start_time=$EPOCHSECONDS
+  _z4m_cmd_notify_cmd=$cmd
+}
+
+# =============================================================================
+# Precmd Hook: Send notification if threshold exceeded
+# =============================================================================
+function -z4m-cmd-notify-precmd() {
+  # Capture exit code immediately (before any other command runs)
+  local -i exit_code=$?
+
+  # Skip if no command was tracked
+  (( _z4m_cmd_start_time == 0 )) && return
+
+  local -i elapsed=$(( EPOCHSECONDS - _z4m_cmd_start_time ))
+  local -i threshold
+  zstyle -s ':z4m:cmd-notify' threshold threshold || threshold=30
+
+  if (( elapsed >= threshold )); then
+    local status_icon
+    (( exit_code == 0 )) && status_icon='✓' || status_icon='✗'
+
+    # OSC 9: Desktop notification (via tmux bypass for passthrough)
+    -z4m-tmux-bypass '\e]9;%s %s finished (%ds)\a' "$status_icon" "$_z4m_cmd_notify_cmd" $elapsed
+  fi
+
+  # Reset state
+  _z4m_cmd_start_time=0
+  _z4m_cmd_notify_cmd=''
+}
+
+# =============================================================================
+# Register Hooks
+# =============================================================================
+autoload -Uz add-zsh-hook
+
+add-zsh-hook preexec -z4m-cmd-notify-preexec
+add-zsh-hook precmd -z4m-cmd-notify-precmd

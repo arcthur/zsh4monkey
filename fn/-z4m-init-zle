@@ -1,7 +1,8 @@
 #!/usr/bin/env zsh
 
 # Shell integration (OSC 133) for modern terminals (Ghostty, kitty, etc.)
-# Enabled by default. Disable with: zstyle ':z4m:' term-shell-integration no
+# Enables semantic navigation (tmux C-Up/C-Down) and output capture.
+# Disable with: zstyle ':z4m:' term-shell-integration no
 if zstyle -T :z4m: term-shell-integration &&
    [[ $TERM != (dumb|linux) && -z $NVIM_LISTEN_ADDRESS && -z $NVIM ]]; then
   -z4m-enable-shell-integration
@@ -9,6 +10,10 @@ else
   function -z4m-shell-integration-precmd() { }
   function -z4m-shell-integration-preexec() { }
 fi
+
+# Command completion notification (OSC 9 desktop notification)
+# Notifies when long-running commands finish (default: > 30 seconds)
+-z4m-init-cmd-notify
 
 # When a command is running, display it in the terminal title.
 function -z4m-set-term-title-preexec() {

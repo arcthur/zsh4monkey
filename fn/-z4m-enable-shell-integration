@@ -1,33 +1,59 @@
 #!/usr/bin/env zsh
 #
-# Shell integration using OSC 133 escape sequences
+# Shell Integration using OSC 133 Escape Sequences
 #
-# Supported terminals: Ghostty, kitty, iTerm2, WezTerm, VS Code, etc.
+# Enables semantic shell features in modern terminals:
+#   - Prompt navigation (tmux C-Up/C-Down in copy-mode)
+#   - Output region marking for capture
+#   - Command completion detection
 #
-# OSC 133 sequences:
-#   A - Prompt start
-#   B - Command start (after enter)
-#   C - Command output start
-#   D - Command end with exit code
+# Supported terminals: Ghostty, kitty, iTerm2, WezTerm, VS Code, Windows Terminal
+#
+# OSC 133 Protocol:
+#   A - Prompt start (before PS1)
+#   B - Command start (user pressed Enter)
+#   C - Command output start (before output)
+#   D - Command end (with exit code)
+#
+# Sequence flow:
+#   precmd  → D;$? (end previous) → A (prompt start)
+#   preexec → B (command start) → C (output start)
 #
 
-# Precmd hook: mark command end and prompt region
-function -z4m-shell-integration-precmd() {
-  zle && return
-  if (( _z4m_shell_cmd )); then
-    (( _z4m_shell_cmd == 1 )) && -z4m-tmux-bypass '\e]133;C;\a'
-    -z4m-tmux-bypass '\e]133;D;%s\a' $1
-  fi
-  typeset -gi _z4m_shell_cmd=1
-}
-
-# Preexec hook: mark command execution start
-function -z4m-shell-integration-preexec() {
-  -z4m-tmux-bypass '\e]133;C;\a'
-  typeset -gi _z4m_shell_cmd=2
-}
-
+# State machine:
+#   0 = initial (no command run yet)
+#   1 = prompt displayed (after precmd)
+#   2 = command running (after preexec)
 typeset -gi _z4m_shell_cmd=0
+
+# Precmd hook: end previous command and mark prompt start
+function -z4m-shell-integration-precmd() {
+  # Skip if called from ZLE (e.g., during completion)
+  zle && return
+
+  local -i status=$1
+
+  # End previous command if one ran
+  if (( _z4m_shell_cmd == 2 )); then
+    -z4m-tmux-bypass '\e]133;D;%d\a' $status
+  fi
+
+  # Mark prompt start
+  -z4m-tmux-bypass '\e]133;A\a'
+
+  _z4m_shell_cmd=1
+}
+
+# Preexec hook: mark command and output start
+function -z4m-shell-integration-preexec() {
+  # Mark end of prompt region / command input complete
+  -z4m-tmux-bypass '\e]133;B\a'
+
+  # Mark start of command output
+  -z4m-tmux-bypass '\e]133;C\a'
+
+  _z4m_shell_cmd=2
+}
 
 unfunction -- -z4m-enable-shell-integration
 autoload -Uz -- -z4m-enable-shell-integration
