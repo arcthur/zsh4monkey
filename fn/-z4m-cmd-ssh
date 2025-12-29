@@ -177,6 +177,113 @@ if (( !must_passthrough )); then
   fi
 
   zstyle -a :z4m:ssh:$z4m_ssh_host retrieve-history z4m_retrieve_history || z4m_retrieve_history=()
+
+  # Environment variable propagation
+  local -a propagate_env propagate_patterns propagate_exclude
+  zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env propagate_env
+  zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env-patterns propagate_patterns
+  zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env-exclude propagate_exclude
+
+  if (( $#propagate_env || $#propagate_patterns )); then
+    # Default exclusions for security
+    local -a default_exclude=(
+      '*_SECRET' '*_SECRET_*' '*SECRET_*'
+      '*_TOKEN' '*_TOKEN_*' '*TOKEN_*'
+      '*_KEY' '*_API_KEY' '*API_KEY*'
+      '*_PASSWORD' '*PASSWORD*'
+      '*_CREDENTIAL*' '*CREDENTIAL*'
+      'AWS_SECRET_*' 'AWS_SESSION_TOKEN'
+      'GITHUB_TOKEN' 'GH_TOKEN' 'GITLAB_TOKEN'
+      'NPM_TOKEN' 'NPM_AUTH_TOKEN'
+      'DOCKER_PASSWORD' 'DOCKER_AUTH_*'
+    )
+    propagate_exclude+=($default_exclude)
+
+    local -a env_to_propagate=()
+    local var pattern
+
+    # Directly specified variables
+    for var in $propagate_env; do
+      [[ -v $var ]] && env_to_propagate+=($var)
+    done
+
+    # Pattern matching
+    if (( $#propagate_patterns )); then
+      for var in ${(k)parameters}; do
+        # Skip special/internal variables
+        [[ $var == _* || $var == Z4M_* || $var == z4m_* ]] && continue
+        for pattern in $propagate_patterns; do
+          if [[ $var == $~pattern ]]; then
+            env_to_propagate+=($var)
+            break
+          fi
+        done
+      done
+    fi
+
+    # Apply exclusions
+    if (( $#propagate_exclude )); then
+      local -a filtered=()
+      for var in $env_to_propagate; do
+        local excluded=0
+        for pattern in $propagate_exclude; do
+          if [[ $var == $~pattern ]]; then
+            excluded=1
+            break
+          fi
+        done
+        (( excluded )) || filtered+=($var)
+      done
+      env_to_propagate=($filtered)
+    fi
+
+    # Deduplicate
+    env_to_propagate=(${(u)env_to_propagate})
+
+    if (( $#env_to_propagate )); then
+      local -a env_decls=()
+
+      for var in $env_to_propagate; do
+        local vtype=${(Pt)var}
+        case $vtype in
+          scalar*)
+            # Scalar: get value and create export statement
+            local val=${(P)var}
+            # Skip if value is too large (>4KB per variable)
+            (( ${#val} > 4096 )) && continue
+            env_decls+=("export $var=${(qq)val}")
+            ;;
+          array*|association*)
+            # Complex type: use typeset -p for full declaration
+            local decl
+            decl=$(typeset -p $var 2>/dev/null) || continue
+            # Convert typeset to export
+            decl=${decl/#typeset /export }
+            decl=${decl/#export -g /export }
+            env_decls+=("$decl")
+            ;;
+        esac
+      done
+
+      # All variables are Base64 encoded for safe transport
+      # This handles newlines, quotes, and special characters uniformly
+      if (( $#env_decls )); then
+        local declarations=${(F)env_decls}
+        # Size limit: 64KB total
+        if (( ${#declarations} <= 65536 )); then
+          local encoded
+          encoded=$(print -rn -- "$declarations" | base64) || true
+          if [[ -n $encoded ]]; then
+            # Remove newlines for safe transport
+            encoded=${encoded//$'\n'/}
+            z4m_ssh_prelude+=(
+              "export _Z4M_PROPAGATED_ENV_B64='$encoded'"
+            )
+          fi
+        fi
+      fi
+    fi
+  fi
 fi
 
 local configure

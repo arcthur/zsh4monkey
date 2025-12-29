@@ -2,6 +2,20 @@
 
 autoload -Uz add-zsh-hook || return
 
+# Restore propagated environment variables from SSH session
+# Complex types (arrays, associative arrays) are Base64 encoded
+if [[ -v _Z4M_PROPAGATED_ENV_B64 && -n $_Z4M_PROPAGATED_ENV_B64 ]]; then
+  local _z4m_env_decl
+  # Try both base64 decode options (Linux: -d, macOS: -D)
+  _z4m_env_decl=$(print -r -- "$_Z4M_PROPAGATED_ENV_B64" | base64 -d 2>/dev/null) ||
+    _z4m_env_decl=$(print -r -- "$_Z4M_PROPAGATED_ENV_B64" | base64 -D 2>/dev/null) || true
+  if [[ -n $_z4m_env_decl ]]; then
+    # Execute typeset declarations to restore arrays/maps
+    eval "$_z4m_env_decl" 2>/dev/null || true
+  fi
+  unset _Z4M_PROPAGATED_ENV_B64 _z4m_env_decl
+fi
+
 if [[ $commands[zsh] != $_z4m_exe ]]; then
   export _Z4M_EXE=$_z4m_exe
   path=($Z4M/zsh4monkey/zb $path)

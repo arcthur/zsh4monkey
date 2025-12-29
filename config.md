@@ -295,6 +295,36 @@ zstyle ':z4m:ssh:*' retrieve-extra-files '~/.local/notes'
 zstyle ':z4m:ssh:*' retrieve-history '$ZDOTDIR/.zsh_history.remote'
 ```
 
+### propagate-env
+
+Propagate local environment variables to remote SSH sessions. All variable types are supported: scalars, indexed arrays, and associative arrays. Values are Base64-encoded for safe transport across the SSH boundary.
+
+```zsh
+# Explicit variable list
+zstyle ':z4m:ssh:*' propagate-env 'EDITOR' 'VISUAL' 'FZF_DEFAULT_OPTS'
+
+# Glob patterns for bulk matching
+zstyle ':z4m:ssh:*' propagate-env-patterns 'FZF_*' 'ATUIN_*'
+
+# Additional exclusion patterns (supplements built-in security filters)
+zstyle ':z4m:ssh:*' propagate-env-exclude 'MY_INTERNAL_*'
+```
+
+**Built-in security exclusions** (always enforced):
+- `*_SECRET`, `*_SECRET_*`, `*SECRET_*`
+- `*_TOKEN`, `*_TOKEN_*`, `*TOKEN_*`
+- `*_KEY`, `*_API_KEY`, `*API_KEY*`
+- `*_PASSWORD`, `*PASSWORD*`
+- `*_CREDENTIAL*`, `*CREDENTIAL*`
+- `AWS_SECRET_*`, `AWS_SESSION_TOKEN`
+- `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`
+- `NPM_TOKEN`, `NPM_AUTH_TOKEN`
+- `DOCKER_PASSWORD`, `DOCKER_AUTH_*`
+
+**Size constraints:**
+- Per-variable limit: 4KB (variables exceeding this are silently skipped)
+- Total payload limit: 64KB
+
 ### term / ssh-command
 
 ```zsh
