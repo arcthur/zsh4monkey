@@ -248,27 +248,19 @@ function -z4m-cmd-init() {
     if ! [[ _z4m_zle -eq 1 && -o zle && -t 0 && -t 1 && -t 2 ]]; then
       unset _Z4M_TMUX _Z4M_TMUX_PANE _Z4M_TMUX_CMD _Z4M_TMUX_TTY
     else
-      local tmux=$Z4M/tmux/bin/tmux
       local -a match mbegin mend
       if [[ $TMUX == (#b)(/*),(|<->),(|<->) && -w $match[1] ]]; then
-        if [[ $TMUX == */z4m-tmux-* ]]; then
-          export _Z4M_TMUX=$TMUX
-          export _Z4M_TMUX_PANE=$TMUX_PANE
-          export _Z4M_TMUX_CMD=$tmux
-          export _Z4M_TMUX_TTY=$TTY
-          unset TMUX TMUX_PANE
-        elif [[ -x /proc/$match[2]/exe ]]; then
-          export _Z4M_TMUX=$TMUX
-          export _Z4M_TMUX_PANE=$TMUX_PANE
-          export _Z4M_TMUX_CMD=/proc/$match[2]/exe
-          export _Z4M_TMUX_TTY=$TTY
-        elif (( $+commands[tmux] )); then
+        if (( $+commands[tmux] )); then
           export _Z4M_TMUX=$TMUX
           export _Z4M_TMUX_PANE=$TMUX_PANE
           export _Z4M_TMUX_CMD=$commands[tmux]
           export _Z4M_TMUX_TTY=$TTY
+          if [[ $TMUX == */z4m-tmux-* ]]; then
+            unset TMUX TMUX_PANE
+          fi
         else
           unset _Z4M_TMUX _Z4M_TMUX_PANE _Z4M_TMUX_CMD _Z4M_TMUX_TTY
+          print -P '%F{yellow}z4m:%f tmux not found, some features disabled' >&2
         fi
         if [[ -n $_Z4M_TMUX && -t 1 ]] &&
            zstyle -T :z4m: prompt-at-bottom &&
@@ -281,7 +273,7 @@ function -z4m-cmd-init() {
       elif (( install_tmux )) &&
            [[ -z $TMUX && ! -w ${_Z4M_TMUX%,(|<->),(|<->)} && -z $Z4M_SSH ]]; then
         unset _Z4M_TMUX _Z4M_TMUX_PANE _Z4M_TMUX_CMD _Z4M_TMUX_TTY TMUX TMUX_PANE
-        if [[ -x $tmux && -d $Z4M/terminfo ]]; then
+        if (( $+commands[tmux] )); then
           # We prefer /tmp over $TMPDIR for better compatibility with
           # wide character rendering in some terminals.
           local sock
@@ -332,7 +324,7 @@ function -z4m-cmd-init() {
               local dir=$tmpdir/z4m-tmux-cwd-$UID-$$-${TTY//\//.}
               {
                 zf_mkdir -p -- $dir &&
-                  print -r -- "TMUX=${(q)sock} TMUX_PANE= ${(q)tmux} "'"$@"' >$dir/tmux &&
+                  print -r -- "TMUX=${(q)sock} TMUX_PANE= ${(q)commands[tmux]} "'"$@"' >$dir/tmux &&
                   builtin cd -q -- $dir
               } 2>/dev/null
               if (( $? )); then
@@ -346,7 +338,7 @@ function -z4m-cmd-init() {
               local exec=exec
             fi
             SHELL=$_z4m_exe _Z4M_LINES=$LINES _Z4M_COLUMNS=$COLUMNS \
-              builtin $exec - $tmux -u -S $sock -f $Z4M/zsh4monkey/.tmux.conf -- \
+              builtin $exec - $commands[tmux] -u -S $sock -f $Z4M/zsh4monkey/.tmux.conf -- \
               "${cmds[@]}" new >/dev/null || return
             [[ -z $exec ]] || return
             builtin cd /
