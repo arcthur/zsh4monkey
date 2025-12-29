@@ -1094,10 +1094,11 @@ if zstyle -s ':z4m:' editor-mode _z4m_editor_mode && [[ $_z4m_editor_mode == vi 
   -z4m-init-vi-mode
 fi
 
-# === Tmux Navigation Integration ===
-# Unified Ctrl+h/j/k/l navigation across Zsh, Tmux, and Neovim
-autoload -Uz -- -z4m-init-tmux-nav
+# === Tmux Integration ===
+# Navigation: Unified Ctrl+h/j/k/l across Zsh, Tmux, and Neovim
+# Title: Context-aware window naming (project:branch, command icons)
 -z4m-init-tmux-nav
+-z4m-init-tmux-title
 
 typeset -ga _z4m_dir_history
 

@@ -158,6 +158,63 @@ zstyle ':z4m:' start-tmux 'command tmux -u new -A -D -t z4m'
 | `system` | Use system tmux (`command tmux -u`) |
 | `command <cmd>` | Custom tmux command |
 
+### Unified Navigation (tmux-nav)
+
+Seamless `Ctrl+h/j/k/l` navigation across Zsh, Tmux panes, and Neovim splits.
+
+```zsh
+# Disable unified navigation
+zstyle ':z4m:tmux-nav' enable no
+
+# Navigation mode
+zstyle ':z4m:tmux-nav' mode 'unified'  # unified | pane | disabled
+```
+
+| Mode | Behavior |
+|------|----------|
+| `unified` | Smart boundary detection: empty buffer → pane nav, non-empty → edit (default) |
+| `pane` | Always navigate tmux panes unconditionally |
+| `disabled` | No bindings; user-defined configuration |
+
+**Resize bindings** (`Ctrl+Alt+h/j/k/l`):
+
+```zsh
+zstyle ':z4m:tmux-nav' resize-bindings yes  # default: yes
+```
+
+> Requires Neovim with [smart-splits.nvim](https://github.com/mrjones2014/smart-splits.nvim) for full integration.
+> See `docs/tmux-unified-nav.md` for complete setup.
+
+### Context-Aware Window Title (tmux-title)
+
+Dynamic tmux window naming: project name, git branch with dirty indicator, command icons.
+
+```zsh
+# Disable window title feature
+zstyle ':z4m:tmux-title' enable no
+
+# Show git branch (default: yes)
+zstyle ':z4m:tmux-title' git-branch yes
+
+# Show command icons (default: yes, requires Nerd Font)
+zstyle ':z4m:tmux-title' command-icons yes
+
+# Maximum title length (default: 24)
+zstyle ':z4m:tmux-title' max-length 24
+```
+
+**Examples:**
+
+| Context | Window Name |
+|---------|-------------|
+| In `~/work/backend` on `main` branch | `backend:main` |
+| With uncommitted changes | `backend:main*` |
+| Running `nvim` | ` nvim` |
+| Running `docker compose` | ` docker` |
+
+> Requires `automatic-rename off` in tmux.conf (preserves programmatic names).
+> See `docs/tmux-context-title.md` for details.
+
 ---
 
 ## FZF Settings
@@ -645,6 +702,8 @@ z4m install eza bat fd rg zoxide carapace atuin || return
 - Shell integration (OSC 133)
 - Recursive directory completion
 - CWD propagation in tmux
+- Tmux unified navigation (`Ctrl+h/j/k/l`)
+- Tmux context-aware window title
 - Auto-update prompts (every 28 days)
 
 ---

@@ -1,0 +1,263 @@
+#!/usr/bin/env zsh
+#
+# Context-Aware Tmux Window Naming
+#
+# First Principles Design:
+#   - Window name reflects current context (project, git branch, command)
+#   - Performance first: use gitstatus when available, fallback to git
+#   - Non-intrusive: only active inside tmux, graceful degradation
+#
+# Triggers:
+#   chpwd   → Update project/branch context
+#   preexec → Show running command with icon
+#   precmd  → Restore to project/branch context
+#
+
+emulate -L zsh -o typeset_silent
+
+# Check if tmux title feature is enabled
+if ! zstyle -T :z4m:tmux-title enable; then
+  return 0
+fi
+
+# Require tmux environment
+[[ -n $TMUX ]] || return 0
+
+# Resolve tmux command path
+local tmux_cmd=${_Z4M_TMUX_CMD:-${commands[tmux]:-tmux}}
+
+# =============================================================================
+# Configuration
+# =============================================================================
+local -i max_length
+zstyle -s :z4m:tmux-title max-length max_length || max_length=24
+
+# =============================================================================
+# Command Icon Mapping (Nerd Fonts)
+# =============================================================================
+typeset -gA _z4m_cmd_icons=(
+  nvim    ''
+  vim     ''
+  vi      ''
+  node    ''
+  npm     ''
+  npx     ''
+  yarn    ''
+  pnpm    ''
+  bun     ''
+  deno    ''
+  python  ''
+  python3 ''
+  pip     ''
+  pip3    ''
+  docker  ''
+  kubectl '󱃾'
+  ssh     ''
+  mosh    ''
+  git     ''
+  lazygit ''
+  make    ''
+  cargo   ''
+  rustc   ''
+  go      ''
+  java    ''
+  gradle  ''
+  mvn     ''
+  lua     ''
+  ruby    ''
+  gem     ''
+  rails   ''
+  php     ''
+  composer ''
+  perl    ''
+  awk     ''
+  sed     ''
+  grep    ''
+  rg      ''
+  fd      ''
+  fzf     ''
+  tmux    ''
+  zsh     ''
+  bash    ''
+  fish    ''
+  man     ''
+  less    ''
+  bat     ''
+  cat     ''
+  top     ''
+  htop    ''
+  btm     ''
+  btop    ''
+  ps      ''
+  curl    ''
+  wget    ''
+  rsync   ''
+  scp     ''
+  tar     ''
+  zip     ''
+  unzip   ''
+  brew    ''
+  apt     ''
+  yum     ''
+  pacman  ''
+)
+
+# =============================================================================
+# State Variables
+# =============================================================================
+typeset -g _z4m_tmux_title_context=''
+
+# =============================================================================
+# Core: Set tmux window name
+# =============================================================================
+function -z4m-tmux-set-window-name() {
+  local name=$1
+  # Truncate if too long
+  (( ${#name} > max_length )) && name="${name:0:$((max_length-1))}…"
+  # Use escape sequence (faster, works in nested sessions)
+  printf '\033k%s\033\\' "$name"
+}
+
+# =============================================================================
+# Git Branch Detection (with dirty indicator)
+# =============================================================================
+function -z4m-tmux-git-info() {
+  local branch='' dirty=''
+
+  # Fast path: try gitstatus if available (p10k uses POWERLEVEL9K as prompt name)
+  if (( $+functions[gitstatus_query] )); then
+    local -a prompt_names=(POWERLEVEL9K Z4M MY)
+    local pname
+    for pname in $prompt_names; do
+      if gitstatus_query -t 0 -p $pname 2>/dev/null && [[ $VCS_STATUS_RESULT == ok-sync ]]; then
+        branch=$VCS_STATUS_LOCAL_BRANCH
+        [[ -z $branch ]] && branch=${VCS_STATUS_COMMIT:0:8}
+        # Check for any changes
+        if (( VCS_STATUS_NUM_STAGED + VCS_STATUS_NUM_UNSTAGED + VCS_STATUS_NUM_UNTRACKED > 0 )); then
+          dirty='*'
+        fi
+        REPLY="${branch}${dirty}"
+        return 0
+      fi
+    done
+    # gitstatus query failed for all names, fall through to git commands
+  fi
+
+  # Fallback: direct git commands
+  branch=$(git symbolic-ref --short HEAD 2>/dev/null) || \
+  branch=$(git rev-parse --short HEAD 2>/dev/null) || return 1
+
+  # Check dirty state (any uncommitted changes)
+  if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+    dirty='*'
+  elif [[ -n $(git ls-files --others --exclude-standard 2>/dev/null | head -1) ]]; then
+    dirty='*'
+  fi
+
+  REPLY="${branch}${dirty}"
+  return 0
+}
+
+# =============================================================================
+# Project Detection
+# =============================================================================
+function -z4m-tmux-project-name() {
+  local dir=$PWD
+  local -a markers=(.git package.json Cargo.toml go.mod pyproject.toml
+                    Makefile CMakeLists.txt build.gradle pom.xml
+                    composer.json Gemfile mix.exs deno.json)
+
+  # Walk up directory tree looking for project markers
+  while [[ $dir != / && $dir != $HOME ]]; do
+    for m in $markers; do
+      if [[ -e $dir/$m ]]; then
+        REPLY=${dir:t}
+        return 0
+      fi
+    done
+    dir=${dir:h}
+  done
+
+  # No project found, use current directory name
+  REPLY=${PWD:t}
+  return 1
+}
+
+# =============================================================================
+# Build Context Title
+# =============================================================================
+function -z4m-tmux-build-context() {
+  local project branch show_git
+
+  zstyle -t :z4m:tmux-title git-branch && show_git=1 || show_git=0
+
+  # Get project name
+  -z4m-tmux-project-name
+  project=$REPLY
+
+  # Get git branch if enabled and in a git repo
+  if (( show_git )) && -z4m-tmux-git-info; then
+    branch=$REPLY
+    REPLY="${project}:${branch}"
+  else
+    REPLY=$project
+  fi
+}
+
+# =============================================================================
+# Hook: chpwd - Update context on directory change
+# =============================================================================
+function -z4m-tmux-title-chpwd() {
+  -z4m-tmux-build-context
+  _z4m_tmux_title_context=$REPLY
+  -z4m-tmux-set-window-name "$_z4m_tmux_title_context"
+}
+
+# =============================================================================
+# Hook: preexec - Show running command
+# =============================================================================
+function -z4m-tmux-title-preexec() {
+  local show_icons cmd icon title
+
+  zstyle -t :z4m:tmux-title command-icons && show_icons=1 || show_icons=0
+
+  # Extract first word (command name)
+  cmd=${1[(w)1]}
+  # Remove path prefix if present
+  cmd=${cmd:t}
+  # Handle sudo/env/time prefixes
+  [[ $cmd == (sudo|env|time|nohup|nice|ionice|strace|ltrace) ]] && cmd=${1[(w)2]:t}
+
+  if (( show_icons )); then
+    icon=${_z4m_cmd_icons[$cmd]:-''}
+    title="${icon} ${cmd}"
+  else
+    title=$cmd
+  fi
+
+  -z4m-tmux-set-window-name "$title"
+}
+
+# =============================================================================
+# Hook: precmd - Restore context after command
+# =============================================================================
+function -z4m-tmux-title-precmd() {
+  # Rebuild context (git status may have changed)
+  -z4m-tmux-build-context
+  _z4m_tmux_title_context=$REPLY
+  -z4m-tmux-set-window-name "$_z4m_tmux_title_context"
+}
+
+# =============================================================================
+# Register Hooks
+# =============================================================================
+autoload -Uz add-zsh-hook
+
+add-zsh-hook chpwd -z4m-tmux-title-chpwd
+add-zsh-hook preexec -z4m-tmux-title-preexec
+add-zsh-hook precmd -z4m-tmux-title-precmd
+
+# =============================================================================
+# Initialize: Set initial context
+# =============================================================================
+-z4m-tmux-title-chpwd
