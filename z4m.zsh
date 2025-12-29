@@ -334,8 +334,22 @@ fi
 
 '[' '-e' "$Z4M"/.updating ']' && 'return' '1'
 
->&2 'printf' '\033[33mz4m\033[0m: enabling \033[1mrecovery mode\033[0m\n'
+# Create failure marker for next startup
+'[' '-n' "$Z4M" ']' && 'printf' '' >"$Z4M"/.last-init-failed 2>/dev/null
+
+>&2 'printf' '\033[33mz4m\033[0m: entering \033[1mrecovery shell\033[0m\n'
 >&2 'printf' '\n'
+
+# Try to enter full recovery shell if we have zsh and the recovery function
+if '[' '-n' "${ZSH_VERSION-}" ']' && '[' '-r' "$Z4M"/zsh4monkey/fn/-z4m-recovery-shell ']'; then
+  >&2 'printf' 'Loading recovery environment...\n'
+  >&2 'printf' '\n'
+  'autoload' '-Uz' "$Z4M"/zsh4monkey/fn/-z4m-recovery-shell
+  -z4m-recovery-shell
+  'return' '0'
+fi
+
+# Fallback: provide manual recovery instructions
 >&2 'printf' 'See error messages above to identify the culprit.\n'
 >&2 'printf' '\n'
 >&2 'printf' 'Edit Zsh configuration:\n'

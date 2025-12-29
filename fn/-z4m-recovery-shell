@@ -17,6 +17,9 @@
 () {
   'emulate' '-L' 'zsh' '-o' 'no_aliases'
 
+  # Load add-zsh-hook if not already available
+  'autoload' '-Uz' 'add-zsh-hook' 2>/dev/null
+
   # Disable all z4m hooks and widgets
   'local' hook
   for hook in chpwd precmd preexec periodic zshaddhistory zshexit; do
@@ -60,6 +63,66 @@
     'exec' 'zsh' '-i'
   }
 
+  function z4m-recovery-safe-exit() {
+    'print' -P '%F{cyan}Exiting to safe mode (plugins disabled)...%f'
+    'export' 'Z4M_SAFE_MODE=1'
+    'exec' 'zsh' '-i'
+  }
+
+  function z4m-recovery-clear-state() {
+    'local' z4m_dir=${Z4M:-$HOME/.cache/zsh4monkey}
+    'print' -P '%F{yellow}Clearing failure state...%f'
+    command rm -f -- "$z4m_dir"/.last-init-failed 2>/dev/null
+    command rm -f -- "$z4m_dir"/.safe-mode 2>/dev/null
+    'print' -P '%F{green}State cleared. Reloading zsh normally...%f'
+    'exec' 'zsh' '-i'
+  }
+
+  function z4m-recovery-diagnose() {
+    'local' z4m_dir=${Z4M:-$HOME/.cache/zsh4monkey}
+    'print' -P '%F{cyan}=== z4m Recovery Diagnostics ===%f'
+    'print' ''
+
+    # Check for failure marker
+    if [[ -e $z4m_dir/.last-init-failed ]]; then
+      'print' -P '%F{red}Previous startup failed.%f'
+      'print' -P "Marker: $z4m_dir/.last-init-failed"
+    else
+      'print' -P '%F{green}No startup failure marker found.%f'
+    fi
+    'print' ''
+
+    # Check safe mode trigger
+    if [[ -e $z4m_dir/.safe-mode ]]; then
+      'print' -P '%F{yellow}Persistent safe mode is enabled.%f'
+      'print' -P "File: $z4m_dir/.safe-mode"
+    fi
+
+    # Show key paths
+    'print' -P '%F{cyan}Key paths:%f'
+    'print' -P "  ZDOTDIR: ${ZDOTDIR:-$HOME}"
+    'print' -P "  Z4M:     $z4m_dir"
+    'print' -P "  .zshrc:  ${ZDOTDIR:-$HOME}/.zshrc"
+    'print' ''
+
+    # Check for syntax errors in .zshrc
+    'print' -P '%F{cyan}Checking .zshrc syntax...%f'
+    if zsh -n "${ZDOTDIR:-$HOME}/.zshrc" 2>&1; then
+      'print' -P '%F{green}No syntax errors found.%f'
+    else
+      'print' -P '%F{red}Syntax errors detected! See above.%f'
+    fi
+    'print' ''
+
+    # Check installed plugins
+    'print' -P '%F{cyan}Installed plugins:%f'
+    'local' plugin
+    for plugin in $z4m_dir/*(N/:t); do
+      [[ $plugin == cache || $plugin == .* ]] && continue
+      'print' -P "  $plugin"
+    done
+  }
+
   function z4m-recovery-help() {
     'print' -P '%F{cyan}z4m Recovery Shell%f'
     'print' ''
@@ -67,19 +130,45 @@
     'print' -P 'initialization failed or you entered recovery mode manually.'
     'print' ''
     'print' -P '%F{yellow}Available commands:%f'
-    'print' -P '  %Bz4m-recovery-edit%b [file]  Edit .zshrc (or specified file)'
-    'print' -P '  %Bz4m-recovery-reload%b       Reload zsh configuration'
-    'print' -P '  %Bz4m-recovery-exit%b         Exit recovery and restart zsh'
-    'print' -P '  %Bz4m-recovery-help%b         Show this help'
+    'print' -P '  %Bz4m-recovery-edit%b [file]   Edit .zshrc (or specified file)'
+    'print' -P '  %Bz4m-recovery-reload%b        Reload zsh configuration'
+    'print' -P '  %Bz4m-recovery-exit%b          Exit recovery and restart zsh'
+    'print' -P '  %Bz4m-recovery-safe-exit%b     Restart in safe mode (plugins disabled)'
+    'print' -P '  %Bz4m-recovery-clear-state%b   Clear failure markers and restart'
+    'print' -P '  %Bz4m-recovery-diagnose%b      Show diagnostic information'
+    'print' -P '  %Bz4m-recovery-help%b          Show this help'
     'print' ''
     'print' -P '%F{yellow}Common fixes:%f'
-    'print' -P '  1. Edit ~/.zshrc to fix syntax errors'
-    'print' -P '  2. Comment out problematic lines'
-    'print' -P '  3. Run z4m-recovery-reload to test'
+    'print' -P '  1. Run %Bz4m-recovery-diagnose%b to check for issues'
+    'print' -P '  2. Edit ~/.zshrc to fix syntax errors'
+    'print' -P '  3. Comment out problematic plugin lines'
+    'print' -P '  4. Run %Bz4m-recovery-reload%b to test'
     'print' ''
     'print' -P '%F{yellow}Useful paths:%f'
     'print' -P "  ZDOTDIR: ${ZDOTDIR:-$HOME}"
-    'print' -P "  Z4M:     ${Z4M:-\$HOME/.cache/z4m}"
+    'print' -P "  Z4M:     ${Z4M:-\$HOME/.cache/zsh4monkey}"
+  }
+
+  # Define stub z4m command to prevent errors in .zshrc
+  function z4m() {
+    case ${1-} in
+      init)
+        # Already in recovery mode, skip initialization
+        return 0
+        ;;
+      install|source|load|bindkey)
+        # Silently ignore plugin/binding commands in recovery mode
+        return 0
+        ;;
+      recovery)
+        'print' -P '%F{yellow}Already in recovery mode.%f'
+        return 0
+        ;;
+      *)
+        'print' -P '%F{yellow}z4m%f: running in recovery mode, command ignored: %B'${1:-help}'%b'
+        return 0
+        ;;
+    esac
   }
 
   # Show welcome message

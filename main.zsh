@@ -41,6 +41,17 @@ if [[ -n ${_Z4M_RECOVERY_MODE-} ]]; then
   return 0
 fi
 
+# Safe mode: skip plugins but keep basic shell functional
+# Triggered by: Z4M_SAFE_MODE=1, $Z4M/.safe-mode file, or previous startup failure
+if [[ -n ${Z4M_SAFE_MODE-} || -e $Z4M/.safe-mode || -e $Z4M/.last-init-failed ]]; then
+  unset Z4M_SAFE_MODE
+  zmodload zsh/{parameter,system} 2>/dev/null
+  zmodload -F zsh/files b:zf_rm 2>/dev/null
+  autoload -Uz $Z4M/zsh4monkey/fn/-z4m-safe-mode-init
+  -z4m-safe-mode-init
+  return 0
+fi
+
 # Standard zsh4monkey emulation options (for reference)
 # Use: emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 #     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
@@ -422,7 +433,13 @@ function -z4m-cmd-init() {
   () {
     emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
       -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
-    -z4m-init && return
+    if -z4m-init; then
+      # Success: clear any failure marker
+      zf_rm -f -- $Z4M/.last-init-failed 2>/dev/null
+      return 0
+    fi
+    # Failure: create marker for next startup
+    print -n >$Z4M/.last-init-failed 2>/dev/null
     [[ -e $Z4M/.updating ]] || -z4m-error-command init
     return 1
   }

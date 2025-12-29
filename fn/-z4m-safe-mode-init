@@ -1,0 +1,158 @@
+#!/usr/bin/env zsh
+#
+# -z4m-safe-mode-init - Initialize z4m in safe mode
+#
+# Safe mode skips all user plugins and provides a minimal but functional
+# shell environment. This is useful when:
+#   - Configuration errors prevent normal startup
+#   - You want to debug plugin issues in isolation
+#   - Previous startup failed and you need to fix things
+#
+# Triggered by:
+#   - Z4M_SAFE_MODE=1 zsh
+#   - touch $Z4M/.safe-mode
+#   - Automatic detection of previous startup failure
+#
+
+'emulate' '-L' 'zsh' '-o' 'no_aliases'
+
+# Clear any pending install queue to skip plugins
+'unset' '_z4m_install_queue'
+typeset -ga _z4m_install_queue=()
+
+# Load add-zsh-hook if not already available
+'autoload' '-Uz' 'add-zsh-hook' 2>/dev/null
+
+# Disable all z4m hooks that might have been set
+'local' hook
+for hook in chpwd precmd preexec periodic zshaddhistory zshexit; do
+  add-zsh-hook -D $hook '*z4m*' 2>/dev/null || 'true'
+done
+
+# Reset to default key bindings
+'bindkey' '-d'
+'bindkey' '-e'
+
+# Set safe mode prompt
+PS1=$'%F{yellow}[SAFE MODE]%f %F{cyan}%n@%m%f %F{blue}%~%f\n%F{%(?.green.red)}%#%f '
+RPS1=''
+
+# Disable autosuggestions and syntax highlighting if loaded
+(( ${+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE} )) && ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=''
+(( ${+ZSH_HIGHLIGHT_HIGHLIGHTERS} )) && ZSH_HIGHLIGHT_HIGHLIGHTERS=()
+
+# Basic useful aliases
+'alias' ls='command ls --color=auto 2>/dev/null || command ls'
+'alias' ll='ls -la'
+'alias' grep='command grep --color=auto'
+
+# Define safe mode helper functions
+function z4m-safe-exit() {
+  'print' -P '%F{green}Exiting safe mode and reloading zsh normally...%f'
+  'unset' 'Z4M_SAFE_MODE'
+  zf_rm -f -- "${Z4M:-$HOME/.cache/zsh4monkey}/.safe-mode" 2>/dev/null
+  zf_rm -f -- "${Z4M:-$HOME/.cache/zsh4monkey}/.last-init-failed" 2>/dev/null
+  'exec' 'zsh' '-i'
+}
+
+function z4m-safe-edit() {
+  'local' editor=${EDITOR:-${VISUAL:-vi}}
+  if [[ -n $1 ]]; then
+    "$editor" "$1"
+  else
+    "$editor" "${ZDOTDIR:-$HOME}/.zshrc"
+  fi
+}
+
+function z4m-safe-reload() {
+  'print' -P '%F{yellow}Reloading in safe mode...%f'
+  'export' 'Z4M_SAFE_MODE=1'
+  'exec' 'zsh' '-i'
+}
+
+function z4m-safe-diagnose() {
+  'print' -P '%F{cyan}=== z4m Safe Mode Diagnostics ===%f'
+  'print' ''
+
+  # Check for failure marker
+  if [[ -e ${Z4M:-$HOME/.cache/zsh4monkey}/.last-init-failed ]]; then
+    'print' -P '%F{red}Last startup failed.%f'
+    'print' -P "Marker file: ${Z4M:-$HOME/.cache/zsh4monkey}/.last-init-failed"
+  else
+    'print' -P '%F{green}No startup failure detected.%f'
+  fi
+  'print' ''
+
+  # Check safe mode trigger
+  if [[ -e ${Z4M:-$HOME/.cache/zsh4monkey}/.safe-mode ]]; then
+    'print' -P '%F{yellow}Persistent safe mode enabled.%f'
+    'print' -P "Remove with: rm ${Z4M:-$HOME/.cache/zsh4monkey}/.safe-mode"
+  fi
+  'print' ''
+
+  # Show key paths
+  'print' -P '%F{cyan}Key paths:%f'
+  'print' -P "  ZDOTDIR: ${ZDOTDIR:-$HOME}"
+  'print' -P "  Z4M:     ${Z4M:-$HOME/.cache/zsh4monkey}"
+  'print' -P "  .zshrc:  ${ZDOTDIR:-$HOME}/.zshrc"
+  'print' ''
+
+  # Check for syntax errors in .zshrc
+  'print' -P '%F{cyan}Checking .zshrc syntax...%f'
+  if zsh -n "${ZDOTDIR:-$HOME}/.zshrc" 2>&1; then
+    'print' -P '%F{green}No syntax errors found.%f'
+  else
+    'print' -P '%F{red}Syntax errors detected!%f'
+  fi
+}
+
+function z4m-safe-help() {
+  'print' -P '%F{cyan}=== z4m Safe Mode ===%f'
+  'print' ''
+  'print' -P 'You are in safe mode. All z4m plugins are disabled.'
+  'print' -P 'This provides a minimal shell to diagnose and fix issues.'
+  'print' ''
+  'print' -P '%F{yellow}Available commands:%f'
+  'print' -P '  %Bz4m-safe-edit%b [file]   Edit .zshrc (or specified file)'
+  'print' -P '  %Bz4m-safe-reload%b        Reload zsh in safe mode'
+  'print' -P '  %Bz4m-safe-exit%b          Exit safe mode and restart normally'
+  'print' -P '  %Bz4m-safe-diagnose%b      Show diagnostic information'
+  'print' -P '  %Bz4m-safe-help%b          Show this help'
+  'print' ''
+  'print' -P '%F{yellow}To exit safe mode:%f'
+  'print' -P '  1. Fix any issues in your .zshrc'
+  'print' -P '  2. Run %Bz4m-safe-exit%b to restart normally'
+  'print' ''
+  'print' -P '%F{yellow}To stay in safe mode permanently:%f'
+  'print' -P "  touch ${Z4M:-\$HOME/.cache/zsh4monkey}/.safe-mode"
+}
+
+# Define stub z4m command to prevent errors in .zshrc
+function z4m() {
+  case ${1-} in
+    init)
+      # Already in safe mode, skip initialization
+      return 0
+      ;;
+    install|source|load|bindkey)
+      # Silently ignore plugin/binding commands in safe mode
+      return 0
+      ;;
+    recovery)
+      -z4m-recovery-shell
+      ;;
+    *)
+      'print' -P '%F{yellow}z4m%f: running in safe mode, command ignored: %B'${1:-help}'%b'
+      return 0
+      ;;
+  esac
+}
+
+# Show welcome message
+'print' ''
+'print' -P '%F{yellow}=== z4m Safe Mode ===%f'
+'print' -P 'Plugins disabled. Type %Bz4m-safe-help%b for commands.'
+'print' ''
+
+# Clear the failure marker since we successfully entered safe mode
+zf_rm -f -- "${Z4M:-$HOME/.cache/zsh4monkey}/.last-init-failed" 2>/dev/null

@@ -59,10 +59,29 @@ The installer backs up existing files, guides you through configuration, and set
 | `z4m ssh <host>` | SSH with teleportation |
 | `z4m bindkey <widget> <key>` | Bind key |
 | `z4m vi-mode on\|off\|toggle` | Toggle vi mode |
+| `z4m recovery` | Enter recovery shell |
 | `z4m help [cmd]` | Show help |
 | `z4m uninstall` | Uninstall |
 
 Run `z4m help` for all commands.
+
+## Recovery & Safe Mode
+
+When startup fails, z4m automatically enters **safe mode** on the next launch (plugins disabled).
+
+**Manual triggers:**
+
+```bash
+# Safe mode (skip all plugins)
+Z4M_SAFE_MODE=1 zsh
+
+# Recovery shell (minimal emergency shell)
+z4m recovery
+```
+
+**Safe mode:** `z4m-safe-help`, `z4m-safe-exit`, `z4m-safe-diagnose`
+
+**Recovery shell:** `z4m-recovery-help`, `z4m-recovery-edit`, `z4m-recovery-diagnose`
 
 ## Configuration
 

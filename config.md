@@ -18,6 +18,7 @@ Configuration options for zsh4monkey. Place `zstyle` settings in `~/.zshrc` **be
 - [Carapace Completion](#carapace-completion)
 - [Atuin History](#atuin-history)
 - [Auto Update](#auto-update)
+- [Recovery & Safe Mode](#recovery--safe-mode)
 - [Deferred Loading](#deferred-loading)
 - [Usage Guide](#usage-guide)
 - [Quick Reference](#quick-reference)
@@ -606,6 +607,79 @@ zstyle ':z4m:' auto-update-days '14'
 
 ---
 
+## Recovery & Safe Mode
+
+When configuration errors prevent normal startup, z4m provides two recovery mechanisms.
+
+### Safe Mode
+
+Skip all plugins and provide a minimal shell environment.
+
+**Triggers:**
+
+```bash
+# Environment variable (one-time)
+Z4M_SAFE_MODE=1 zsh
+
+# Persistent file (permanent until removed)
+touch ~/.cache/zsh4monkey/.safe-mode
+
+# Automatic: detected after previous startup failure
+```
+
+**Available commands in safe mode:**
+
+| Command | Description |
+|---------|-------------|
+| `z4m-safe-help` | Show available commands |
+| `z4m-safe-edit [file]` | Edit .zshrc or specified file |
+| `z4m-safe-reload` | Reload in safe mode |
+| `z4m-safe-exit` | Clear state and restart normally |
+| `z4m-safe-diagnose` | Show diagnostic information |
+
+### Recovery Shell
+
+Minimal emergency shell when z4m initialization fails completely.
+
+**Triggers:**
+
+```bash
+# Command
+z4m recovery
+
+# Keyboard shortcut (requires binding)
+z4m bindkey z4m-recovery-shell Ctrl+Alt+R
+
+# Automatic: when main.zsh fails to load
+```
+
+**Available commands in recovery mode:**
+
+| Command | Description |
+|---------|-------------|
+| `z4m-recovery-help` | Show available commands |
+| `z4m-recovery-edit [file]` | Edit .zshrc or specified file |
+| `z4m-recovery-reload` | Attempt to reload zsh |
+| `z4m-recovery-exit` | Exit recovery and restart |
+| `z4m-recovery-safe-exit` | Restart in safe mode |
+| `z4m-recovery-clear-state` | Clear failure markers and restart |
+| `z4m-recovery-diagnose` | Show diagnostic information |
+
+### State Files
+
+| File | Purpose |
+|------|---------|
+| `$Z4M/.last-init-failed` | Created on startup failure, triggers safe mode |
+| `$Z4M/.safe-mode` | Persistent safe mode flag |
+
+**Clear all state:**
+
+```bash
+rm -f ~/.cache/zsh4monkey/.last-init-failed ~/.cache/zsh4monkey/.safe-mode
+```
+
+---
+
 ## Deferred Loading
 
 Defer slow plugins until after prompt appears. Place **after** `z4m init`:
@@ -762,6 +836,7 @@ z4m install eza bat fd rg zoxide carapace atuin || return
 | `z4m bench [n]` | Benchmark startup |
 | `z4m compile` | Compile zsh files |
 | `z4m env` | Show environment |
+| `z4m recovery` | Enter recovery shell |
 | `z4m uninstall` | Uninstall |
 | `z4m-defer <cmd>` | Defer command |
 
