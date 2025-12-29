@@ -1,0 +1,30 @@
+#!/usr/bin/env zsh
+
+# Cache fzf version info for performance
+# Sets: _z4m_fzf_version (e.g., "0.56.0")
+#       _z4m_fzf_version_num (e.g., 560 for 0.56.0)
+# Returns 0 if fzf is available, 1 otherwise
+
+emulate -L zsh -o typeset_silent
+
+if [[ -v _z4m_fzf_version_num ]]; then
+  return 0
+fi
+
+local version
+version=$(fzf --version 2>/dev/null) || return 1
+version=${version%% *}  # "0.56.0 (abc123)" -> "0.56.0"
+
+typeset -g _z4m_fzf_version=$version
+
+# Convert to numeric for easy comparison (0.56.3 -> 5603, 0.67.0 -> 6700)
+local -a parts
+parts=(${(s:.:)version})
+local major=${parts[1]:-0}
+local minor=${parts[2]:-0}
+local patch=${parts[3]:-0}
+
+# Format: minor * 100 + patch (major is always 0 for fzf)
+typeset -gi _z4m_fzf_version_num=$((minor * 100 + patch))
+
+return 0

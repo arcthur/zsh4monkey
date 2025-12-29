@@ -5,10 +5,58 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 
 local widget=${WIDGET#z4m-}
 
+# Detect fzf version for feature gating
+autoload +X -Uz -- -z4m-fzf-version -z4m-fzf-theme
+-z4m-fzf-version 2>/dev/null || true
+local -i ver=${_z4m_fzf_version_num:-0}
+
 local -a cmd flags bindings
 zstyle -a :z4m:$widget fzf-command cmd || cmd=(fzf)
 zstyle -a :z4m:$widget fzf-flags flags || flags=()
 zstyle -a :z4m:$widget fzf-bindings bindings || bindings=()
+
+# Apply theme colors
+local -a reply=()
+-z4m-fzf-theme $widget
+flags+=("${reply[@]}")
+
+# Tmux popup support (fzf 0.54+)
+if (( ver >= 5400 )) && [[ -n $TMUX ]]; then
+  local tmux_mode
+  zstyle -s ":z4m:$widget" fzf-tmux tmux_mode ||
+  zstyle -s ':z4m:*' fzf-tmux tmux_mode
+  if [[ -n $tmux_mode && $tmux_mode != no ]]; then
+    case $tmux_mode in
+      yes|popup|center) flags+=(--tmux=center,80%,60%) ;;
+      top)              flags+=(--tmux=top,100%,50%) ;;
+      bottom)           flags+=(--tmux=bottom,100%,50%) ;;
+      left)             flags+=(--tmux=left,50%,100%) ;;
+      right)            flags+=(--tmux=right,50%,100%) ;;
+      *)                flags+=(--tmux=$tmux_mode) ;;
+    esac
+  fi
+fi
+
+# Highlight line support (fzf 0.52+)
+if (( ver >= 5200 )); then
+  zstyle -T ":z4m:$widget" fzf-highlight-line && flags+=(--highlight-line)
+fi
+
+# Wrap support (fzf 0.56+)
+if (( ver >= 5600 )); then
+  zstyle -T ":z4m:$widget" fzf-wrap && flags+=(--wrap)
+fi
+
+# Pointer and marker customization (fzf 0.54+)
+if (( ver >= 5400 )); then
+  local pointer marker
+  zstyle -s ":z4m:$widget" fzf-pointer pointer ||
+  zstyle -s ':z4m:*' fzf-pointer pointer
+  zstyle -s ":z4m:$widget" fzf-marker marker ||
+  zstyle -s ':z4m:*' fzf-marker marker
+  [[ -n $pointer ]] && flags+=(--pointer=$pointer)
+  [[ -n $marker ]] && flags+=(--marker=$marker)
+fi
 
 local -A keys=(
   ctrl-h     backward-kill-word
@@ -19,6 +67,19 @@ local -A keys=(
   ctrl-space toggle-out
   ctrl-a     toggle-all
 )
+
+# Advanced bindings (fzf 0.45+): preview toggle
+if (( ver >= 4500 )); then
+  keys+=(
+    ctrl-/   toggle-preview
+    alt-p    toggle-preview
+  )
+fi
+
+# Track current item (fzf 0.49+)
+if (( ver >= 4900 )); then
+  keys+=(alt-t track-current)
+fi
 
 if (( ${@[(I)--layout=default]} )); then
   keys+=(
@@ -33,6 +94,16 @@ else
     btab     up
     ctrl-r   down
     ctrl-s   up
+  )
+fi
+
+# Preview scroll bindings (if preview is enabled)
+if (( ${@[(I)--preview=*]} || ${@[(I)--preview-window=*]} )); then
+  keys+=(
+    ctrl-f   preview-page-down
+    ctrl-b   preview-page-up
+    alt-up   preview-up
+    alt-down preview-down
   )
 fi
 
