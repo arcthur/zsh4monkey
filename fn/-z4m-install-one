@@ -31,15 +31,12 @@ if [[ $1 == */* ]]; then
 else
   local -a channel
   zstyle -a :z4m:$1 channel channel || channel=(stable)
-  local tmux_cmd='sh -- '${(q)Z4M}/zsh4monkey/sc/install-tmux' -d "${Z4M_PACKAGE_DIR}" -q'
-  tmux_cmd+=' && print -r -- "$EPOCHREALTIME" >"${Z4M_PACKAGE_DIR}"/stamp'
   case $#channel-$channel[1] in
     2-command) command=$channel[2];;
     1-stable|1-testing|1-dev)
       case $1 in
-        tmux)                         command=$tmux_cmd;;
         terminfo)                     url=https://github.com/romkatv/terminfo/archive/v1.4.0.tar.gz;;
-        fzf|eza|bat|fd|rg|zoxide|carapace|atuin)
+        tmux|fzf|eza|bat|fd|rg|zoxide|carapace|atuin)
           # CLI tools: postinstall checks system command
           url=
         ;;
