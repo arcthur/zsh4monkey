@@ -1,0 +1,163 @@
+#!/usr/bin/env zsh
+#
+# Unified Navigation: Neovim + Tmux + Zsh
+#
+# First Principles Design:
+#   - Ctrl+h/j/k/l = move left/down/up/right (consistent across all layers)
+#   - Each layer handles internal navigation, delegates to outer layer at boundary
+#   - Zsh: empty buffer → pane nav; non-empty buffer → edit/history
+#
+# Layer Model:
+#   Neovim splits ──(boundary)──> Tmux panes ──(boundary)──> (cycle)
+#                                     ↑
+#   Zsh buffer ─────(boundary)────────┘
+#
+
+emulate -L zsh -o typeset_silent
+
+# Check if unified navigation is enabled
+if ! zstyle -T :z4m:tmux-nav enable; then
+  return 0
+fi
+
+# Require tmux environment
+[[ -n $TMUX ]] || return 0
+
+# Resolve tmux command path
+local tmux_cmd=${_Z4M_TMUX_CMD:-${commands[tmux]:-tmux}}
+
+# =============================================================================
+# Core: Select tmux pane in specified direction
+# =============================================================================
+function -z4m-tmux-select-pane() {
+  local direction=$1
+  local flag
+  case $direction in
+    left)  flag='-L' ;;
+    down)  flag='-D' ;;
+    up)    flag='-U' ;;
+    right) flag='-R' ;;
+  esac
+  $tmux_cmd select-pane $flag 2>/dev/null
+}
+
+# =============================================================================
+# Navigation Widgets: Smart boundary detection
+# =============================================================================
+
+# Ctrl+h: Left
+#   - Empty buffer → navigate to left tmux pane
+#   - Non-empty, cursor > 0 → backward-delete-char
+#   - Non-empty, cursor = 0 → no-op (already at leftmost position)
+function z4m-nav-left() {
+  if [[ -z $BUFFER ]]; then
+    -z4m-tmux-select-pane left
+  elif (( CURSOR > 0 )); then
+    zle backward-delete-char
+  fi
+}
+
+# Ctrl+l: Right
+#   - Empty buffer → navigate to right tmux pane
+#   - Non-empty → clear-screen (preserve traditional behavior)
+function z4m-nav-right() {
+  if [[ -z $BUFFER ]]; then
+    -z4m-tmux-select-pane right
+  else
+    zle clear-screen
+  fi
+}
+
+# Ctrl+k: Up
+#   - Empty buffer → navigate to upper tmux pane
+#   - First line of multiline buffer → navigate to upper tmux pane
+#   - Not first line → up-line-or-history
+function z4m-nav-up() {
+  if [[ -z $BUFFER ]]; then
+    -z4m-tmux-select-pane up
+  elif [[ $LBUFFER != *$'\n'* ]]; then
+    -z4m-tmux-select-pane up
+  else
+    zle up-line-or-history
+  fi
+}
+
+# Ctrl+j: Down
+#   - Empty buffer → navigate to lower tmux pane
+#   - Last line of multiline buffer → navigate to lower tmux pane
+#   - Not last line → down-line-or-history
+function z4m-nav-down() {
+  if [[ -z $BUFFER ]]; then
+    -z4m-tmux-select-pane down
+  elif [[ $RBUFFER != *$'\n'* ]]; then
+    -z4m-tmux-select-pane down
+  else
+    zle down-line-or-history
+  fi
+}
+
+# =============================================================================
+# Pure pane navigation (unconditional delegation to tmux)
+# =============================================================================
+function z4m-pane-left()  { -z4m-tmux-select-pane left }
+function z4m-pane-right() { -z4m-tmux-select-pane right }
+function z4m-pane-up()    { -z4m-tmux-select-pane up }
+function z4m-pane-down()  { -z4m-tmux-select-pane down }
+
+# =============================================================================
+# Widget Registration
+# =============================================================================
+zle -N z4m-nav-left
+zle -N z4m-nav-right
+zle -N z4m-nav-up
+zle -N z4m-nav-down
+zle -N z4m-pane-left
+zle -N z4m-pane-right
+zle -N z4m-pane-up
+zle -N z4m-pane-down
+
+# =============================================================================
+# Keybindings
+# =============================================================================
+local nav_mode
+zstyle -s :z4m:tmux-nav mode nav_mode || nav_mode='unified'
+
+case $nav_mode in
+  unified)
+    # Unified mode: Ctrl+h/j/k/l with smart boundary detection
+    bindkey '^h' z4m-nav-left
+    bindkey '^j' z4m-nav-down
+    bindkey '^k' z4m-nav-up
+    bindkey '^l' z4m-nav-right
+    ;;
+  pane)
+    # Pane mode: always navigate tmux panes unconditionally
+    bindkey '^h' z4m-pane-left
+    bindkey '^j' z4m-pane-down
+    bindkey '^k' z4m-pane-up
+    bindkey '^l' z4m-pane-right
+    ;;
+  disabled|off|no)
+    # No bindings; user-defined configuration
+    ;;
+esac
+
+# =============================================================================
+# Resize Bindings (Ctrl+Alt+h/j/k/l)
+# =============================================================================
+if zstyle -T :z4m:tmux-nav resize-bindings; then
+  function z4m-resize-left()  { $tmux_cmd resize-pane -L 5 2>/dev/null }
+  function z4m-resize-down()  { $tmux_cmd resize-pane -D 5 2>/dev/null }
+  function z4m-resize-up()    { $tmux_cmd resize-pane -U 5 2>/dev/null }
+  function z4m-resize-right() { $tmux_cmd resize-pane -R 5 2>/dev/null }
+
+  zle -N z4m-resize-left
+  zle -N z4m-resize-down
+  zle -N z4m-resize-up
+  zle -N z4m-resize-right
+
+  bindkey '^[^h' z4m-resize-left   # Ctrl+Alt+h
+  bindkey '^[^j' z4m-resize-down   # Ctrl+Alt+j
+  bindkey '^[^k' z4m-resize-up     # Ctrl+Alt+k
+  bindkey '^[^l' z4m-resize-right  # Ctrl+Alt+l
+fi
