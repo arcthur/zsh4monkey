@@ -352,8 +352,8 @@ bindkey   '^[/'     redo                           # alt+/
 bindkey   '^ '      z4m-expand                     # ctrl+space
 # Generic command completion.
 bindkey   '^I'      z4m-fzf-complete               # tab
-# Command history - prefer Atuin if available, fallback to fzf.
-if (( ${_z4m_atuin_available:-0} )); then
+# Command history - prefer Atuin if available and handling Ctrl+R, fallback to fzf.
+if (( ${_z4m_atuin_ctrl_r:-0} )); then
   # Atuin handles Ctrl+R binding via init script
   :
 elif (( _z4m_use[fzf] )); then
@@ -735,10 +735,8 @@ if (( _z4m_use[zsh-autosuggestions] )); then
     z4m-up-prefix-global
     z4m-up-prefix-local
   )
-  # Add Atuin search widget to clear list if available
-  if (( ${_z4m_atuin_available:-0} )); then
-    ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(_atuin_search_widget)
-  fi
+  # Note: Atuin widgets are added to ZSH_AUTOSUGGEST_CLEAR_WIDGETS in -z4m-post-init
+  # because Atuin is initialized after this point
   if (( _z4m_use[zsh-history-substring-search] )); then
     ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(
       z4m-down-substring-global
@@ -775,10 +773,7 @@ if (( _z4m_use[zsh-autosuggestions] )); then
     ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS+=(end-of-line vi-add-eol vi-end-of-line)
   fi
 
-  # Auto-configure atuin_top strategy if Atuin is available
-  if (( ${_z4m_atuin_available:-0} )); then
-    ZSH_AUTOSUGGEST_STRATEGY=(atuin_top completion)
-  fi
+  # Note: Atuin automatically configures ZSH_AUTOSUGGEST_STRATEGY when sourced
 
   builtin source $Z4M/zsh-autosuggestions/zsh-autosuggestions.zsh
   precmd_functions=(${precmd_functions:#_zsh_autosuggest_start})
@@ -1042,6 +1037,16 @@ function -z4m-post-init() {
   fi
 
   if (( _z4m_use[zsh-autosuggestions] )); then
+    # Add Atuin widgets to clear list (Atuin is initialized after -z4m-init-zle)
+    # Atuin v18.0+ uses 'atuin-search', older versions use '_atuin_search_widget'
+    if (( ${_z4m_atuin_available:-0} )); then
+      if (( $+widgets[atuin-search] )); then
+        ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(atuin-search atuin-up-search)
+      elif (( $+widgets[_atuin_search_widget] )); then
+        ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(_atuin_search_widget _atuin_up_search_widget)
+      fi
+    fi
+
     local suggest_special=(
       $ZSH_AUTOSUGGEST_EXECUTE_WIDGETS
       $ZSH_AUTOSUGGEST_CLEAR_WIDGETS

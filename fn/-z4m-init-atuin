@@ -5,8 +5,12 @@
 # Configuration:
 #   zstyle ':z4m:atuin' enabled yes/no           - Enable/disable Atuin (default: yes)
 #   zstyle ':z4m:atuin' up-arrow yes/no          - Enable up-arrow integration (default: no)
+#   zstyle ':z4m:atuin' ctrl-r yes/no            - Enable Ctrl+R integration (default: yes)
+#   zstyle ':z4m:atuin' nobind yes/no            - Disable all key bindings (default: no)
 #   zstyle ':z4m:atuin' force-remote yes/no      - Force Atuin on remote (default: no)
 #   zstyle ':z4m:atuin' debug yes/no             - Enable debug output (default: no)
+#
+# Note: For enter_accept, inline_height, filter_mode etc., configure in ~/.config/atuin/config.toml
 #
 
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
@@ -21,18 +25,26 @@ zstyle -T :z4m:atuin enabled || return 0
 # Require system atuin
 (( $+commands[atuin] )) || return 0
 
-typeset -g _z4m_atuin_bin=$commands[atuin]
-
 # Cache directory
 local cache_dir=$Z4M/cache/atuin-$EUID
 [[ -d $cache_dir ]] || zf_mkdir -p -- "$cache_dir"
 
-# Init arguments
-local -a init_args=(--disable-up-arrow)
-zstyle -t :z4m:atuin up-arrow && init_args=()
+# Check for nobind mode first
+if zstyle -t :z4m:atuin nobind; then
+  export ATUIN_NOBIND=true
+fi
 
-# Generate or use cached init script
-local cache_file=$cache_dir/init.zsh
+# Init arguments
+# up-arrow: default disabled (use z4m's prefix search), enable with 'yes'
+# ctrl-r: default enabled (Atuin handles it), disable with 'no'
+local -a init_args=()
+zstyle -t :z4m:atuin up-arrow || init_args+=(--disable-up-arrow)
+zstyle -T :z4m:atuin ctrl-r   || init_args+=(--disable-ctrl-r)
+
+# Generate cache key based on init arguments
+local cache_key=${(j:_:)init_args:-default}
+[[ -v ATUIN_NOBIND ]] && cache_key+=_nobind
+local cache_file=$cache_dir/init-${cache_key}.zsh
 local cache_valid=0
 
 if [[ -r $cache_file ]]; then
@@ -57,9 +69,15 @@ fi
 source $cache_file
 
 typeset -gi _z4m_atuin_available=1
+# Track if Atuin handles Ctrl+R (for fallback to fzf)
+zstyle -T :z4m:atuin ctrl-r && ! zstyle -t :z4m:atuin nobind && typeset -gi _z4m_atuin_ctrl_r=1
 
 if zstyle -t :z4m:atuin debug; then
   print -Pru2 -- "%F{3}z4m%f: atuin initialized"
   print -Pru2 -- "  binary: $commands[atuin]"
-  print -Pru2 -- "  up-arrow: $(zstyle -t :z4m:atuin up-arrow && echo 'enabled' || echo 'disabled')"
+  print -Pru2 -- "  version: $(atuin --version 2>/dev/null | head -1)"
+  print -Pru2 -- "  up-arrow: $(zstyle -t :z4m:atuin up-arrow && echo 'enabled (atuin)' || echo 'disabled (prefix search)')"
+  print -Pru2 -- "  ctrl-r: $(zstyle -T :z4m:atuin ctrl-r && echo 'enabled (atuin)' || echo 'disabled (fzf)')"
+  print -Pru2 -- "  nobind: $(zstyle -t :z4m:atuin nobind && echo 'enabled (custom bindings)' || echo 'disabled')"
+  print -Pru2 -- "  cache: $cache_file"
 fi

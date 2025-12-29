@@ -423,19 +423,45 @@ Over SSH, Carapace is automatically disabled with fallback to native completions
 
 ## Atuin History
 
-SQLite-based history with cross-device sync.
+SQLite-based history with cross-device sync. Requires Atuin v17.0+, v18.0+ recommended.
 
 ```zsh
 z4m install atuin || return
 ```
 
-**Configuration:**
+**z4m Configuration:**
 
 ```zsh
-zstyle ':z4m:atuin' enabled 'no'
-zstyle ':z4m:atuin' up-arrow 'yes'       # Replace prefix search with Atuin
+zstyle ':z4m:atuin' enabled 'no'         # Disable Atuin entirely
+zstyle ':z4m:atuin' up-arrow 'yes'       # Use Atuin for up-arrow (default: no, uses prefix search)
+zstyle ':z4m:atuin' ctrl-r 'no'          # Disable Ctrl+R binding (use fzf instead)
+zstyle ':z4m:atuin' nobind 'yes'         # Disable all Atuin keybindings (for custom bindings)
 zstyle ':z4m:atuin' force-remote yes     # Use on remote SSH (not recommended)
-zstyle ':z4m:atuin' debug yes
+zstyle ':z4m:atuin' debug yes            # Show debug info on startup
+```
+
+**Atuin config.toml** (`~/.config/atuin/config.toml`):
+
+```toml
+# Recommended settings for fzf-like behavior
+enter_accept = false              # Edit command before execution (like fzf)
+inline_height = 40                # UI height (0 = fullscreen)
+style = "compact"                 # compact or full
+filter_mode_shell_up_key_binding = "directory"  # Filter by directory for up-arrow
+keymap_mode = "vim-normal"        # vim-normal, vim-insert, emacs, auto
+
+# Other useful options
+show_preview = true               # Show command preview
+show_help = false                 # Hide help bar
+```
+
+**Custom keybindings** (when using `nobind`):
+
+```zsh
+zstyle ':z4m:atuin' nobind 'yes'
+# After z4m init, bind manually:
+bindkey '^r' atuin-search         # Atuin v18.0+
+bindkey '^[[A' atuin-up-search    # Up arrow
 ```
 
 Over SSH, Atuin is automatically disabled with fallback to fzf-history.
