@@ -20,9 +20,8 @@ Regardless of which layer you're in (Neovim, Tmux, Zsh), the same keypress produ
 │    prefix+h/j/k/l → Direct pane navigation (fallback)       │
 ├─────────────────────────────────────────────────────────────┤
 │  Zsh (z4m-nav-* widgets)                                    │
-│    Ctrl+h/j/k/l → Check buffer state                        │
-│                   ├─ Empty  → Delegate to tmux select-pane  │
-│                   └─ Non-empty → Edit/history operations    │
+│    Ctrl+h/j/k/l → Move in ZLE when possible                 │
+│                   └─ Otherwise → Delegate to tmux select-pane│
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -30,24 +29,24 @@ Regardless of which layer you're in (Neovim, Tmux, Zsh), the same keypress produ
 
 | Key | Buffer Empty | Buffer Non-empty |
 |-----|--------------|------------------|
-| `C-h` | → tmux pane left | backward-delete-char |
-| `C-j` | → tmux pane down | Last line → pane; else history↓ |
-| `C-k` | → tmux pane up | First line → pane; else history↑ |
-| `C-l` | → tmux pane right | clear-screen |
+| `C-h` | → tmux pane left | Move cursor left; at buffer start → pane left |
+| `C-j` | → tmux pane down | Last line → pane down; otherwise move down (buffer/history) |
+| `C-k` | → tmux pane up | First line → pane up; otherwise move up (buffer/history) |
+| `C-l` | → tmux pane right | Move cursor right; at buffer end → pane right |
 
 **Design Rationale**:
-- When no command is being typed, the intent is pane switching
-- When editing a command, preserve useful traditional behaviors
+- Consistent semantics: the same key always means the same direction across layers.
+- Boundary delegation: when ZLE cannot move further in that direction, control is delegated to tmux.
 
 ## Complete Keybinding Reference
 
 | Function | Neovim | Tmux | Zsh |
 |----------|--------|------|-----|
 | **Navigation** | | | |
-| Left | `C-h` | `prefix+h` | `C-h` (empty buffer) |
-| Down | `C-j` | `prefix+j` | `C-j` (empty buffer) |
-| Up | `C-k` | `prefix+k` | `C-k` (empty buffer) |
-| Right | `C-l` | `prefix+l` | `C-l` (empty buffer) |
+| Left | `C-h` | `prefix+h` | `C-h` (move left; delegates at buffer start/empty) |
+| Down | `C-j` | `prefix+j` | `C-j` (delegates at empty buffer/last line) |
+| Up | `C-k` | `prefix+k` | `C-k` (delegates at empty buffer/first line) |
+| Right | `C-l` | `prefix+l` | `C-l` (move right; delegates at buffer end/empty) |
 | **Resize** | | | |
 | Shrink width | `A-h` | `prefix+H` | `C-M-h` |
 | Grow height | `A-j` | `prefix+J` | `C-M-j` |
@@ -127,8 +126,8 @@ Scenario: 3 tmux panes - left zsh, center neovim, right zsh
    → Now back in neovim
 
 3. In left zsh typing a command, press C-l
-   → z4m-nav-right detects non-empty buffer, executes clear-screen
-   → Screen clears, continue editing command
+   → z4m-nav-right moves the cursor right
+   → When the cursor is at the end of the buffer, C-l delegates to tmux select-pane -R
 
 4. Need to force pane switch regardless of buffer state
    → Press prefix+h/j/k/l
@@ -142,6 +141,9 @@ Tmux is not forwarding keys:
 ```bash
 tmux source ~/.tmux.conf
 ```
+
+If your terminal sends Backspace as `C-h`, Backspace may also trigger left navigation.
+Configure your terminal/tmux to send DEL (`^?`) for Backspace if you want Backspace to remain a delete key.
 
 ### Neovim navigation not working
 

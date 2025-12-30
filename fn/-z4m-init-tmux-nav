@@ -5,7 +5,7 @@
 # First Principles Design:
 #   - Ctrl+h/j/k/l = move left/down/up/right (consistent across all layers)
 #   - Each layer handles internal navigation, delegates to outer layer at boundary
-#   - Zsh: empty buffer → pane nav; non-empty buffer → edit/history
+#   - Zsh: when movement in a direction isn't possible in ZLE, delegate to tmux pane nav
 #
 # Layer Model:
 #   Neovim splits ──(boundary)──> Tmux panes ──(boundary)──> (cycle)
@@ -47,24 +47,29 @@ function -z4m-tmux-select-pane() {
 
 # Ctrl+h: Left
 #   - Empty buffer → navigate to left tmux pane
-#   - Non-empty, cursor > 0 → backward-delete-char
-#   - Non-empty, cursor = 0 → no-op (already at leftmost position)
+#   - Non-empty, cursor > 0 → move cursor left
+#   - Non-empty, cursor = 0 → navigate to left tmux pane (boundary delegation)
 function z4m-nav-left() {
   if [[ -z $BUFFER ]]; then
     -z4m-tmux-select-pane left
   elif (( CURSOR > 0 )); then
-    zle backward-delete-char
+    zle backward-char
+  else
+    -z4m-tmux-select-pane left
   fi
 }
 
 # Ctrl+l: Right
 #   - Empty buffer → navigate to right tmux pane
-#   - Non-empty → clear-screen (preserve traditional behavior)
+#   - Non-empty, cursor < end → move cursor right
+#   - Non-empty, cursor = end → navigate to right tmux pane (boundary delegation)
 function z4m-nav-right() {
   if [[ -z $BUFFER ]]; then
     -z4m-tmux-select-pane right
+  elif (( CURSOR < _z4m_cursor_max() )); then
+    zle forward-char
   else
-    zle clear-screen
+    -z4m-tmux-select-pane right
   fi
 }
 

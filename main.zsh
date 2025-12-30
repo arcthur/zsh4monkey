@@ -296,7 +296,7 @@ function -z4m-cmd-init() {
             sock=$TMPDIR
           fi
           if [[ -n $sock ]]; then
-            local tmux_suf
+            local sock_suf=''
             local -a cmds=()
             sock=${sock%/}/z4m-tmux-$UID
             if (( terminfo[colors] >= 256 )); then

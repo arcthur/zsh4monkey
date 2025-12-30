@@ -179,6 +179,15 @@ if (( ARGC == 1 )); then
       print -Pr -- "You can also bind to a key:"
       print -Pr -- "  z4m bindkey z4m-recovery-shell Ctrl+Alt+R"
     ;;
+    reset)
+      print -Pr -- "Usage: %F{2}z4m%f %Breset%b [--no-restart]"
+      print -Pr -- ""
+      print -Pr -- "Clear z4m failure markers and internal caches (completion, prompt, gitstatus)."
+      print -Pr -- "This can help recover from broken startup states."
+      print -Pr -- ""
+      print -Pr -- "Options:"
+      print -Pr -- "  %B-n, --no-restart%b  Do not restart zsh after reset"
+    ;;
     uninstall)
       print -Pr -- "Usage: %F{2}z4m%f %Buninstall%b [options]"
       print -Pr -- ""
@@ -275,6 +284,7 @@ print -Pru$fd -- "  %F{2}z4m%f %Bbench%b [%Ucount%u]            Benchmark startu
 print -Pru$fd -- "  %F{2}z4m%f %Benv%b [full|paths]        Show environment info"
 print -Pru$fd -- "  %F{2}z4m%f %Btime%b %Ucommand%u             Time command execution"
 print -Pru$fd -- "  %F{2}z4m%f %Brecovery%b               Enter recovery shell"
+print -Pru$fd -- "  %F{2}z4m%f %Breset%b                  Clear failure markers and caches"
 print -Pru$fd -- ""
 print -Pru$fd -- "%F{6}Information:%f"
 print -Pru$fd -- "  %F{2}z4m%f %Bversion%b                 Show version info"

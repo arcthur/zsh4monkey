@@ -1064,7 +1064,7 @@ function -z4m-post-init() {
   fi
 
   if [[ -v _z4m_tty_fd ]]; then
-    if [[ -v function[__vte_osc7] ]]; then
+    if [[ -v functions[__vte_osc7] ]]; then
       builtin functions -c -- -z4m-vte-osc7 __vte_osc7
     fi
     if zstyle -T :z4m: term-shell-integration && [[ $TERM != (dumb|linux) ]]; then

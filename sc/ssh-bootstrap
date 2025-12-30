@@ -240,10 +240,7 @@ _z4m_dump_size='0'
 
 if command -v 'base64' >'/dev/null' 2>&1 && command -v 'tr' >'/dev/null' 2>&1; then
   if '[' '-n' "$_z4m_ssh_dst_list" ']'; then
-    case "$_z4m_ssh_tar_v" in
-      *'GNU tar'*) _z4m_ssh_tar_opt='--owner=0 --group=0';;
-    esac
-    COPYFILE_DISABLE='1' 'command' 'tar' '-C' "$_z4m_ssh_tmp" $tar_opt '-czhf' "$_z4m_ssh_tmp"/dump.tar.gz \
+    COPYFILE_DISABLE='1' 'command' 'tar' '-C' "$_z4m_ssh_tmp" $_z4m_ssh_tar_c_opt '-czhf' "$_z4m_ssh_tmp"/dump.tar.gz \
       '--' $_z4m_ssh_dst_list || 'exit'
     'base64' <"$_z4m_ssh_tmp"/dump.tar.gz >"$_z4m_ssh_tmp"/dump.base64 || 'exit'
     'command' 'tr' '-d' '\n' <"$_z4m_ssh_tmp"/dump.base64 >"$_z4m_ssh_tmp"/dump.base64-sl || 'exit'

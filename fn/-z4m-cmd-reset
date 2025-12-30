@@ -1,0 +1,38 @@
+#!/usr/bin/env zsh
+#
+# z4m reset - Clear z4m failure markers and caches
+#
+# Usage:
+#   z4m reset [--no-restart]
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+-z4m-check-core-params || return
+
+local -a no_restart
+zparseopts -D -F -- n=no_restart -no-restart=no_restart || return '_z4m_err()'
+
+local z4m_dir=$Z4M
+
+local -a targets=(
+  $z4m_dir/.safe-mode(N)
+  $z4m_dir/.last-init-failed(N)
+  $z4m_dir/cache/zcompdump-*(N)
+  $z4m_dir/cache/zcompcache-*(N)
+  $z4m_dir/cache/gitstatus(N)
+  $z4m_dir/cache/powerlevel10k/p10k-instant-prompt-*.zsh(N)
+  $z4m_dir/cache/powerlevel10k/p10k-instant-prompt-*.zwc(N)
+)
+
+(( $#targets )) && zf_rm -rf -- "${targets[@]}" 2>/dev/null || true
+
+print -Pru2 -- '%F{3}z4m%f: reset complete'
+
+(( $#no_restart )) && return 0
+
+if [[ -o interactive ]]; then
+  exec zsh -i
+fi
+
+return 0

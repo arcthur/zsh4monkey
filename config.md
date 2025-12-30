@@ -31,7 +31,8 @@ Configuration options for zsh4monkey. Place `zstyle` settings in `~/.zshrc` **be
 
 ### prompt-at-bottom
 
-Move prompt to the bottom when zsh starts and on `Ctrl+L`.
+Move the prompt to the bottom when zsh starts. z4m's clear-screen widgets preserve this layout
+(default: `Ctrl+L`, unless overridden by tmux unified navigation).
 
 ```zsh
 zstyle ':z4m:' prompt-at-bottom 'yes'
@@ -39,10 +40,10 @@ zstyle ':z4m:' prompt-at-bottom 'yes'
 
 | Value | Description |
 |-------|-------------|
-| `yes` | Prompt at bottom |
-| `no`  | Prompt at top (default) |
+| `yes` | Prompt at bottom (default) |
+| `no`  | Prompt at top |
 
-> Requires `start-tmux` not set to `no`.
+> Effective only when z4m can save/restore the terminal screen (e.g. inside tmux, or when using `z4m ssh`).
 
 ### propagate-cwd
 
@@ -78,16 +79,16 @@ z4m vi-mode on|off|toggle|status
 
 ### keyboard
 
-Set keyboard layout for directory navigation keybindings.
+Keyboard type hint for `z4m bindkey` key name mapping (mainly affects Delete vs Fn+Delete on macOS).
 
 ```zsh
 zstyle ':z4m:bindkey' keyboard 'pc'
 ```
 
-| Value | Directory Navigation Keys |
-|-------|---------------------------|
-| `pc` | `Alt+Arrow` |
-| `mac` | `Shift+Arrow` |
+| Value | Forward Delete key name |
+|-------|--------------------------|
+| `pc` | `Delete` |
+| `mac` | `Fn+Delete` |
 
 ### macos-option-as-alt
 
@@ -154,8 +155,8 @@ zstyle ':z4m:' start-tmux 'command tmux -u new -A -D -t z4m'
 | Value | Description |
 |-------|-------------|
 | `no` | Don't start tmux |
-| `integrated` | Use z4m's integrated tmux |
-| `isolated` | Same as integrated (default) |
+| `integrated` | Shared z4m tmux server (socket keyed by `$TERM`/color capabilities) |
+| `isolated` | Isolated z4m tmux server (unique socket per shell process, default) |
 | `system` | Use system tmux (`command tmux -u`) |
 | `command <cmd>` | Custom tmux command |
 
@@ -173,7 +174,7 @@ zstyle ':z4m:tmux-nav' mode 'unified'  # unified | pane | disabled
 
 | Mode | Behavior |
 |------|----------|
-| `unified` | Smart boundary detection: empty buffer → pane nav, non-empty → edit (default) |
+| `unified` | Smart boundary detection: move within ZLE when possible; otherwise delegate to tmux pane navigation (default) |
 | `pane` | Always navigate tmux panes unconditionally |
 | `disabled` | No bindings; user-defined configuration |
 
@@ -194,10 +195,10 @@ Dynamic tmux window naming: project name, git branch with dirty indicator, comma
 # Disable window title feature
 zstyle ':z4m:tmux-title' enable no
 
-# Show git branch (default: yes)
+# Show git branch (default: no)
 zstyle ':z4m:tmux-title' git-branch yes
 
-# Show command icons (default: yes, requires Nerd Font)
+# Show command icons (default: no, requires Nerd Font)
 zstyle ':z4m:tmux-title' command-icons yes
 
 # Maximum title length (default: 24)
@@ -284,11 +285,7 @@ zstyle ':z4m:fzf-complete' recurse-dirs 'no'
 
 # Other options:
 zstyle ':z4m:fzf-complete' fzf-bindings 'tab:repeat'
-zstyle ':z4m:(cd-down|fzf-complete)' find-command 'command find'
 ```
-
-> **Note:** fzf 0.48+ uses built-in `--walker` for faster directory traversal.
-> Custom `find-command` disables this optimization.
 
 ### fzf-history
 
@@ -303,9 +300,13 @@ zstyle ':z4m:fzf-history' fzf-preview 'no'
 ```zsh
 zstyle ':z4m:fzf-dir-history' fzf-bindings 'tab:repeat'
 zstyle ':z4m:cd-down'         fzf-bindings 'tab:repeat'
+zstyle ':z4m:cd-down'         find-command 'command find'
 ```
 
 > fzf 0.59+ uses `--scheme=path` for better path matching.
+
+> **Note:** fzf 0.48+ uses built-in `--walker` for `z4m-cd-down` when `find-command` is not set.
+> Setting `find-command` forces using the custom search command and disables `--walker`.
 
 **fzf-bindings values:** `tab:down`, `tab:up`, `tab:repeat`
 
@@ -538,7 +539,7 @@ zstyle ':z4m:carapace' force-remote yes  # Use on remote SSH (not recommended)
 zstyle ':z4m:carapace' debug yes
 ```
 
-Default exclusions: `git`, `ssh` (use native completions).
+Default exclusions: `ssh` (use native completion for host/key handling).
 
 Over SSH, Carapace is automatically disabled with fallback to native completions.
 
@@ -676,6 +677,9 @@ z4m bindkey z4m-recovery-shell Ctrl+Alt+R
 
 ```bash
 rm -f ~/.cache/zsh4monkey/.last-init-failed ~/.cache/zsh4monkey/.safe-mode
+
+# If you can start a normal z4m session:
+z4m reset
 ```
 
 ---
@@ -699,10 +703,10 @@ z4m-defer eval "$(slow-tool init zsh)"
 
 | Action | PC | Mac |
 |--------|-----|-----|
-| Directory back | `Alt+Left` | `Shift+Left` |
-| Directory forward | `Alt+Right` | `Shift+Right` |
-| Directory up | `Alt+Up` | `Shift+Up` |
-| Directory down | `Alt+Down` | `Shift+Down` |
+| Directory back | `Shift+Left` | `Shift+Left` |
+| Directory forward | `Shift+Right` | `Shift+Right` |
+| Directory up | `Shift+Up` | `Shift+Up` |
+| Directory down | `Shift+Down` | `Shift+Down` |
 | Directory history | `Alt+R` | `Alt+R` |
 | History search | `Ctrl+R` | `Ctrl+R` |
 
@@ -798,7 +802,7 @@ zstyle ':z4m:bindkey' keyboard 'pc'  # or 'mac'
 
 # Optional customizations
 zstyle ':z4m:' editor-mode 'vi'                # vi keybindings (default: emacs)
-zstyle ':z4m:' prompt-at-bottom 'yes'          # prompt at bottom (requires tmux)
+zstyle ':z4m:' prompt-at-bottom 'yes'          # prompt at bottom (requires tmux or `z4m ssh`)
 zstyle ':z4m:direnv' enable 'yes'              # auto-source .envrc files
 zstyle ':z4m:ssh:*' enable 'yes'               # SSH teleportation
 zstyle ':z4m:ssh-agent:' start 'yes'           # start ssh-agent
@@ -809,7 +813,7 @@ z4m install eza bat fd rg zoxide carapace atuin || return
 
 **Already enabled by default:**
 - Shell integration (OSC 133) with semantic prompt jumping
-- Command completion notification (OSC 9, > 30s)
+- Command completion notification (OSC 9, >= 30s)
 - Recursive directory completion
 - CWD propagation in tmux
 - Tmux unified navigation (`Ctrl+h/j/k/l`)
@@ -830,13 +834,18 @@ z4m install eza bat fd rg zoxide carapace atuin || return
 | `z4m bindkey <widget> <key>` | Bind key |
 | `z4m vi-mode <cmd>` | Vi mode control |
 | `z4m ssh <host>` | SSH with teleportation |
+| `z4m pack` | Create offline installation package |
+| `z4m docker` | Run zsh in Docker container |
+| `z4m sudo <cmd>` | Run command as root preserving z4m |
 | `z4m version` | Show version |
 | `z4m help [cmd]` | Show help |
 | `z4m debug [on\|off]` | Toggle debug |
 | `z4m bench [n]` | Benchmark startup |
 | `z4m compile` | Compile zsh files |
 | `z4m env` | Show environment |
+| `z4m time <cmd>` | Time command execution |
 | `z4m recovery` | Enter recovery shell |
+| `z4m reset [--no-restart]` | Clear failure markers and caches |
 | `z4m uninstall` | Uninstall |
 | `z4m-defer <cmd>` | Defer command |
 

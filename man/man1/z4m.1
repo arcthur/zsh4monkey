@@ -1,6 +1,6 @@
 .\" z4m - zsh4monkey shell configuration framework
 .\" Keep in sync with fn/-z4m-cmd-help
-.Dd December 29, 2024
+.Dd December 30, 2025
 .Dt Z4M 1
 .Os
 .Sh NAME
@@ -138,6 +138,9 @@ Enter a minimal recovery shell environment.
 Useful when
 .Pa .zshrc
 has errors that prevent normal startup.
+.It Cm reset Oo Fl n | Fl -no-restart Oc
+Clear z4m failure markers and internal caches (completion, prompt, gitstatus).
+By default, restarts interactive zsh after clearing.
 .El
 .Ss Information
 .Bl -tag -width Ds

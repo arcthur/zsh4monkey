@@ -60,6 +60,7 @@ The installer backs up existing files, guides you through configuration, and set
 | `z4m bindkey <widget> <key>` | Bind key |
 | `z4m vi-mode on\|off\|toggle` | Toggle vi mode |
 | `z4m recovery` | Enter recovery shell |
+| `z4m reset [--no-restart]` | Clear failure markers and caches |
 | `z4m help [cmd]` | Show help |
 | `z4m uninstall` | Uninstall |
 
@@ -77,6 +78,9 @@ Z4M_SAFE_MODE=1 zsh
 
 # Recovery shell (minimal emergency shell)
 z4m recovery
+
+# Clear failure markers and caches (when a normal z4m session can start)
+z4m reset
 ```
 
 **Safe mode:** `z4m-safe-help`, `z4m-safe-exit`, `z4m-safe-diagnose`
