@@ -78,6 +78,21 @@ compdef _directories md
 # alias tree='tree -a -I .git'
 # alias ls="${aliases[ls]:-ls} -A"
 
+# Git worktree helpers (optional). Uncomment to enable:
+# ga() {
+#   [[ -z "$1" ]] && { echo "Usage: ga <branch>"; return 1; }
+#   local branch=$1 base=${PWD:t} path=../${base}-${branch}
+#   git worktree add -b "$branch" "$path" && cd "$path"
+#   (( $+commands[mise] )) && mise trust "$path"
+# }
+# gd() {
+#   (( $+commands[gum] )) || { echo "gd requires gum: brew install gum"; return 1; }
+#   gum confirm "Remove worktree and branch?" || return 0
+#   local wt=${PWD:t} root=${wt%-*} branch=${wt#*-}
+#   [[ $root == $wt ]] && { echo "Not in a worktree"; return 1; }
+#   cd ../$root && git worktree remove $wt --force && git branch -D $branch
+# }
+
 # Set shell options: http://zsh.sourceforge.net/Doc/Release/Options.html.
 setopt glob_dots     # no special treatment for file names with a leading dot
 setopt no_auto_menu  # require an extra TAB press to open the completion menu
