@@ -14,7 +14,11 @@ zstyle -a :completion:$curcontext:default list-colors list_colors || return
 if [[ ${list_types}${(pj:\0:)list_colors} != $_z4m_last_list_colors ]]; then
   # This takes ~20ms. Can be easily optimized.
   typeset -g _z4m_last_list_colors=${list_types}${(pj:\0:)list_colors}
-  typeset -gA _z4m_name_colors=(${(@s:=:)${(@s.:.)list_colors}:#[[:alpha:]][[:alpha:]]=*})
+  # Filter out mode colors (two-letter codes like di=, ln=, etc.) and parse name colors
+  local -a name_parts=(${(@s:=:)${(@s.:.)list_colors}:#[[:alpha:]][[:alpha:]]=*})
+  # Ensure even number of elements for associative array
+  (( $#name_parts % 2 == 0 )) || name_parts+=('')
+  typeset -gA _z4m_name_colors=("${name_parts[@]}")
   typeset -gA _z4m_mode_colors=(${(@Ms:=:)${(@s.:.)list_colors}:#[[:alpha:]][[:alpha:]]=*})
   typeset -gA _z4m_mode_codes=()
   () {
