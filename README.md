@@ -9,7 +9,7 @@ A modern, feature-rich Zsh configuration that just works. Built for developers w
 - **Syntax highlighting** - Feature-rich [fast-syntax-highlighting](https://github.com/zdharma-continuum/fast-syntax-highlighting) with 256-color themes
 - **Smart autosuggestions** - [Fish-like suggestions](https://github.com/zsh-users/zsh-autosuggestions)
 - **Beautiful prompt** - Powered by [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
-- **Fuzzy search** - [fzf](https://github.com/junegunn/fzf) for completions and history
+- **Fuzzy completion** - [fzf](https://github.com/junegunn/fzf) with continuous path completion and file coloring
 - **SSH teleportation** - Your shell environment follows you to remote hosts
 - **Vi mode** - Full vi editing with cursor shape changes and p10k integration
 - **Modern CLI tools** - Optional integration with eza, bat, fd, rg, zoxide
@@ -40,6 +40,7 @@ The installer backs up existing files, guides you through configuration, and set
 | Key | Action |
 |-----|--------|
 | `Tab` | Completion with fzf |
+| `/` (in fzf) | Accept and continue path completion |
 | `Ctrl+R` | Search history |
 | `Alt+R` | Directory history |
 | `Alt+M` | Accept autosuggestion |
@@ -112,7 +113,7 @@ z4m install carapace || return
 z4m install atuin || return
 ```
 
-See [config.md](config.md) for complete reference.
+See [docs/config.md](docs/config.md) for complete reference, [docs/fzf-completion.md](docs/fzf-completion.md) for fzf features.
 
 ### Prompt
 

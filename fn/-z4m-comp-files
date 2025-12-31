@@ -42,6 +42,29 @@
   (( height >= 6 )) || (( height = 6 ))
   (( height <= LINES - 1 )) || (( height = LINES - 1 ))
 
+  # Continuous completion: press / to complete next level
+  local continuous_trigger
+  zstyle -s :z4m:${WIDGET#z4m-} continuous-trigger continuous_trigger || continuous_trigger=/
+
+  # Accept line: press this key to insert selection and execute immediately
+  local accept_line_trigger
+  zstyle -s :z4m:${WIDGET#z4m-} accept-line accept_line_trigger
+
+  # Build --expect with both triggers
+  local -a expect_keys=()
+  [[ -n $continuous_trigger ]] && expect_keys+=($continuous_trigger)
+  [[ -n $accept_line_trigger ]] && expect_keys+=($accept_line_trigger)
+
+  # Preview support
+  local preview_cmd
+  if zstyle -s :z4m:${WIDGET#z4m-} fzf-preview preview_cmd; then
+    # User-defined preview; if 'no' or 'false', disable preview
+    [[ $preview_cmd == (no|false|off|0) ]] && preview_cmd=
+  elif zstyle -T :z4m:${WIDGET#z4m-} fzf-preview; then
+    # Default preview using z4m-preview
+    preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview ${(q)_z4m_curcontext} {1} ${(q)_z4m_path_prefix}"
+  fi
+
   local opts=(
     --query=${_z4m_word_prefix:+"^$_z4m_word_prefix "}
     --with-nth=2
@@ -53,6 +76,8 @@
     --multi
     --cycle
     --border=horizontal
+    ${expect_keys:+--expect=${(j:,:)expect_keys}}
+    ${preview_cmd:+--preview=$preview_cmd}
   )
 
   # Path-optimized scoring (fzf 0.59+)
@@ -154,5 +179,19 @@
   [[ -n $choice ]] || return
   choice=("${(@f)choice}")
   typeset -g _z4m_reply=(0 ${${choice:1}%$'\0'*})
-  [[ -z $choice[1] ]] || _z4m_reply[1]=1
+
+  # Determine action based on which key was pressed
+  case $choice[1] in
+    '')
+      # Enter: normal selection, exit
+      ;;
+    $continuous_trigger)
+      # Continuous completion trigger: continue to next level
+      _z4m_reply[1]=1
+      ;;
+    $accept_line_trigger)
+      # Accept line trigger: insert and execute
+      typeset -gi _z4m_accept_line=1
+      ;;
+  esac
 } "${options[dot_glob]}" "${options[list_types]}"

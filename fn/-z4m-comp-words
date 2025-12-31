@@ -38,6 +38,22 @@
   (( height >= 6 )) || (( height = 6 ))
   (( height <= LINES - 1 )) || (( height = LINES - 1 ))
 
+  # Accept line: press this key to insert selection and execute immediately
+  local accept_line_trigger
+  zstyle -s :z4m:${WIDGET#z4m-} accept-line accept_line_trigger
+
+  # Preview support
+  local preview_cmd word_file
+  if zstyle -s :z4m:${WIDGET#z4m-} fzf-preview preview_cmd; then
+    # User-defined preview; if 'no' or 'false', disable preview
+    [[ $preview_cmd == (no|false|off|0) ]] && preview_cmd=
+  elif zstyle -T :z4m:${WIDGET#z4m-} fzf-preview; then
+    word_file=${TMPPREFIX:-/tmp/zsh}-z4m-words-$$
+    print -l -- "${_z4m_words[@]}" > $word_file
+    # Use awk to get word by line number, then call z4m-preview
+    preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview ${(q)_z4m_curcontext} \$(awk 'NR=={1}' ${(q)word_file})"
+  fi
+
   local opts=(
     --query=${_z4m_word_prefix:+"^$_z4m_word_prefix "}
     --color=hl:201,hl+:201
@@ -50,6 +66,8 @@
     --multi
     --cycle
     --border=horizontal
+    ${preview_cmd:+--preview=$preview_cmd}
+    ${accept_line_trigger:+--expect=$accept_line_trigger}
   )
 
   local cursor_y cursor_x
@@ -155,6 +173,7 @@
     )"
   } always {
     -z4m-cursor-hide
+    [[ -n $word_file ]] && command rm -f $word_file 2>/dev/null
     if (( _z4m_can_save_restore_screen )); then
       -z4m-restore-screen
       print -rn -- $'\e[0m\e['$cursor_y';'$cursor_x'H'
@@ -167,5 +186,9 @@
   [[ -n $choice ]] || return
   choice=("${(@f)choice}")
   typeset -g _z4m_reply=(0 ${${choice:1}%$'\0'*})
-  [[ -z $choice[1] ]] || _z4m_reply[1]=1
+
+  # Check if accept-line trigger was pressed
+  if [[ $choice[1] == $accept_line_trigger && -n $accept_line_trigger ]]; then
+    typeset -gi _z4m_accept_line=1
+  fi
 } "${options[list_types]}"

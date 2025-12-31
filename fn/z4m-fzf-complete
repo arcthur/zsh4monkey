@@ -185,13 +185,14 @@ done
   unset ZLE_REMOVE_SUFFIX_CHARS ZLE_SPACE_SUFFIX_CHARS
 
   local -i again=1
+  typeset -gi _z4m_accept_line=0
   while (( again )); do
     {
       -z4m-show-dots $LBUFFER
 
       local buf=$BUFFER
       local -i cursor=CURSOR
-      
+
       local -a _z4m_words=()
       local -a _z4m_descrs=()
       local -a _z4m_scaffolds=()
@@ -296,3 +297,6 @@ done
   builtin zle -R
   -z4m-cursor-show
 }
+
+# Accept line: execute command immediately after completion
+(( _z4m_accept_line )) && builtin zle .accept-line

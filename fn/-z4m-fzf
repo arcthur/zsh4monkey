@@ -3,6 +3,11 @@
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
+# Clear FZF_DEFAULT_OPTS to avoid conflicts with z4m's fzf configuration
+# See: https://github.com/Aloxaf/fzf-tab/issues/461
+local _z4m_saved_fzf_opts=${FZF_DEFAULT_OPTS:-}
+unset FZF_DEFAULT_OPTS
+
 local widget=${WIDGET#z4m-}
 
 # Detect fzf version for feature gating
@@ -128,9 +133,16 @@ for k v in ${(kv)keys}; do
   fi
 done
 
+# Also detect --expect passed by caller (e.g., from -z4m-comp-files for continuous completion)
+(( ${@[(I)--expect=*]} )) && expect=1
+
 local keymap
 printf -v keymap '%s:%s,' ${(kv)keys}
 local out=$("${cmd[@]}" "$@" --bind=${keymap%,} "${flags[@]}")
+
+# Restore FZF_DEFAULT_OPTS
+FZF_DEFAULT_OPTS=$_z4m_saved_fzf_opts
+
 [[ -n $out ]] || return
 (( expect )) || print
 print -r -- $out
