@@ -448,10 +448,29 @@ zstyle ':z4m:ssh-agent:' extra-args '-t 20h'
 zstyle ':z4m:direnv' enable 'yes'
 ```
 
+### Timeout
+
+Direnv has a 10-second timeout by default. If your `.envrc` runs slow commands (like `devbox`, `nix-shell`), increase it:
+
+```zsh
+zstyle ':z4m:direnv' timeout 30  # seconds
+```
+
+If direnv times out or is interrupted (Ctrl-C), z4m shows a helpful message and continues initialization normally (won't trigger recovery mode).
+
+### Notifications
+
 Success notifications are disabled by default (less noise). Enable with:
 
 ```zsh
 zstyle ':z4m:direnv:success' notify 'yes'
+```
+
+### Troubleshooting
+
+If direnv is slow in a specific directory:
+```zsh
+direnv deny  # disable direnv for current directory
 ```
 
 ---

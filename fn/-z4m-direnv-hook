@@ -3,8 +3,6 @@
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
-unset _z4m_direnv_err
-
 if (( ARGC )); then
   local direnv=$1
 else
@@ -15,14 +13,6 @@ else
   fi
 fi
 
-# { print -n '\x1f\x8b\x08\x00\x00\x00\x00\x00'; base64 -d <<<${${DIRENV_WATCHES//-/+}//_//} } | zcat 2>/dev/null
-
-# zcat
-# gzcat
-# uncompress -c
-# gunzip -c
-# gzip -cd
-
 local sig
 local envrc=(./(../)#.envrc(NY1:a))
 if (( $#envrc )); then
@@ -31,7 +21,6 @@ if (( $#envrc )); then
     ${XDG_CONFIG_HOME:-~/.config}/{direnv.toml,config.toml})
   local -a stat
   local files=($^deps(N))
-  local non_files=(${deps:|files})
   if zstat -A stat +mtime -- $envrc $files 2>/dev/null; then
     local sig=$envrc$'\0'${(pj:\0:)stat}
   else
@@ -48,12 +37,73 @@ fi
 
 unset _z4m_direnv_sig
 
+# Timeout for direnv export (default 10 seconds)
+local -i timeout
+zstyle -s ':z4m:direnv' timeout timeout || timeout=10
+
 local data
-data=$(
-  local out
-  out=$($direnv export zsh) 2>&1
-  builtin printf '%s%18d%d' "$out" $#out $(( ! $? ))
-) || return
+local -i timed_out=0
+
+# Set up INT trap to show helpful message on Ctrl-C
+local _z4m_direnv_envrc=${envrc[1]:-$PWD/.envrc}
+trap '
+  print -Pru2 ""
+  print -Pru2 "%F{yellow}z4m%f: direnv interrupted by Ctrl-C"
+  print -Pru2 "%F{yellow}z4m%f: .envrc: %F{cyan}${_z4m_direnv_envrc}%f"
+  print -Pru2 "%F{yellow}z4m%f: to disable direnv for this directory: %F{green}direnv deny%f"
+  typeset -g _z4m_direnv_sig=interrupted
+  return 130
+' INT
+
+# Run direnv with timeout if timeout/gtimeout command is available
+local timeout_cmd=
+if command -v timeout &>/dev/null; then
+  timeout_cmd=timeout
+elif command -v gtimeout &>/dev/null; then
+  timeout_cmd=gtimeout
+fi
+
+if [[ -n $timeout_cmd ]]; then
+  # Use timeout command, capture stdout and stderr separately
+  local tmpfile=${TMPDIR:-/tmp}/z4m-direnv-$$
+  local errfile=${TMPDIR:-/tmp}/z4m-direnv-err-$$
+  local -i ret
+  $timeout_cmd ${timeout}s $direnv export zsh >$tmpfile 2>$errfile
+  ret=$?
+
+  if (( ret == 124 )); then
+    timed_out=1
+    zf_rm -f $tmpfile $errfile 2>/dev/null
+  else
+    local out=$(<$tmpfile)
+    local err=$(<$errfile)
+    zf_rm -f $tmpfile $errfile 2>/dev/null
+    # Format: err + out + out_len(18 digits) + success(1 digit)
+    data="${err}$(builtin printf '%s%18d%d' "$out" $#out $(( ret == 0 )))"
+  fi
+else
+  # No timeout support, run directly (original behavior)
+  data=$(
+    local out ret
+    out=$($direnv export zsh) 2>&1
+    ret=$?
+    builtin printf '%s%18d%d' "$out" $#out $(( ret == 0 ))
+  ) || { trap - INT; return; }
+fi
+
+trap - INT
+
+if (( timed_out )); then
+  print -Pru2 "%F{yellow}z4m%f: direnv timed out after ${timeout}s"
+  print -Pru2 "%F{yellow}z4m%f: .envrc: %F{cyan}${envrc[1]:-$PWD/.envrc}%f"
+  print -Pru2 "%F{yellow}z4m%f: check your .envrc for slow commands"
+  print -Pru2 "%F{yellow}z4m%f: to increase timeout: %F{green}zstyle ':z4m:direnv' timeout 30%f"
+  print -Pru2 "%F{yellow}z4m%f: to disable for this dir: %F{green}direnv deny%f"
+  typeset -g _z4m_direnv_sig=timeout
+  return 1
+fi
+
+[[ -n $data ]] || return
 
 local -i success=$data[-1]
 local -i out_len=$data[-19,-2]

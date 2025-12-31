@@ -27,6 +27,17 @@ elif [[ ! -x $direnv ]]; then
   return
 fi
 
--z4m-direnv-hook $direnv || return
+# Run direnv hook but don't fail initialization if it times out or is interrupted
+# This prevents direnv issues from triggering recovery mode
+-z4m-direnv-hook $direnv || {
+  # Only propagate real errors, not timeouts/interrupts
+  local -i ret=$?
+  if [[ ${_z4m_direnv_sig-} == (timeout|interrupted) ]]; then
+    # Direnv was interrupted or timed out, but initialization should continue
+    true
+  else
+    return $ret
+  fi
+}
 
 typeset -gi _z4m_direnv_initialized=1
