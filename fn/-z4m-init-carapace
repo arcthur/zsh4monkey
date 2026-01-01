@@ -11,7 +11,12 @@
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
-zstyle -T :z4m:carapace enabled || return 0
+local enabled
+if zstyle -s :z4m:carapace enabled enabled; then
+  case ${(L)enabled} in
+    0|no|false|off) return 0 ;;
+  esac
+fi
 
 # Skip on remote SSH environments
 [[ -n $Z4M_SSH ]] && return 0

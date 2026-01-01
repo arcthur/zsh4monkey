@@ -97,13 +97,19 @@ if [[ -n $_z4m_carapace_bin && -x $_z4m_carapace_bin ]]; then
   # Commands with built-in completion support (don't override with carapace)
   local -a native_handled=(terraform vault packer aws gcloud)
 
+  typeset -gA _z4m_carapace_prev_comps
+
   for cmd in $_z4m_carapace_supported_commands; do
     # Skip if command not installed
     [[ -v commands[$cmd] ]] || continue
-    # Skip if in exclusion list (git, ssh by default)
+    # Skip if in exclusion list
     (( ${_z4m_carapace_exclude[(Ie)$cmd]} )) && continue
     # Skip if already handled by native completers
     (( ${native_handled[(Ie)$cmd]} )) && continue
+    # Preserve existing completion (if any) to enable perfect fallback
+    if [[ -v _comps[$cmd] && ${_comps[$cmd]} != -z4m-complete-carapace ]]; then
+      _z4m_carapace_prev_comps[$cmd]=${_comps[$cmd]}
+    fi
     # Register Carapace completion
     compdef -- -z4m-complete-carapace $cmd
   done

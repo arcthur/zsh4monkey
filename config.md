@@ -552,9 +552,18 @@ z4m install carapace || return
 **Configuration:**
 
 ```zsh
-zstyle ':z4m:carapace' enabled 'no'
+# Default: enabled
+
+# Optional: disable Carapace completions
+zstyle ':z4m:carapace' enabled no
+
+# Optional: commands to always use native completion
 zstyle ':z4m:carapace' exclude docker kubectl
-zstyle ':z4m:carapace' force-remote yes  # Use on remote SSH (not recommended)
+
+# Optional: use on remote SSH (not recommended)
+zstyle ':z4m:carapace' force-remote yes
+
+# Optional: debug output
 zstyle ':z4m:carapace' debug yes
 ```
 

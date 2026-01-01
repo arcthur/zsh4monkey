@@ -12,6 +12,17 @@ local cmd=${words[1]}
 
 # Fallback helper: unregister and use native completion
 function -z4m-carapace-fallback() {
+  local prev=${_z4m_carapace_prev_comps[$cmd]-}
+
+  if [[ -n $prev && $prev != -z4m-complete-carapace ]]; then
+    (( $+functions[$prev] )) || builtin autoload -Uz $prev 2>/dev/null || true
+    if (( $+functions[$prev] )); then
+      _comps[$cmd]=$prev
+      $prev "$@"
+      return
+    fi
+  fi
+
   unset "_comps[$cmd]"
   _default "$@"
 }
