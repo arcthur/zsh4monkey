@@ -10,14 +10,22 @@
 #   path_prefix - Optional path prefix for file completions
 #
 
-emulate -L zsh -o extended_glob
+emulate -L zsh -o extended_glob -o typeset_silent -o pipe_fail -o no_aliases
 
 local ctx=$1 word=$2 path_prefix=$3
 local target
 
+local -i preview_lines=${FZF_PREVIEW_LINES:-100}
+local -i preview_cols=${FZF_PREVIEW_COLUMNS:-0}
+(( preview_lines > 0 )) || preview_lines=100
+
 # Resolve file path
 if [[ -n $path_prefix ]]; then
-  target=$path_prefix$word
+  if [[ $word == /* ]]; then
+    target=$word
+  else
+    target=${path_prefix%/}/$word
+  fi
 else
   target=$word
 fi
@@ -34,9 +42,110 @@ fi
 # Git log format (matches common alias style)
 local log_fmt='--pretty=format:%C(yellow)%h%Creset %s %Cgreen(%cr)%Creset %C(bold blue)<%an>%Creset%C(auto)%d%Creset'
 
+z4m__in_git_repo() {
+  command git rev-parse --is-inside-work-tree &>/dev/null
+}
+
+z4m__git_branch_preview() {
+  local ref=$1
+  z4m__in_git_repo || return
+
+  local upstream
+  upstream=$(command git rev-parse --abbrev-ref --symbolic-full-name "${ref}@{upstream}" 2>/dev/null) || upstream=
+  if [[ -n $upstream ]]; then
+    local -a counts
+    counts=(${(s: :)$(command git rev-list --left-right --count "${ref}...${upstream}" 2>/dev/null)})
+    echo "Upstream: $upstream"
+    echo "Ahead/Behind: ${counts[1]:-0}/${counts[2]:-0}"
+    echo ""
+  fi
+}
+
+z4m__git_file_preview() {
+  local p=$1
+  z4m__in_git_repo || return 1
+  [[ -e $p ]] || return 1
+
+  local st
+  st=$(command git status --porcelain=v1 -- "$p" 2>/dev/null)
+  if [[ -n $st ]]; then
+    echo "Status:"
+    print -r -- "$st"
+  else
+    echo "Status: clean"
+  fi
+
+  # Unstaged diff
+  if ! command git diff --quiet -- "$p" 2>/dev/null; then
+    echo ""
+    echo "Unstaged diff:"
+    command git diff --color=always -- "$p" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
+  fi
+
+  # Staged diff
+  if ! command git diff --cached --quiet -- "$p" 2>/dev/null; then
+    echo ""
+    echo "Staged diff:"
+    command git diff --cached --color=always -- "$p" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
+  fi
+
+  echo ""
+  echo "Last commit:"
+  command git log --color=always $log_fmt -1 -- "$p" 2>/dev/null
+}
+
+z4m__git_object_preview() {
+  local obj=$1
+  z4m__in_git_repo || return 1
+  command git cat-file -e "$obj" 2>/dev/null || return 1
+
+  # 1) Summary (fast decision signal)
+  command git show -s --color=always \
+    --format='Commit: %C(yellow)%h%Creset %s%nAuthor: %C(bold blue)%an%Creset <%ae>%nDate:   %Cgreen%ad%Creset%nRefs:   %C(auto)%D%Creset' \
+    --date=relative "$obj" 2>/dev/null
+
+  # 2) Change list
+  echo ""
+  command git show --color=always --name-status --format='' "$obj" 2>/dev/null | command head -n "$preview_lines"
+  echo ""
+  command git show --color=always --stat --format='' "$obj" 2>/dev/null | command head -n "$preview_lines"
+
+  # 3) Patch (only after signal + list)
+  echo ""
+  echo "Patch:"
+  command git show --color=always "$obj" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
+}
+
+z4m__git_current_branch_signal() {
+  z4m__in_git_repo || return
+  local branch
+  branch=$(command git rev-parse --abbrev-ref HEAD 2>/dev/null) || return
+  [[ $branch != HEAD ]] || return
+  echo "Branch: $branch"
+  z4m__git_branch_preview "$branch"
+}
+
+z4m__git_remote_preview() {
+  local remote=$1
+  z4m__in_git_repo || return 1
+  command git remote get-url "$remote" &>/dev/null || return 1
+
+  # Signal
+  echo "Remote: $remote"
+  echo "Fetch URL: $(command git remote get-url "$remote" 2>/dev/null)"
+  echo "Push URL:  $(command git remote get-url --push "$remote" 2>/dev/null)"
+  echo ""
+  z4m__git_current_branch_signal
+
+  # Scope + detail (bounded)
+  echo ""
+  command git remote show "$remote" 2>/dev/null | command head -n "$preview_lines"
+}
+
 # Git commands
 case $ctx in
   *:git-branch:*|*:git-switch:*|*:git-merge:*)
+    z4m__git_branch_preview "$word"
     git log --color=always $log_fmt -15 "$word" 2>/dev/null
     return
     ;;
@@ -46,19 +155,20 @@ case $ctx in
        git show-ref --verify --quiet "refs/tags/$word" 2>/dev/null ||
        git show-ref --verify --quiet "refs/remotes/origin/$word" 2>/dev/null ||
        [[ -n $(git for-each-ref --format='%(refname:short)' "refs/remotes/*/$word" 2>/dev/null | head -1) ]]; then
+      z4m__git_branch_preview "$word"
       git log --color=always $log_fmt -15 "$word" 2>/dev/null
     elif [[ -e $target ]]; then
-      git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
+      z4m__git_file_preview "$target" || git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
     else
-      git show --color=always "$word" 2>/dev/null | "${pager[@]}"
+      git show --color=always "$word" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
     fi
     return
     ;;
   *:git-diff:*|*:git-add:*|*:git-reset:*|*:git-restore:*)
     if [[ -e $target ]]; then
-      git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
+      z4m__git_file_preview "$target" || git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
     else
-      git diff --color=always "$word" 2>/dev/null | "${pager[@]}"
+      git diff --color=always "$word" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
     fi
     return
     ;;
@@ -66,16 +176,18 @@ case $ctx in
     if [[ -e $target ]]; then
       git log --color=always $log_fmt -15 -- "$target" 2>/dev/null
     else
-      git show --color=always "$word" 2>/dev/null | "${pager[@]}"
+      z4m__git_object_preview "$word" || git show --color=always "$word" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
     fi
     return
     ;;
   *:git-show:*)
-    git show --color=always "$word" 2>/dev/null | "${pager[@]}"
+    z4m__git_object_preview "$word" || git show --color=always "$word" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
     return
     ;;
   *:git-stash:*)
-    git stash show --color=always -p "$word" 2>/dev/null | "${pager[@]}"
+    git stash show --color=always --stat "$word" 2>/dev/null
+    echo ""
+    git stash show --color=always -p "$word" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
     return
     ;;
   *:git-rebase:*)
@@ -83,23 +195,19 @@ case $ctx in
     return
     ;;
   *:git-push:*|*:git-pull:*|*:git-fetch:*)
-    # Show commits ahead/behind for remote tracking
+    # Best-effort: word can be a remote name or a remote ref
+    if z4m__git_remote_preview "$word"; then
+      return
+    fi
     if git show-ref --verify --quiet "refs/remotes/$word" 2>/dev/null; then
-      echo "Remote: $word"
+      echo "Remote ref: $word"
+      echo ""
       git log --color=always $log_fmt -10 "$word" 2>/dev/null
-    elif git remote get-url "$word" 2>/dev/null; then
-      echo "Remote: $word"
-      git remote show "$word" 2>/dev/null | head -20
     fi
     return
     ;;
   *:git-remote:*)
-    if git remote get-url "$word" &>/dev/null; then
-      echo "URL: $(git remote get-url "$word" 2>/dev/null)"
-      echo "Push URL: $(git remote get-url --push "$word" 2>/dev/null)"
-      echo ""
-      git remote show "$word" 2>/dev/null | head -20
-    fi
+    z4m__git_remote_preview "$word"
     return
     ;;
   *:git-tag:*)
@@ -109,15 +217,31 @@ case $ctx in
     return
     ;;
   *:git-worktree:*)
-    git worktree list 2>/dev/null
+    # Show info for selected worktree path
+    local wt_path=$word
+    [[ -d $wt_path ]] || wt_path=$(git worktree list --porcelain 2>/dev/null | awk -v w="$word" '$1=="worktree" && $2 ~ "/" w "$" {print $2; exit}')
+    if [[ -n $wt_path && -d $wt_path ]]; then
+      echo "Worktree: $wt_path"
+      local wt_status
+      wt_status=$(git -C "$wt_path" status --short 2>/dev/null)
+      if [[ -n $wt_status ]]; then
+        echo "Uncommitted changes:"
+        print -r -- "$wt_status"
+      else
+        echo "Working tree clean"
+      fi
+      echo ""
+      echo "Recent commits:"
+      git -C "$wt_path" log --color=always $log_fmt -5 2>/dev/null
+    fi
     return
     ;;
   *:git-blame:*)
     if [[ -e $target ]]; then
       if (( $+commands[bat] )); then
-        bat --color=always --style=numbers --line-range=:50 "$target" 2>/dev/null
+        bat --color=always --style=numbers --line-range=":$preview_lines" "$target" 2>/dev/null
       else
-        head -50 "$target" 2>/dev/null
+        head -n "$preview_lines" "$target" 2>/dev/null
       fi
     fi
     return
@@ -128,6 +252,7 @@ case $ctx in
 
     # Check local branch
     if git show-ref --verify --quiet "refs/heads/$word" 2>/dev/null; then
+      z4m__git_branch_preview "$word"
       git log --color=always $log_fmt -15 "$word" 2>/dev/null
       return
     fi
@@ -154,13 +279,13 @@ case $ctx in
 
     # Check if it's a file with changes
     if [[ -e $target ]]; then
-      git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
+      z4m__git_file_preview "$target" || git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
       return
     fi
 
     # Check if it's a commit or other git object
     if git cat-file -e "$word" 2>/dev/null; then
-      git show --color=always "$word" 2>/dev/null | "${pager[@]}"
+      z4m__git_object_preview "$word" || git show --color=always "$word" 2>/dev/null | "${pager[@]}" | command head -n "$preview_lines"
       return
     fi
 
@@ -173,156 +298,156 @@ case $ctx in
     # Fallback: try to show something useful
     # Maybe it's a partial ref or alias
     git log --color=always $log_fmt -5 "$word" 2>/dev/null ||
-    git show --color=always "$word" 2>/dev/null | head -30
+    git show --color=always "$word" 2>/dev/null | command head -n "$preview_lines"
     return
     ;;
 esac
 
-# Tmux commands
+# Tmux commands - only preview session/window/pane targets
 case $ctx in
   *:tmux:*)
-    case $word in
-      # Environment
-      show-environment|set-environment|showenv|setenv)
-        tmux show-environment -g 2>/dev/null
-        ;;
-      # Options (show current values)
-      show-options|set-option|show|set)
-        tmux show-options -g 2>/dev/null | head -40
-        ;;
-      show-window-options|set-window-option|showw|setw)
-        tmux show-window-options -g 2>/dev/null | head -40
-        ;;
-      show-hooks|set-hook)
-        tmux show-hooks -g 2>/dev/null
-        ;;
-      # List commands
-      list-sessions|ls)
-        tmux list-sessions -F '#{session_name}: #{session_windows} windows (#{session_attached} attached)' 2>/dev/null
-        ;;
-      list-windows|lsw)
-        tmux list-windows -a -F '#{session_name}:#{window_index} #{window_name} #{window_flags}' 2>/dev/null
-        ;;
-      list-panes|lsp)
-        tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command} #{pane_width}x#{pane_height}' 2>/dev/null
-        ;;
-      list-buffers|lsb)
-        tmux list-buffers -F '#{buffer_name}: #{buffer_size} bytes' 2>/dev/null
-        ;;
-      list-keys|lsk)
-        tmux list-keys 2>/dev/null | head -40
-        ;;
-      list-clients|lsc)
-        tmux list-clients -F '#{client_name}: #{client_width}x#{client_height} (#{client_termname})' 2>/dev/null
-        ;;
-      # Session management
-      new-session|new)
-        tmux list-sessions -F '#{session_name} (#{session_windows}w)' 2>/dev/null
-        echo "---"
-        echo "Creates new session"
-        ;;
-      attach-session|attach)
-        tmux list-sessions -F '#{?session_attached,*,} #{session_name}: #{session_windows} windows' 2>/dev/null
-        ;;
-      kill-session)
-        tmux list-sessions -F '#{session_name}: #{session_windows} windows' 2>/dev/null
-        ;;
-      switch-client|switchc)
-        tmux list-sessions -F '#{?client_session,>, } #{session_name}' 2>/dev/null
-        ;;
-      rename-session|rename)
-        echo "Current session: $(tmux display-message -p '#{session_name}')"
-        ;;
-      # Window management
-      new-window|neww)
-        tmux list-windows -F '#{window_index}: #{window_name} #{window_flags}' 2>/dev/null
-        ;;
-      select-window|selectw|last-window|last|next-window|next|previous-window|prev)
-        tmux list-windows -F '#{window_index}: #{window_name} #{window_flags}' 2>/dev/null
-        ;;
-      kill-window|killw)
-        tmux list-windows -F '#{window_index}: #{window_name} (#{window_panes} panes)' 2>/dev/null
-        ;;
-      rename-window|renamew)
-        echo "Current window: $(tmux display-message -p '#{window_name}')"
-        tmux list-windows -F '#{window_index}: #{window_name}' 2>/dev/null
-        ;;
-      swap-window|swapw|move-window|movew|link-window|linkw|unlink-window|unlinkw)
-        tmux list-windows -a -F '#{session_name}:#{window_index} #{window_name}' 2>/dev/null
-        ;;
-      # Pane management
-      select-pane|selectp)
-        tmux list-panes -F '#{pane_index}: #{pane_current_command} #{pane_width}x#{pane_height}' 2>/dev/null
-        ;;
-      kill-pane|killp)
-        tmux list-panes -F '#{pane_index}: #{pane_current_command}' 2>/dev/null
-        ;;
-      split-window|splitw)
-        tmux list-panes -F '#{pane_index}: #{pane_current_command} #{pane_width}x#{pane_height}' 2>/dev/null
-        ;;
-      resize-pane|resizep)
-        tmux list-panes -F '#{pane_index}: #{pane_width}x#{pane_height} #{?pane_active,*,}' 2>/dev/null
-        ;;
-      swap-pane|swapp|move-pane|movep|join-pane|joinp)
-        tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_command}' 2>/dev/null
-        ;;
-      break-pane|breakp)
-        tmux list-panes -F '#{pane_index}: #{pane_current_command}' 2>/dev/null
-        ;;
-      # Capture/save
-      capture-pane|capturep)
-        tmux capture-pane -p 2>/dev/null | tail -20
-        ;;
-      save-buffer|saveb)
-        tmux show-buffer 2>/dev/null | head -20
-        ;;
-      # Display popup info (since you use it)
-      display-popup|popup)
-        echo "Current popup settings:"
-        tmux show-options -g | grep -E '^popup' 2>/dev/null
-        ;;
-      *)
-        # Session/window target - show windows or panes
-        if tmux has-session -t "$word" 2>/dev/null; then
-          echo "Session: $word"
-          tmux list-windows -t "$word" -F '  #{window_index}: #{window_name} #{window_flags} (#{window_panes} panes)' 2>/dev/null
-        elif [[ $word == *:* ]]; then
-          # Window target (session:window)
-          echo "Window: $word"
-          tmux list-panes -t "$word" -F '  #{pane_index}: #{pane_current_command} #{pane_width}x#{pane_height}' 2>/dev/null
-        fi
-        ;;
-    esac
+    (( $+commands[tmux] )) || return
+    # Session target
+    if tmux has-session -t "$word" 2>/dev/null; then
+      echo "Session: $word"
+      tmux list-windows -t "$word" -F '  #{window_index}: #{window_name} #{window_flags} (#{window_panes} panes)' 2>/dev/null
+      return
+    fi
+
+    # Window/pane target (session:window, session:window.pane, or just index)
+    if [[ $word == *:* ]] || [[ $word == <-> ]]; then
+      local target_info
+      target_info=$(tmux display-message -t "$word" -p '#{window_name} (#{window_panes} panes)' 2>/dev/null) || return
+      echo "Target: $word - $target_info"
+      tmux list-panes -t "$word" -F '  #{pane_index}: #{pane_current_command} #{pane_width}x#{pane_height}' 2>/dev/null
+    fi
     return
     ;;
 esac
 
-# Docker commands
+# Workmux commands
+case $ctx in
+  *:workmux:*|*:workmux-command-*)
+    (( $+commands[workmux] )) || return
+    local wt_path
+    wt_path=$(workmux path "$word" 2>/dev/null) || return
+
+    # Show uncommitted changes
+    local status
+    status=$(git -C "$wt_path" status --short 2>/dev/null)
+    if [[ -n $status ]]; then
+      echo "Uncommitted changes:"
+      print -r -- "$status"
+      echo ""
+    else
+      echo "Working tree clean"
+      echo ""
+    fi
+
+    # Show recent commits
+    echo "Recent commits:"
+    git -C "$wt_path" log --color=always $log_fmt -5 2>/dev/null
+    return
+    ;;
+esac
+
+# Docker commands - only preview containers/images, not subcommands
 case $ctx in
   *:docker:*)
-    case $word in
-      images|image)
-        docker images 2>/dev/null
-        ;;
-      ps|container)
-        docker ps -a 2>/dev/null
-        ;;
-      volume|volumes)
-        docker volume ls 2>/dev/null
-        ;;
-      network|networks)
-        docker network ls 2>/dev/null
-        ;;
-      *)
-        # Container ID or name
-        if docker inspect "$word" &>/dev/null; then
-          docker inspect --format '{{.Name}} ({{.State.Status}})
+    (( $+commands[docker] )) || return
+
+    # Try as container first
+    if docker container inspect "$word" &>/dev/null; then
+      docker container inspect --format 'Container: {{.Name}} ({{.State.Status}})
 Image: {{.Config.Image}}
 Created: {{.Created}}
 Ports: {{range $p, $conf := .NetworkSettings.Ports}}{{$p}} {{end}}' "$word" 2>/dev/null
-        fi
-        ;;
-    esac
+      return
+    fi
+
+    # Try as image
+    if docker image inspect "$word" &>/dev/null; then
+      docker image inspect --format 'Image: {{.RepoTags}}
+Size: {{.Size}}
+Created: {{.Created}}
+Layers: {{len .RootFS.Layers}}' "$word" 2>/dev/null
+      return
+    fi
+
+    # Try as volume
+    if docker volume inspect "$word" &>/dev/null; then
+      docker volume inspect --format 'Volume: {{.Name}}
+Driver: {{.Driver}}
+Mountpoint: {{.Mountpoint}}' "$word" 2>/dev/null
+      return
+    fi
+
+    # Try as network
+    if docker network inspect "$word" &>/dev/null; then
+      docker network inspect --format 'Network: {{.Name}}
+Driver: {{.Driver}}
+Scope: {{.Scope}}' "$word" 2>/dev/null
+    fi
+    return
+    ;;
+esac
+
+# Kill/pkill commands - show process info
+case $ctx in
+  *:kill:*|*:pkill:*)
+    if [[ $word == <-> ]]; then
+      # PID (numeric) - show process details
+      ps -p "$word" -o pid=,ppid=,user=,pcpu=,pmem=,etime=,command= 2>/dev/null
+    else
+      # Process name - show matching processes
+      local -a pids
+      pids=($(pgrep "$word" 2>/dev/null))
+      if (( $#pids )); then
+        ps -p "${(j:,:)pids}" -o pid=,user=,pcpu=,pmem=,etime=,command= 2>/dev/null | head -10
+      fi
+    fi
+    return
+    ;;
+esac
+
+# GitHub CLI - show PR/issue details
+case $ctx in
+  *:gh:*)
+    (( $+commands[gh] )) || return
+
+    # PR number
+    if [[ $word == <-> ]]; then
+      # Best chain: signal -> scope -> detail (bounded)
+      gh pr view "$word" \
+        --json number,title,state,author,headRefName,baseRefName,additions,deletions,changedFiles,files \
+        --template 'PR #{{.number}}: {{.title}}
+State: {{.state}}
+Author: {{.author.login}}
+Branch: {{.headRefName}} → {{.baseRefName}}
+Delta:  +{{.additions}} -{{.deletions}} ({{.changedFiles}} files)
+
+Files:
+{{range .files}}{{.path}}
+{{end}}' 2>/dev/null | command head -n "$preview_lines" ||
+      gh issue view "$word" --json number,title,state,author,labels,assignees \
+        --template 'Issue #{{.number}}: {{.title}}
+State: {{.state}}
+Author: {{.author.login}}
+Assignees: {{range .assignees}}{{.login}} {{end}}
+Labels: {{range .labels}}{{.name}} {{end}}
+' 2>/dev/null | command head -n "$preview_lines"
+      return
+    fi
+
+    # Branch name (for gh pr checkout)
+    if git show-ref --verify --quiet "refs/heads/$word" 2>/dev/null ||
+       [[ -n $(git for-each-ref --format='%(refname:short)' "refs/remotes/*/$word" 2>/dev/null | head -1) ]]; then
+      gh pr list --head "$word" --json number,title,state,author \
+        --template '{{range .}}PR #{{.number}}: {{.title}}
+State: {{.state}}
+Author: {{.author.login}}
+{{end}}' 2>/dev/null
+    fi
     return
     ;;
 esac
@@ -339,13 +464,35 @@ if [[ -e $target ]]; then
       ls -la "$target" 2>/dev/null
     fi
   elif [[ -f $target ]]; then
-    # File: show content with syntax highlighting
-    if (( $+commands[bat] )); then
-      bat --color=always --style=numbers --line-range=:100 "$target" 2>/dev/null
-    elif (( $+commands[batcat] )); then
-      batcat --color=always --style=numbers --line-range=:100 "$target" 2>/dev/null
+    # File: show metadata + content with syntax highlighting
+    command ls -ld -- "$target" 2>/dev/null
+    command file -b -- "$target" 2>/dev/null
+    echo ""
+
+    local mime
+    mime=$(command file -b --mime -- "$target" 2>/dev/null)
+    if [[ $mime == *'charset=binary'* ]] || [[ $mime == application/octet-stream* ]]; then
+      if (( $+commands[xxd] )); then
+        xxd -g 1 -l 2048 -- "$target" 2>/dev/null
+      else
+        hexdump -C -n 2048 -- "$target" 2>/dev/null
+      fi
     else
-      head -100 "$target" 2>/dev/null
+      if (( $+commands[bat] )); then
+        if (( preview_cols > 0 )); then
+          bat --color=always --style=numbers --wrap=character --terminal-width=$((preview_cols-1)) --line-range=":$preview_lines" -- "$target" 2>/dev/null
+        else
+          bat --color=always --style=numbers --wrap=character --line-range=":$preview_lines" -- "$target" 2>/dev/null
+        fi
+      elif (( $+commands[batcat] )); then
+        if (( preview_cols > 0 )); then
+          batcat --color=always --style=numbers --wrap=character --terminal-width=$((preview_cols-1)) --line-range=":$preview_lines" -- "$target" 2>/dev/null
+        else
+          batcat --color=always --style=numbers --wrap=character --line-range=":$preview_lines" -- "$target" 2>/dev/null
+        fi
+      else
+        head -n "$preview_lines" -- "$target" 2>/dev/null
+      fi
     fi
   else
     # Other: just stat

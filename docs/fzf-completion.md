@@ -83,16 +83,19 @@ Enabled by default. Shows context-aware preview for completions:
 
 | Context | Preview |
 |---------|---------|
-| Files | `bat` with syntax highlighting (falls back to `head`) |
+| Files | Metadata + `bat` with syntax highlighting (binary files shown with `xxd`) |
 | Directories | `eza -la` or `ls -la` |
-| Git branches | `git log` with delta (if available) |
-| Git diff/add | `git diff` with delta |
-| Git show | `git show` with delta |
-| Git stash | `git stash show -p` with delta |
-| Tmux sessions | Window list with flags |
-| Tmux windows | Pane list with commands |
-| Tmux commands | Current state (options, buffers, etc.) |
-| Docker | Container/image info |
+| Git branches | Upstream status (ahead/behind) + `git log` |
+| Git diff/add/reset | File status + staged/unstaged diffs |
+| Git show/log | Commit summary + changed files + patch |
+| Git stash | Stats + full diff |
+| Git worktree | Uncommitted changes + recent commits |
+| Tmux sessions | Window list with pane counts |
+| Tmux windows | Pane list with commands and sizes |
+| Docker | Container/image/volume/network info |
+| Workmux | Uncommitted changes + recent commits |
+| kill/pkill | Process info (PID, user, CPU, memory, command) |
+| gh (GitHub CLI) | PR/issue title, state, author, changed files |
 
 ```zsh
 # Disable preview
