@@ -1,0 +1,36 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local b64
+if (( ARGC == 0 )); then
+  IFS= read -r b64 || true
+elif (( ARGC == 1 )); then
+  b64=$1
+else
+  print -Pru2 -- 'Usage: %F{2}z4m%f %Benv-propagation-diagnose%b [<base64>]' \
+    $'\n  - If <base64> is omitted, reads from stdin.'
+  return 1
+fi
+
+if [[ -z ${b64-} ]]; then
+  print -Pru2 -- '%F{3}z4m%f: empty input'
+  return 1
+fi
+
+local -A kind scalars arrays assocs
+local reason
+
+if -z4m-env-propagation-parse "$b64" kind scalars arrays assocs reason; then
+  print -Pru2 -- '%F{3}z4m%f: env propagation payload: %F{2}OK%f'
+  print -Pru2 -- "  vars:    ${#kind}"
+  print -Pru2 -- "  scalars: ${#scalars}"
+  print -Pru2 -- "  arrays:  ${#arrays}"
+  print -Pru2 -- "  maps:    ${#assocs}"
+  return 0
+else
+  print -Pru2 -- '%F{3}z4m%f: env propagation payload: %F{1}REJECTED%f'
+  print -Pru2 -- "  reason:  ${reason:-unknown}"
+  return 1
+fi

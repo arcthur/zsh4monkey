@@ -1,0 +1,154 @@
+#!/usr/bin/env zsh
+
+# Parse and validate _Z4M_PROPAGATED_ENV_B64 payload.
+#
+# Data-only payload, tab-separated, base64 wrapped:
+#   Z4M_ENV
+#   NAME\tS\t<val_b64>
+#   NAME\tA\t<count>\t<elem1_b64>...
+#   NAME\tM\t<count>\t<k1_b64>\t<v1_b64>...
+#
+# This function is a validator: fail-closed. Any violation rejects the whole payload.
+# It does not mutate environment; callers can apply atomically.
+#
+# Usage:
+#   local -A kind scalars arrays assocs
+#   local reason
+#   if -z4m-env-propagation-parse "$b64" kind scalars arrays assocs reason; then
+#     ... apply ...
+#   else
+#     print -ru2 -- "rejected: $reason"
+#   fi
+
+emulate -L zsh -o no_aliases -o no_glob -o extended_glob -o typeset_silent
+
+(( ARGC == 6 )) || return 1
+
+local b64=$1
+typeset -n out_kind=$2
+typeset -n out_s=$3
+typeset -n out_a=$4
+typeset -n out_m=$5
+typeset -n out_reason=$6
+
+out_kind=()
+out_s=()
+out_a=()
+out_m=()
+out_reason=''
+
+local -A limits
+-z4m-env-propagation-limits limits || { out_reason='internal: limits unavailable'; return 1 }
+
+if (( ${#b64} > limits[max_b64] )); then
+  out_reason='b64 too large'
+  return 1
+fi
+if [[ $b64 != [A-Za-z0-9+/=]## ]]; then
+  out_reason='b64 contains invalid characters'
+  return 1
+fi
+
+local payload
+payload=$(print -r -- "$b64" | command base64 -d 2>/dev/null) ||
+  payload=$(print -r -- "$b64" | command base64 -D 2>/dev/null) || {
+    out_reason='b64 decode failed'
+    return 1
+  }
+
+(( ${#payload} <= limits[max_payload] )) || { out_reason='payload too large'; return 1 }
+
+if [[ ! ( $payload == Z4M_ENV$'\n'* || $payload == Z4M_ENV ) ]]; then
+  out_reason='missing Z4M_ENV header'
+  return 1
+fi
+
+function _z4m_b64dec() {
+  local s=$1 out
+  [[ $s == [A-Za-z0-9+/=]## ]] || return 1
+  out=$(print -r -- "$s" | command base64 -d 2>/dev/null) ||
+    out=$(print -r -- "$s" | command base64 -D 2>/dev/null) || return 1
+  print -rn -- "$out"
+}
+
+local -a lines
+lines=(${(f)payload})
+(( ${#lines} <= limits[max_lines] )) || { out_reason='too many lines'; return 1 }
+
+local -i vars=0
+
+local -i idx
+for idx in {2..${#lines}}; do
+  local line=$lines[idx]
+  [[ -z $line ]] && continue
+
+  (( ${#line} <= limits[max_line_len] )) || { out_reason='line too long'; return 1 }
+
+  local -a fields
+  fields=(${(s:\t:)line})
+  (( ${#fields} >= 3 )) || { out_reason='invalid record (too few fields)'; return 1 }
+
+  local name=$fields[1]
+  local kind=$fields[2]
+
+  [[ $name == [A-Za-z_][A-Za-z0-9_]## ]] || { out_reason='invalid variable name'; return 1 }
+  [[ $name != (_Z4M_*|Z4M_*|_z4m_*|z4m_*) ]] || { out_reason="reserved variable name: $name"; return 1 }
+  [[ $kind == [SAM] ]] || { out_reason='invalid kind'; return 1 }
+
+  if [[ -z ${out_kind[$name]-} ]]; then
+    (( ++vars <= limits[max_vars] )) || { out_reason='too many variables'; return 1 }
+    out_kind[$name]=$kind
+  else
+    [[ ${out_kind[$name]} == $kind ]] || { out_reason="conflicting kind for $name"; return 1 }
+  fi
+
+  case $kind in
+    S)
+      (( ${#fields} == 3 )) || { out_reason="invalid scalar record for $name"; return 1 }
+      local val
+      val=$(_z4m_b64dec "$fields[3]") || { out_reason="scalar decode failed for $name"; return 1 }
+      (( ${#val} <= limits[max_scalar] )) || { out_reason="scalar too large for $name"; return 1 }
+      out_s[$name]=$val
+      ;;
+    A)
+      (( ${#fields} >= 4 )) || { out_reason="invalid array record for $name"; return 1 }
+      local count=$fields[3]
+      [[ $count == <-> ]] || { out_reason="invalid array count for $name"; return 1 }
+      (( count <= limits[max_elems] )) || { out_reason="array too long for $name"; return 1 }
+      (( ${#fields} == 3 + count )) || { out_reason="array field count mismatch for $name"; return 1 }
+      local -i i
+      local buf=''
+      for i in {1..$count}; do
+        local elem
+        elem=$(_z4m_b64dec "$fields[3+i]") || { out_reason="array element decode failed for $name"; return 1 }
+        (( ${#elem} <= limits[max_value] )) || { out_reason="array element too large for $name"; return 1 }
+        buf+="$elem"$'\0'
+      done
+      out_a[$name]=$buf
+      ;;
+    M)
+      (( ${#fields} >= 4 )) || { out_reason="invalid map record for $name"; return 1 }
+      local count=$fields[3]
+      [[ $count == <-> ]] || { out_reason="invalid map count for $name"; return 1 }
+      (( count <= limits[max_elems] )) || { out_reason="map too large for $name"; return 1 }
+      (( ${#fields} == 3 + 2*count )) || { out_reason="map field count mismatch for $name"; return 1 }
+      local -i i
+      local buf=''
+      local -A seen_keys
+      for i in {1..$count}; do
+        local k v
+        k=$(_z4m_b64dec "$fields[3 + 2*i - 1]") || { out_reason="map key decode failed for $name"; return 1 }
+        v=$(_z4m_b64dec "$fields[3 + 2*i]") || { out_reason="map value decode failed for $name"; return 1 }
+        (( ${#k} <= limits[max_key] )) || { out_reason="map key too large for $name"; return 1 }
+        (( ${#v} <= limits[max_value] )) || { out_reason="map value too large for $name"; return 1 }
+        [[ -z ${seen_keys[$k]-} ]] || { out_reason="duplicate map key for $name"; return 1 }
+        seen_keys[$k]=1
+        buf+="$k"$'\0'"$v"$'\0'
+      done
+      out_m[$name]=$buf
+      ;;
+  esac
+
+done
+
+return 0

@@ -241,41 +241,94 @@ if (( !must_passthrough )); then
     env_to_propagate=(${(u)env_to_propagate})
 
     if (( $#env_to_propagate )); then
-      local -a env_decls=()
+      # Data-only payload (no shell code). Each line is tab-separated.
+      #   header: Z4M_ENV
+      #   scalar: NAME\tS\t<val_b64>
+      #   array:  NAME\tA\t<count>\t<elem1_b64>\t...\t<elemN_b64>
+      #   assoc:  NAME\tM\t<count>\t<k1_b64>\t<v1_b64>\t...\t<kN_b64>\t<vN_b64>
+      # The whole payload is then base64-encoded and assigned to _Z4M_PROPAGATED_ENV_B64.
 
+      local -A _z4m_limits
+      -z4m-env-propagation-limits _z4m_limits || return 1
+      local -ir _z4m_max_vars=${_z4m_limits[max_vars]}
+      local -ir _z4m_max_scalar=${_z4m_limits[max_scalar]}
+      local -ir _z4m_max_elems=${_z4m_limits[max_elems]}
+      local -ir _z4m_max_key=${_z4m_limits[max_key]}
+      local -ir _z4m_max_value=${_z4m_limits[max_value]}
+      local -ir _z4m_max_payload=${_z4m_limits[max_payload]}
+
+      local -a env_lines
+      env_lines=(Z4M_ENV)
+
+      function _z4m_b64enc() {
+        print -rn -- "$1" | command base64 2>/dev/null | command tr -d '\n'
+      }
+
+      local -i _z4m_vars=0
       for var in $env_to_propagate; do
+        [[ $var == [A-Za-z_][A-Za-z0-9_]## ]] || continue
+        [[ $var != (_Z4M_*|Z4M_*|_z4m_*|z4m_*) ]] || continue
+        (( ++_z4m_vars <= _z4m_max_vars )) || break
+
         local vtype=${(Pt)var}
         case $vtype in
           scalar*)
-            # Scalar: get value and create export statement
             local val=${(P)var}
-            # Skip if value is too large (>4KB per variable)
-            (( ${#val} > 4096 )) && continue
-            env_decls+=("export $var=${(qq)val}")
+            (( ${#val} > _z4m_max_scalar )) && continue
+            local val_b64
+            val_b64=$(_z4m_b64enc "$val") || continue
+            [[ -n $val_b64 ]] || continue
+            env_lines+=("$var"$'\t'"S"$'\t'"$val_b64")
             ;;
-          array*|association*)
-            # Complex type: use typeset -p for full declaration
-            local decl
-            decl=$(typeset -p $var 2>/dev/null) || continue
-            # Convert typeset to export
-            decl=${decl/#typeset /export }
-            decl=${decl/#export -g /export }
-            env_decls+=("$decl")
+          array*)
+            typeset -n _z4m_ref=$var
+            local -a _z4m_vals
+            _z4m_vals=("${_z4m_ref[@]}")
+            (( ${#_z4m_vals} <= _z4m_max_elems )) || continue
+            local -a _z4m_fields
+            _z4m_fields=($var A ${#_z4m_vals})
+            local _z4m_elem _z4m_elem_b64
+            for _z4m_elem in "${_z4m_vals[@]}"; do
+              (( ${#_z4m_elem} <= _z4m_max_value )) || { _z4m_fields=(); break }
+              _z4m_elem_b64=$(_z4m_b64enc "$_z4m_elem") || { _z4m_fields=(); break }
+              [[ -n $_z4m_elem_b64 ]] || { _z4m_fields=(); break }
+              _z4m_fields+=("$_z4m_elem_b64")
+            done
+            (( ${#_z4m_fields} )) || continue
+            env_lines+=("${(j:\t:)_z4m_fields}")
+            ;;
+          association*)
+            typeset -n _z4m_ref=$var
+            local -a _z4m_kv
+            _z4m_kv=("${(@kv)_z4m_ref}")
+            local -i _z4m_pairs=$(( ${#_z4m_kv} / 2 ))
+            (( _z4m_pairs <= _z4m_max_elems )) || continue
+            local -a _z4m_fields
+            _z4m_fields=($var M $_z4m_pairs)
+            local _z4m_k _z4m_v _z4m_k_b64 _z4m_v_b64
+            local -i _z4m_i=1
+            while (( _z4m_i <= ${#_z4m_kv} )); do
+              _z4m_k=$_z4m_kv[_z4m_i]
+              _z4m_v=$_z4m_kv[_z4m_i+1]
+              (( ${#_z4m_k} <= _z4m_max_key && ${#_z4m_v} <= _z4m_max_value )) || { _z4m_fields=(); break }
+              _z4m_k_b64=$(_z4m_b64enc "$_z4m_k") || { _z4m_fields=(); break }
+              _z4m_v_b64=$(_z4m_b64enc "$_z4m_v") || { _z4m_fields=(); break }
+              [[ -n $_z4m_k_b64 && -n $_z4m_v_b64 ]] || { _z4m_fields=(); break }
+              _z4m_fields+=("$_z4m_k_b64" "$_z4m_v_b64")
+              _z4m_i+=2
+            done
+            (( ${#_z4m_fields} )) || continue
+            env_lines+=("${(j:\t:)_z4m_fields}")
             ;;
         esac
       done
 
-      # All variables are Base64 encoded for safe transport
-      # This handles newlines, quotes, and special characters uniformly
-      if (( $#env_decls )); then
-        local declarations=${(F)env_decls}
-        # Size limit: 64KB total
-        if (( ${#declarations} <= 65536 )); then
+      if (( ${#env_lines} > 1 )); then
+        local payload=${(F)env_lines}
+        if (( ${#payload} <= _z4m_max_payload )); then
           local encoded
-          encoded=$(print -rn -- "$declarations" | base64) || true
+          encoded=$(print -rn -- "$payload" | command base64 2>/dev/null | command tr -d '\n') || true
           if [[ -n $encoded ]]; then
-            # Remove newlines for safe transport
-            encoded=${encoded//$'\n'/}
             z4m_ssh_prelude+=(
               "export _Z4M_PROPAGATED_ENV_B64='$encoded'"
             )

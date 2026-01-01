@@ -46,12 +46,12 @@ zstyle ':z4m:ssh:*' propagate-env-exclude 'MY_INTERNAL_*'
 │     ↓                                                           │
 │  2. Collect matching variables, apply security exclusions       │
 │     ↓                                                           │
-│  3. Generate export declarations                                │
-│     - scalar:      export VAR='value'                           │
-│     - array:       export -a ARR=( 'a' 'b' )                   │
-│     - association: export -A MAP=( [k]='v' )                   │
+│  3. Generate data payload (no shell code)                       │
+│     - scalar:      NAME\tS\t<val_b64>                           │
+│     - array:       NAME\tA\t<count>\t<elem1_b64>...             │
+│     - association: NAME\tM\t<count>\t<k1_b64>\t<v1_b64>...       │
 │     ↓                                                           │
-│  4. Base64-encode all declarations                              │
+│  4. Base64-encode the whole payload                             │
 │     ↓                                                           │
 │  5. Inject into z4m_ssh_prelude:                                │
 │     export _Z4M_PROPAGATED_ENV_B64='<base64>'                   │
@@ -76,17 +76,12 @@ zstyle ':z4m:ssh:*' propagate-env-exclude 'MY_INTERNAL_*'
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                  REMOTE: zsh (fn/-z4m-init)                     │
-│                        lines 5-17                               │
+│                 data-only restore (no eval)                     │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  if [[ -v _Z4M_PROPAGATED_ENV_B64 ]]; then                      │
-│    # Base64 decode (compatible with Linux -d and macOS -D)      │
-│    _z4m_env_decl=$(base64 -d <<< "$_Z4M_PROPAGATED_ENV_B64")   │
-│                                                                 │
-│    # Execute all export declarations                            │
-│    eval "$_z4m_env_decl"                                        │
-│                                                                 │
-│    # Cleanup                                                    │
+│    # Base64 decode into a tab-separated data payload            │
+│    # Parse & restore via namerefs (no eval)                     │
 │    unset _Z4M_PROPAGATED_ENV_B64                                │
 │  fi                                                             │
 │                                                                 │
@@ -98,76 +93,23 @@ zstyle ':z4m:ssh:*' propagate-env-exclude 'MY_INTERNAL_*'
 ### 3.1 Local Collection (fn/-z4m-cmd-ssh:181-286)
 
 ```zsh
-local -a propagate_env propagate_patterns propagate_exclude
-zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env propagate_env
-zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env-patterns propagate_patterns
-zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env-exclude propagate_exclude
-
-if (( $#propagate_env || $#propagate_patterns )); then
-  # Built-in security exclusion patterns
-  local -a default_exclude=(
-    '*_SECRET' '*_SECRET_*' '*SECRET_*'
-    '*_TOKEN' '*_TOKEN_*' '*TOKEN_*'
-    '*_KEY' '*_API_KEY' '*API_KEY*'
-    '*_PASSWORD' '*PASSWORD*'
-    '*_CREDENTIAL*' '*CREDENTIAL*'
-    'AWS_SECRET_*' 'AWS_SESSION_TOKEN'
-    'GITHUB_TOKEN' 'GH_TOKEN' 'GITLAB_TOKEN'
-    'NPM_TOKEN' 'NPM_AUTH_TOKEN'
-    'DOCKER_PASSWORD' 'DOCKER_AUTH_*'
-  )
-  propagate_exclude+=($default_exclude)
-
-  # Variable collection → exclusion filtering → deduplication
-  local -a env_to_propagate=()
-  # ... (collection logic)
-
-  if (( $#env_to_propagate )); then
-    local -a env_decls=()
-
-    for var in $env_to_propagate; do
-      local vtype=${(Pt)var}
-      case $vtype in
-        scalar*)
-          local val=${(P)var}
-          (( ${#val} > 4096 )) && continue  # 4KB per-variable limit
-          env_decls+=("export $var=${(qq)val}")
-          ;;
-        array*|association*)
-          local decl=$(typeset -p $var 2>/dev/null) || continue
-          decl=${decl/#typeset /export }
-          decl=${decl/#export -g /export }
-          env_decls+=("$decl")
-          ;;
-      esac
-    done
-
-    # Unified Base64 encoding
-    if (( $#env_decls )); then
-      local declarations=${(F)env_decls}
-      if (( ${#declarations} <= 65536 )); then  # 64KB total limit
-        local encoded=$(print -rn -- "$declarations" | base64)
-        encoded=${encoded//$'\n'/}  # Strip newlines for safe transport
-        z4m_ssh_prelude+=("export _Z4M_PROPAGATED_ENV_B64='$encoded'")
-      fi
-    fi
-  fi
-fi
+# Collect variables according to zstyle rules, apply exclusions, deduplicate.
+# For each selected variable, emit one tab-separated record:
+#   scalar: NAME\tS\t<val_b64>
+#   array:  NAME\tA\t<count>\t<elem1_b64>...
+#   assoc:  NAME\tM\t<count>\t<k1_b64>\t<v1_b64>...
+# Then base64-encode the whole payload and export it as _Z4M_PROPAGATED_ENV_B64
+# in the ssh bootstrap prelude.
 ```
 
-### 3.2 Remote Restoration (fn/-z4m-init:5-17)
+### 3.2 Remote Restoration (fn/-z4m-init)
 
 ```zsh
-if [[ -v _Z4M_PROPAGATED_ENV_B64 && -n $_Z4M_PROPAGATED_ENV_B64 ]]; then
-  local _z4m_env_decl
-  # Cross-platform Base64 decoding (Linux: -d, macOS: -D)
-  _z4m_env_decl=$(print -r -- "$_Z4M_PROPAGATED_ENV_B64" | base64 -d 2>/dev/null) ||
-    _z4m_env_decl=$(print -r -- "$_Z4M_PROPAGATED_ENV_B64" | base64 -D 2>/dev/null) || true
-  if [[ -n $_z4m_env_decl ]]; then
-    eval "$_z4m_env_decl" 2>/dev/null || true
-  fi
-  unset _Z4M_PROPAGATED_ENV_B64 _z4m_env_decl
-fi
+# Decode-and-parse only (no eval). Payload is a tab-separated format:
+#   Z4M_ENV
+#   NAME\tS\t<val_b64>
+#   NAME\tA\t<count>\t<elem1_b64>...
+#   NAME\tM\t<count>\t<k1_b64>\t<v1_b64>...
 ```
 
 ## 4. Design Rationale
@@ -185,12 +127,12 @@ export FZF_OPTS=$'--height=40%\n--layout=reverse'
 --layout=reverse'  # Second line becomes invalid command
 ```
 
-**Solution**: Encode all declarations uniformly via Base64, decode and execute within the zsh environment where all syntax is supported.
+**Solution**: Encode values uniformly via Base64 (per-field) and transmit a data-only payload. This preserves newlines and special characters without embedding shell syntax.
 
 ### 4.2 Why Restore in zsh Instead of POSIX sh?
 
 1. **Syntax compatibility**: POSIX sh does not support array syntax (`export -a ARR=(...)`)
-2. **Error handling**: zsh provides more robust eval semantics
+2. **Type support**: associative arrays and indexed arrays are native in zsh
 3. **Timing**: Early zsh initialization ensures variables are available immediately
 
 ### 4.3 Comparison with xxh
@@ -228,6 +170,29 @@ DOCKER_PASSWORD, DOCKER_AUTH_*
 |------------|-------|----------|
 | Per-variable | 4KB | Silently skipped |
 | Total payload | 64KB | Entire feature disabled |
+
+### 5.3 Formal Invariants (Fail-Closed)
+
+Remote restoration treats the payload as untrusted input and validates it as a strict data format. Any violation causes the entire payload to be discarded (no partial application).
+
+- Bounded sizes: base64 input, decoded payload, per-line length
+- Strict grammar: tab-separated records only
+- Structural checks: field count and declared element/pair counts must match
+- Bounded counts: maximum number of variables and elements/pairs
+- Bounded values: maximum scalar/value/key lengths after decode
+- Namespace protection: variables matching `(_Z4M_*|Z4M_*|_z4m_*|z4m_*)` are rejected
+
+### 5.4 Diagnostics
+
+To debug why a payload was rejected:
+
+- On any machine, you can validate a captured payload:
+
+```zsh
+z4m env-propagation-diagnose '<base64>'
+```
+
+- On the remote side, set `Z4M_ENV_PROPAGATION_DEBUG=1` to print a rejection reason to stderr during init.
 
 ## 6. Test Matrix
 

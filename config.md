@@ -356,7 +356,7 @@ zstyle ':z4m:ssh:*' retrieve-history '$ZDOTDIR/.zsh_history.remote'
 
 ### propagate-env
 
-Propagate local environment variables to remote SSH sessions. All variable types are supported: scalars, indexed arrays, and associative arrays. Values are Base64-encoded for safe transport across the SSH boundary.
+Propagate local environment variables to remote SSH sessions opened via `z4m ssh`. All variable types are supported: scalars, indexed arrays, and associative arrays. Values are Base64-encoded for safe transport across the SSH boundary.
 
 ```zsh
 # Explicit variable list

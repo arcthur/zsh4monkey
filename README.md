@@ -58,6 +58,7 @@ The installer backs up existing files, guides you through configuration, and set
 | `z4m update` | Update z4m and plugins |
 | `z4m install <plugin>` | Install plugin |
 | `z4m ssh <host>` | SSH with teleportation |
+| `z4m env-propagation-diagnose [<base64>]` | Diagnose SSH env propagation payload |
 | `z4m bindkey <widget> <key>` | Bind key |
 | `z4m vi-mode on\|off\|toggle` | Toggle vi mode |
 | `z4m recovery` | Enter recovery shell |
@@ -131,6 +132,7 @@ z4m ssh user@host
 - Subsequent connections are instant
 - No git, zsh, or sudo required on remote
 - Supports ProxyJump (`-J`) for bastion hosts
+- Diagnose env propagation issues with `z4m env-propagation-diagnose` and `Z4M_ENV_PROPAGATION_DEBUG=1`
 
 ## Docker
 
