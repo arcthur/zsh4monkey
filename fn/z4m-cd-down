@@ -3,6 +3,7 @@
 [[ -v _z4m_tty_fd ]] || return
 
 autoload +X -Uz -- -z4m-present-files -z4m-cursor-show -z4m-find -z4m-fzf -z4m-fzf-version
+autoload +X -Uz -- -z4m-b64dec
 
 # Detect fzf version for new features
 -z4m-fzf-version 2>/dev/null || true
@@ -38,6 +39,8 @@ fi
       else
         local dirs=(*(-/N))
       fi
+      # fzf input/output is line-delimited; filter out pathological names.
+      (( $#dirs )) && dirs=(${dirs:#*$'\n'*})
       local non_empty=(${^${dirs}}/*(D-/Y1N:h:t))
 
       if (( first )); then
@@ -138,7 +141,7 @@ fi
               local -a pids
               IFS=' ' builtin read -rA pids || exit
               print -r -- $pids $sysparams[pid] || exit
-              -z4m-present-files $list_colors $list_types 0
+              -z4m-present-files $list_colors $list_types 0 1
             } | {
               local -a pids
               IFS=' ' builtin read -rA pids || pids=()
@@ -152,7 +155,10 @@ fi
           [[ -n $choice ]] || return
           choice=("${(@f)choice}")
           [[ -n $choice[1] ]] && again=1
-          cd -- ${choice[2]%%$'\0'*} 2>/dev/null || return
+          local b64=${choice[2]%%$'\0'*}
+          local -a reply=()
+          -z4m-b64dec "$b64" || return
+          cd -- "$reply[1]" 2>/dev/null || return
           redraw=1
         } always {
           if (( _z4m_can_save_restore_screen )); then

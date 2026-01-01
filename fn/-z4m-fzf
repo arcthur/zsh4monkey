@@ -3,10 +3,15 @@
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
-# Clear FZF_DEFAULT_OPTS to avoid conflicts with z4m's fzf configuration
+local -a _z4m_env=()
+# Clear FZF_DEFAULT_OPTS for the fzf process only (avoid mutating current shell state).
 # See: https://github.com/Aloxaf/fzf-tab/issues/461
-local _z4m_saved_fzf_opts=${FZF_DEFAULT_OPTS:-}
-unset FZF_DEFAULT_OPTS
+if command env -u FZF_DEFAULT_OPTS true >/dev/null 2>&1; then
+  _z4m_env=(command env -u FZF_DEFAULT_OPTS)
+else
+  # Fallback for env implementations without -u.
+  _z4m_env=(FZF_DEFAULT_OPTS=)
+fi
 
 local widget=${WIDGET#z4m-}
 
@@ -19,6 +24,30 @@ local -a cmd flags bindings
 zstyle -a :z4m:$widget fzf-command cmd || cmd=(fzf)
 zstyle -a :z4m:$widget fzf-flags flags || flags=()
 zstyle -a :z4m:$widget fzf-bindings bindings || bindings=()
+
+# Treat `--expect` as an API owned by z4m. If users inject it via `fzf-flags`,
+# we absorb it here and pass a single merged `--expect` to fzf.
+local -a _z4m_flags=()
+local -a _z4m_flags_expect_keys=()
+local -i _z4m_i=1
+while (( _z4m_i <= $#flags )); do
+  local _z4m_f=${flags[_z4m_i]}
+  if [[ $_z4m_f == --expect=* ]]; then
+    local _z4m_raw=${_z4m_f#--expect=}
+    [[ -n $_z4m_raw ]] && _z4m_flags_expect_keys+=(${(s:,:)${_z4m_raw}})
+    (( _z4m_i++ ))
+    continue
+  fi
+  if [[ $_z4m_f == --expect ]]; then
+    local _z4m_raw=${flags[_z4m_i+1]:-}
+    [[ -n $_z4m_raw ]] && _z4m_flags_expect_keys+=(${(s:,:)${_z4m_raw}})
+    (( _z4m_i += 2 ))
+    continue
+  fi
+  _z4m_flags+=("$_z4m_f")
+  (( _z4m_i++ ))
+done
+flags=("${_z4m_flags[@]}")
 
 # Apply theme colors
 local -a reply=()
@@ -120,11 +149,12 @@ for kv in $bindings; do
 done
 
 local k v
-local -i expect
+local -a _z4m_expect_keys=(enter)
+_z4m_expect_keys+=("${_z4m_flags_expect_keys[@]}")
+local -a _z4m_repeat_expect_keys=()
 for k v in ${(kv)keys}; do
   if [[ +$v+ == *+repeat+* ]]; then
-    flags=(--expect=$k "${flags[@]}")
-    expect=1
+    _z4m_repeat_expect_keys+=($k)
     if [[ $v == repeat(|+*) ]]; then
       keys[$k]=ignore
     else
@@ -133,16 +163,48 @@ for k v in ${(kv)keys}; do
   fi
 done
 
-# Also detect --expect passed by caller (e.g., from -z4m-comp-files for continuous completion)
-(( ${@[(I)--expect=*]} )) && expect=1
+# Merge caller-provided --expect keys with z4m's own expectations.
+# We always include `enter` to get a stable first-line "key" record.
+local -a _z4m_argv=()
+local _z4m_arg
+local -i _z4m_ai=1
+while (( _z4m_ai <= $# )); do
+  _z4m_arg=${@[_z4m_ai]}
+  if [[ $_z4m_arg == --expect=* ]]; then
+    local _z4m_raw=${_z4m_arg#--expect=}
+    [[ -n $_z4m_raw ]] && _z4m_expect_keys+=(${(s:,:)${_z4m_raw}})
+    (( _z4m_ai++ ))
+    continue
+  fi
+  if [[ $_z4m_arg == --expect ]]; then
+    local _z4m_raw=${@[_z4m_ai+1]:-}
+    [[ -n $_z4m_raw ]] && _z4m_expect_keys+=(${(s:,:)${_z4m_raw}})
+    (( _z4m_ai += 2 ))
+    continue
+  fi
+  _z4m_argv+=("$_z4m_arg")
+  (( _z4m_ai++ ))
+done
+_z4m_expect_keys+=("${_z4m_repeat_expect_keys[@]}")
+
+local -A _z4m_expect_seen=()
+local -a _z4m_expect_uniq=()
+for _z4m_arg in "${_z4m_expect_keys[@]}"; do
+  [[ -n $_z4m_arg ]] || continue
+  (( ${+_z4m_expect_seen[$_z4m_arg]} )) && continue
+  _z4m_expect_seen[$_z4m_arg]=1
+  _z4m_expect_uniq+=("$_z4m_arg")
+done
+
+_z4m_argv+=(--expect=${(j:,:)${_z4m_expect_uniq}})
 
 local keymap
 printf -v keymap '%s:%s,' ${(kv)keys}
-local out=$("${cmd[@]}" "$@" --bind=${keymap%,} "${flags[@]}")
-
-# Restore FZF_DEFAULT_OPTS
-FZF_DEFAULT_OPTS=$_z4m_saved_fzf_opts
+local out=$(${_z4m_env[@]} "${cmd[@]}" "${_z4m_argv[@]}" --bind=${keymap%,} "${flags[@]}")
 
 [[ -n $out ]] || return
-(( expect )) || print
-print -r -- $out
+
+# Normalize Enter key to an empty first line for backward-compatible parsing.
+out=${out/#enter$'\n'/$'\n'}
+
+print -r -- "$out"

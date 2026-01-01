@@ -1,0 +1,14 @@
+#!/usr/bin/env zsh
+
+# Base64-encode a string.
+# Usage: -z4m-b64enc <string>
+# Sets: reply[1] to base64 output (single line)
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+local s=$1
+local out
+out=$(print -rn -- "$s" | command base64 2>/dev/null | command tr -d $'\n') || return 1
+
+reply=("$out")
+return 0

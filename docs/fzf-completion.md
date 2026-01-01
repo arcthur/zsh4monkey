@@ -4,6 +4,22 @@
 
 z4m integrates fzf for fuzzy completion, providing an interactive interface when multiple completions are available.
 
+## Data Model (No Hidden Assumptions)
+
+z4m uses a strict, line-based protocol between its completion generators and fzf:
+
+- **Record delimiter**: newline (`\n`). Each selectable item is one line.
+- **Field delimiter inside a record**: ASCII NUL (`\0`). This allows separating an internal key from the displayed text.
+- **Key encoding**: for path-like completions, the internal key is base64-encoded data (single line). This prevents control characters in the operational value from corrupting the UI protocol.
+- **Invariant**: selectable items must not contain newline characters. (This is also a practical limitation because upstream generators read and write line-oriented streams.)
+
+z4m's fzf wrapper always produces a **first line** indicating which key closed fzf:
+
+- Enter is represented as an **empty** first line.
+- Custom triggers (e.g. `/` for continuous completion) appear as the literal key string on the first line.
+
+This makes the output parsing stable across all widgets and avoids relying on undefined behavior when multiple `--expect` sources interact.
+
 ## Basic Usage
 
 Press `Tab` to trigger completion. When multiple matches exist, fzf opens for selection.

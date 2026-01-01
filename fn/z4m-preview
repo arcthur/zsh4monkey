@@ -48,17 +48,17 @@ case $ctx in
        [[ -n $(git for-each-ref --format='%(refname:short)' "refs/remotes/*/$word" 2>/dev/null | head -1) ]]; then
       git log --color=always $log_fmt -15 "$word" 2>/dev/null
     elif [[ -e $target ]]; then
-      git diff --color=always -- "$target" 2>/dev/null | $pager
+      git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
     else
-      git show --color=always "$word" 2>/dev/null | $pager
+      git show --color=always "$word" 2>/dev/null | "${pager[@]}"
     fi
     return
     ;;
   *:git-diff:*|*:git-add:*|*:git-reset:*|*:git-restore:*)
     if [[ -e $target ]]; then
-      git diff --color=always -- "$target" 2>/dev/null | $pager
+      git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
     else
-      git diff --color=always "$word" 2>/dev/null | $pager
+      git diff --color=always "$word" 2>/dev/null | "${pager[@]}"
     fi
     return
     ;;
@@ -66,16 +66,16 @@ case $ctx in
     if [[ -e $target ]]; then
       git log --color=always $log_fmt -15 -- "$target" 2>/dev/null
     else
-      git show --color=always "$word" 2>/dev/null | $pager
+      git show --color=always "$word" 2>/dev/null | "${pager[@]}"
     fi
     return
     ;;
   *:git-show:*)
-    git show --color=always "$word" 2>/dev/null | $pager
+    git show --color=always "$word" 2>/dev/null | "${pager[@]}"
     return
     ;;
   *:git-stash:*)
-    git stash show --color=always -p "$word" 2>/dev/null | $pager
+    git stash show --color=always -p "$word" 2>/dev/null | "${pager[@]}"
     return
     ;;
   *:git-rebase:*)
@@ -104,7 +104,7 @@ case $ctx in
     ;;
   *:git-tag:*)
     if git show-ref --verify --quiet "refs/tags/$word" 2>/dev/null; then
-      git show --color=always "$word" 2>/dev/null | $pager
+      git show --color=always "$word" 2>/dev/null | "${pager[@]}"
     fi
     return
     ;;
@@ -148,25 +148,25 @@ case $ctx in
 
     # Check tag
     if git show-ref --verify --quiet "refs/tags/$word" 2>/dev/null; then
-      git show --color=always "$word" 2>/dev/null | $pager
+      git show --color=always "$word" 2>/dev/null | "${pager[@]}"
       return
     fi
 
     # Check if it's a file with changes
     if [[ -e $target ]]; then
-      git diff --color=always -- "$target" 2>/dev/null | $pager
+      git diff --color=always -- "$target" 2>/dev/null | "${pager[@]}"
       return
     fi
 
     # Check if it's a commit or other git object
     if git cat-file -e "$word" 2>/dev/null; then
-      git show --color=always "$word" 2>/dev/null | $pager
+      git show --color=always "$word" 2>/dev/null | "${pager[@]}"
       return
     fi
 
     # Check stash entry
     if [[ $word == stash@* ]]; then
-      git stash show --color=always -p "$word" 2>/dev/null | $pager
+      git stash show --color=always -p "$word" 2>/dev/null | "${pager[@]}"
       return
     fi
 

@@ -17,7 +17,7 @@ autoload +X -Uz -- -z4m-fzf-version
 local -i ver=${_z4m_fzf_version_num:-0}
 
 # Build preview command with enhanced formatting
-local preview='printf "%s" {} | command cut -f2- -d'$'\1'
+local preview='printf "%s" {}'
 if (( $+commands[bat] )); then
   # Use bat with bash syntax highlighting
   preview+=' | command bat -l bash --color always -pp --wrap=character --terminal-width=$((FZF_PREVIEW_COLUMNS-1))'

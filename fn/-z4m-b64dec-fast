@@ -1,0 +1,23 @@
+#!/usr/bin/env zsh
+
+# Fast base64-decode for preview/UI paths.
+# WARNING: Like any command substitution, trailing newlines may be trimmed.
+# Usage: -z4m-b64dec-fast <base64>
+# Sets: reply[1] to decoded output
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+local b64=$1
+
+# Empty input -> empty output (consistent with -z4m-b64dec)
+[[ -n $b64 ]] || { reply=(""); return 0; }
+
+# Validate as data-only payload (consistent with -z4m-b64dec)
+[[ $b64 =~ '^[A-Za-z0-9+/=]+$' ]] || return 1
+
+local out
+out=$(print -r -- "$b64" | command base64 -d 2>/dev/null) ||
+  out=$(print -r -- "$b64" | command base64 -D 2>/dev/null) || return 1
+
+reply=("$out")
+return 0

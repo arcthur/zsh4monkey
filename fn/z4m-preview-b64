@@ -1,0 +1,15 @@
+#!/usr/bin/env zsh
+# z4m-preview-b64 - Decode base64 key then delegate to z4m-preview.
+# Usage: z4m-preview-b64 <context> <word_b64> [path_prefix]
+
+emulate -L zsh -o typeset_silent -o pipe_fail
+
+autoload +X -Uz -- -z4m-b64dec-fast
+
+local ctx=$1 b64=$2 path_prefix=$3
+local -a reply=()
+
+-z4m-b64dec-fast "$b64" || exit 0
+
+# Delegate to the existing preview dispatcher.
+"${0:A:h}/z4m-preview" "$ctx" "$reply[1]" "$path_prefix"

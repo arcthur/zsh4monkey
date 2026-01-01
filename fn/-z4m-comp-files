@@ -23,6 +23,7 @@
   local -i list_colors=$((!$?))
 
   autoload +X -Uz -- -z4m-present-files -z4m-cursor-show -z4m-find -z4m-fzf
+  autoload +X -Uz -- -z4m-b64dec
 
   local -i pct=60
   (( _z4m_can_save_restore_screen )) && pct=100
@@ -62,7 +63,7 @@
     [[ $preview_cmd == (no|false|off|0) ]] && preview_cmd=
   elif zstyle -T :z4m:${WIDGET#z4m-} fzf-preview; then
     # Default preview using z4m-preview
-    preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview ${(q)_z4m_curcontext} {1} ${(q)_z4m_path_prefix}"
+    preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview-b64 ${(q)_z4m_curcontext} {1} ${(q)_z4m_path_prefix}"
   fi
 
   local opts=(
@@ -132,7 +133,7 @@
     choice="$(
       unsetopt pipe_fail
       exec 2>/dev/null
-      [[ -n $_z4m_path_prefix ]] && builtin cd -q -- $_z4m_path_prefix
+      [[ -n $_z4m_path_prefix ]] && builtin cd -q -- "$_z4m_path_prefix"
       {
         print -r -- $sysparams[pid]
         print -lr -- ${(Q)_z4m_words}
@@ -155,7 +156,7 @@
         local -a pids
         IFS=' ' builtin read -rA pids || exit
         print -r -- $pids $sysparams[pid] || exit
-        -z4m-present-files $list_colors $list_types 0
+        -z4m-present-files $list_colors $list_types 0 1
       } | {
         local -a pids
         IFS=' ' builtin read -rA pids || pids=()
@@ -178,7 +179,15 @@
 
   [[ -n $choice ]] || return
   choice=("${(@f)choice}")
-  typeset -g _z4m_reply=(0 ${${choice:1}%$'\0'*})
+  local -a decoded=()
+  local sel
+  for sel in "${choice[@]:1}"; do
+    local b64=${sel%$'\0'*}
+    local -a reply=()
+    -z4m-b64dec "$b64" || continue
+    decoded+=("$reply[1]")
+  done
+  typeset -g _z4m_reply=(0 "${decoded[@]}")
 
   # Determine action based on which key was pressed
   case $choice[1] in
