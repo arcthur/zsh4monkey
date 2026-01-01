@@ -46,6 +46,8 @@ local new=$Z4M.new.$$
 
   zf_rm -- $new/tmp/update-successful                || return
   zf_rm -- $new/.updating                            || return
+  zf_rm -f -- $new/.last-init-failed                 # Clear transient init failures from temp shell
+  zf_rm -f -- $new/.safe-mode                        # Clear any safe-mode marker
   -z4m-mv $Z4M $old 2>/dev/null || zf_rm -rf -- $Z4M || return
   if [[ -e $Z4M ]]; then
     local home=~
@@ -75,6 +77,11 @@ local new=$Z4M.new.$$
 }
 
 print -Pru2 -- "%F{3}z4m%f: %Bupdate successful%b"
+
+# Final cleanup: ensure no stale state markers exist before restarting
+# This catches any markers created after the initial cleanup (e.g., by late init failures)
+zf_rm -f -- $Z4M/.last-init-failed $Z4M/.safe-mode 2>/dev/null
+
 print -Pru2 -- "%F{3}z4m%f: restarting %F{2}zsh%f"
 if [[ -o zle ]]; then
   exec -- $_z4m_exe -i || return
