@@ -4,11 +4,6 @@
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
-  # Detect fzf version for new features
-  autoload +X -Uz -- -z4m-fzf-version
-  -z4m-fzf-version 2>/dev/null || true
-  local -i ver=${_z4m_fzf_version_num:-0}
-
   local -i dot_glob list_types
   [[ $1 == on ]] && dot_glob=1
   [[ $2 == on ]] && list_types=1
@@ -25,9 +20,6 @@
   autoload +X -Uz -- -z4m-present-files -z4m-cursor-show -z4m-find -z4m-fzf
   autoload +X -Uz -- -z4m-b64dec
 
-  local -i pct=60
-  (( _z4m_can_save_restore_screen )) && pct=100
-
   local -i recurse
   () {
     emulate -L zsh
@@ -38,10 +30,8 @@
     zstyle -T :z4m:${WIDGET#z4m-} recurse-dirs && recurse=1
   }
 
-  local -i height=$(( ! (recurse && $#dirs) && 100 * ($#_z4m_words + 4) < pct * LINES ? $#_z4m_words + 4 : pct * LINES / 100 ))
-
-  (( height >= 6 )) || (( height = 6 ))
-  (( height <= LINES - 1 )) || (( height = LINES - 1 ))
+  # Use full height from cursor to bottom
+  local -i height=$((LINES - 1))
 
   # Continuous completion: press / to complete next level
   local continuous_trigger
@@ -67,6 +57,10 @@
     preview_cmd="zsh ${(q)preview_script} ${(q)_z4m_curcontext} {1} ${(q)_z4m_path_prefix}"
   fi
 
+  # Preview window style: left border only, auto-hide when empty
+  local preview_window=
+  [[ -n $preview_cmd ]] && preview_window='right,40%,~0,border-left'
+
   local opts=(
     --query=${_z4m_word_prefix:+"^$_z4m_word_prefix "}
     --with-nth=2
@@ -80,10 +74,10 @@
     --border=horizontal
     ${expect_keys:+--expect=${(j:,:)expect_keys}}
     ${preview_cmd:+--preview=$preview_cmd}
+    ${preview_window:+--preview-window=$preview_window}
   )
 
-  # Path-optimized scoring (fzf 0.59+)
-  (( ver >= 5900 )) && opts+=(--scheme=path)
+  opts+=(--scheme=path)
 
   () {
     emulate -L zsh

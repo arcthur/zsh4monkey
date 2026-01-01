@@ -30,13 +30,8 @@
 
   autoload +X -Uz -- -z4m-cursor-show -z4m-fzf
 
-  local -i pct=60
-  (( _z4m_can_save_restore_screen )) && pct=100
-
-  local -i height=$(( 100 * ($#indices + 4) < pct * LINES ? $#indices + 4 : pct * LINES / 100 ))
-
-  (( height >= 6 )) || (( height = 6 ))
-  (( height <= LINES - 1 )) || (( height = LINES - 1 ))
+  # Use full height from cursor to bottom
+  local -i height=$((LINES - 1))
 
   # Accept line: press this key to insert selection and execute immediately
   local accept_line_trigger
@@ -54,6 +49,10 @@
     preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview ${(q)_z4m_curcontext} \$(awk 'NR=={1}' ${(q)word_file})"
   fi
 
+  # Preview window style: left border only, auto-hide when empty
+  local preview_window=
+  [[ -n $preview_cmd ]] && preview_window='right,40%,~0,border-left'
+
   local opts=(
     --query=${_z4m_word_prefix:+"^$_z4m_word_prefix "}
     --color=hl:201,hl+:201
@@ -67,6 +66,7 @@
     --cycle
     --border=horizontal
     ${preview_cmd:+--preview=$preview_cmd}
+    ${preview_window:+--preview-window=$preview_window}
     ${accept_line_trigger:+--expect=$accept_line_trigger}
   )
 
