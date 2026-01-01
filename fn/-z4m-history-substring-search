@@ -1,0 +1,285 @@
+#!/usr/bin/env zsh
+#
+# Embedded history substring search for z4m
+# Based on zsh-history-substring-search (BSD-3-Clause)
+# https://github.com/zsh-users/zsh-history-substring-search
+#
+# Requires zsh 5.0+. Provides Fish-style history search where you can
+# type any part of a command and press up/down to cycle through matches.
+#
+
+emulate -L zsh -o typeset_silent -o extended_glob
+
+# Configuration variables
+: ${HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_FOUND:='bg=magenta,fg=white,bold'}
+: ${HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_NOT_FOUND:='bg=red,fg=white,bold'}
+: ${HISTORY_SUBSTRING_SEARCH_GLOBBING_FLAGS:='i'}
+: ${HISTORY_SUBSTRING_SEARCH_ENSURE_UNIQUE:='1'}
+: ${HISTORY_SUBSTRING_SEARCH_FUZZY:=''}
+: ${HISTORY_SUBSTRING_SEARCH_PREFIXED:=''}
+: ${HISTORY_SUBSTRING_SEARCH_CURSOR_AWARE:=''}  # Use LBUFFER instead of BUFFER
+
+# State variables (using original names for compatibility with z4m overrides)
+typeset -g _history_substring_search_result
+typeset -g _history_substring_search_query
+typeset -g _history_substring_search_query_highlight
+typeset -g _history_substring_search_refresh_display
+typeset -ga _history_substring_search_query_parts
+typeset -ga _history_substring_search_raw_matches
+typeset -gi _history_substring_search_raw_match_index
+typeset -ga _history_substring_search_matches
+typeset -gi _history_substring_search_match_index
+typeset -gA _history_substring_search_unique_filter
+typeset -gi _history_substring_search_cursor_pos   # Original cursor position for cursor-aware mode
+
+#-----------------------------------------------------------------------------
+# Main widgets
+#-----------------------------------------------------------------------------
+
+function history-substring-search-up() {
+  _history-substring-search-begin
+  _history-substring-search-up-history ||
+  _history-substring-search-up-buffer ||
+  _history-substring-search-up-search
+  _history-substring-search-end
+}
+
+function history-substring-search-down() {
+  _history-substring-search-begin
+  _history-substring-search-down-history ||
+  _history-substring-search-down-buffer ||
+  _history-substring-search-down-search
+  _history-substring-search-end
+}
+
+zle -N history-substring-search-up
+zle -N history-substring-search-down
+
+#-----------------------------------------------------------------------------
+# Search initialization
+#-----------------------------------------------------------------------------
+
+function _history-substring-search-begin() {
+  setopt localoptions extendedglob
+
+  _history_substring_search_refresh_display=
+  _history_substring_search_query_highlight=
+
+  # If buffer unchanged from last result, continue stepping through matches.
+  if [[ -n $BUFFER && $BUFFER == ${_history_substring_search_result:-} ]]; then
+    return
+  fi
+
+  # Determine the search text based on cursor-aware mode
+  local search_text
+  if [[ -n $HISTORY_SUBSTRING_SEARCH_CURSOR_AWARE ]]; then
+    search_text=$LBUFFER
+    _history_substring_search_cursor_pos=$CURSOR
+  else
+    search_text=$BUFFER
+    _history_substring_search_cursor_pos=${#BUFFER}
+  fi
+
+  _history_substring_search_result=''
+
+  if [[ -z $search_text ]]; then
+    # Empty search text: act like standard up/down history
+    _history_substring_search_query=
+    _history_substring_search_query_parts=()
+    _history_substring_search_raw_matches=()
+  else
+    _history_substring_search_query=$search_text
+
+    # Split query into parts (fuzzy mode splits on whitespace)
+    if [[ -n $HISTORY_SUBSTRING_SEARCH_FUZZY ]]; then
+      _history_substring_search_query_parts=(${=_history_substring_search_query})
+    else
+      _history_substring_search_query_parts=(${==_history_substring_search_query})
+    fi
+
+    # Build search pattern with escaped special chars
+    local search_pattern="${(j:*:)_history_substring_search_query_parts[@]//(#m)[\][()|\\*?#<>~^]/\\$MATCH}*"
+
+    # Anchor to start if prefixed mode
+    [[ -z $HISTORY_SUBSTRING_SEARCH_PREFIXED ]] && search_pattern="*${search_pattern}"
+
+    # Find matches in history (newest first)
+    _history_substring_search_raw_matches=(${(k)history[(R)(#$HISTORY_SUBSTRING_SEARCH_GLOBBING_FLAGS)${search_pattern}]})
+  fi
+
+  # Reset match state
+  _history_substring_search_raw_match_index=0
+  _history_substring_search_matches=()
+  _history_substring_search_unique_filter=()
+
+  # Initialize index based on direction
+  if [[ $WIDGET == history-substring-search-down ]]; then
+    _history_substring_search_match_index=1
+  else
+    _history_substring_search_match_index=0
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Search finalization (highlighting handled by z4m override in -z4m-init-zle)
+#-----------------------------------------------------------------------------
+
+function _history-substring-search-end() {
+  _history_substring_search_result=$BUFFER
+  return 0
+}
+
+#-----------------------------------------------------------------------------
+# Multi-line buffer navigation
+#-----------------------------------------------------------------------------
+
+function _history-substring-search-up-buffer() {
+  (( CURSOR != _z4m_cursor_max() )) || return 1
+  [[ $LBUFFER == *$'\n'* ]] || return 1
+  builtin zle up-line-or-history || true
+  return 0
+}
+
+function _history-substring-search-down-buffer() {
+  (( CURSOR != _z4m_cursor_max() )) || return 1
+  [[ $RBUFFER == *$'\n'* ]] || return 1
+  builtin zle down-line-or-history || true
+  return 0
+}
+
+#-----------------------------------------------------------------------------
+# Empty buffer history navigation
+#-----------------------------------------------------------------------------
+
+function _history-substring-search-up-history() {
+  [[ -z $_history_substring_search_query ]] || return 1
+
+  if (( HISTNO == 1 )); then
+    BUFFER=
+  else
+    zle up-line-or-history
+  fi
+  return 0
+}
+
+function _history-substring-search-down-history() {
+  [[ -z $_history_substring_search_query ]] || return 1
+
+  if (( HISTNO == 1 && -z $BUFFER )); then
+    BUFFER=${history[1]}
+    _history_substring_search_refresh_display=1
+  else
+    zle down-line-or-history
+  fi
+  return 0
+}
+
+#-----------------------------------------------------------------------------
+# Match processing (lazy evaluation for performance)
+#-----------------------------------------------------------------------------
+
+function _history-substring-search-process-raw-matches() {
+  while (( _history_substring_search_raw_match_index < $#_history_substring_search_raw_matches )); do
+    (( _history_substring_search_raw_match_index++ ))
+    local index=${_history_substring_search_raw_matches[$_history_substring_search_raw_match_index]}
+
+    # Ensure uniqueness if configured
+    if [[ ! -o HIST_IGNORE_ALL_DUPS && -n $HISTORY_SUBSTRING_SEARCH_ENSURE_UNIQUE ]]; then
+      local entry=${history[$index]}
+      [[ -n ${_history_substring_search_unique_filter[$entry]} ]] && continue
+      _history_substring_search_unique_filter[$entry]=1
+    fi
+
+    _history_substring_search_matches+=($index)
+    return 0
+  done
+  return 1
+}
+
+function _history-substring-search-has-next() {
+  (( _history_substring_search_match_index < $#_history_substring_search_matches )) && return 0
+  _history-substring-search-process-raw-matches
+}
+
+function _history-substring-search-has-prev() {
+  (( _history_substring_search_match_index > 1 ))
+}
+
+#-----------------------------------------------------------------------------
+# Match display
+#-----------------------------------------------------------------------------
+
+function _history-substring-search-found() {
+  BUFFER=$history[$_history_substring_search_matches[$_history_substring_search_match_index]]
+  _history_substring_search_query_highlight=$HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_FOUND
+
+  # In cursor-aware mode, restore cursor position (clamped to buffer length)
+  if [[ -n $HISTORY_SUBSTRING_SEARCH_CURSOR_AWARE ]]; then
+    (( CURSOR = _history_substring_search_cursor_pos < ${#BUFFER} ? _history_substring_search_cursor_pos : ${#BUFFER} ))
+  fi
+}
+
+function _history-substring-search-not-found() {
+  BUFFER=$_history_substring_search_query
+  _history_substring_search_query_highlight=$HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_NOT_FOUND
+
+  # In cursor-aware mode, restore cursor position
+  if [[ -n $HISTORY_SUBSTRING_SEARCH_CURSOR_AWARE ]]; then
+    (( CURSOR = _history_substring_search_cursor_pos < ${#BUFFER} ? _history_substring_search_cursor_pos : ${#BUFFER} ))
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Search direction handlers
+#-----------------------------------------------------------------------------
+
+function _history-substring-search-up-search() {
+  _history_substring_search_refresh_display=1
+
+  if (( _history_substring_search_match_index > $#_history_substring_search_matches )); then
+    _history-substring-search-not-found
+    return
+  fi
+
+  if _history-substring-search-has-next; then
+    (( _history_substring_search_match_index++ ))
+    _history-substring-search-found
+  else
+    (( _history_substring_search_match_index++ ))
+    _history-substring-search-not-found
+  fi
+
+  # Handle HIST_FIND_NO_DUPS
+  if [[ ! -o HIST_IGNORE_ALL_DUPS && -z $HISTORY_SUBSTRING_SEARCH_ENSURE_UNIQUE ]]; then
+    if [[ -o HIST_FIND_NO_DUPS && $BUFFER == $_history_substring_search_result ]]; then
+      _history-substring-search-up-search
+    fi
+  fi
+}
+
+function _history-substring-search-down-search() {
+  _history_substring_search_refresh_display=1
+
+  if (( _history_substring_search_match_index < 1 )); then
+    _history-substring-search-not-found
+    return
+  fi
+
+  if _history-substring-search-has-prev; then
+    (( _history_substring_search_match_index-- ))
+    _history-substring-search-found
+  else
+    (( _history_substring_search_match_index-- ))
+    _history-substring-search-not-found
+  fi
+
+  # Handle HIST_FIND_NO_DUPS
+  if [[ ! -o HIST_IGNORE_ALL_DUPS && -z $HISTORY_SUBSTRING_SEARCH_ENSURE_UNIQUE ]]; then
+    if [[ -o HIST_FIND_NO_DUPS && $BUFFER == $_history_substring_search_result ]]; then
+      _history-substring-search-down-search
+    fi
+  fi
+}
+
+# Mark as loaded
+typeset -gi _z4m_substring_search_loaded=1

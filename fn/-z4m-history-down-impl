@@ -1,0 +1,23 @@
+#!/usr/bin/env zsh
+#
+# History-down implementation with backend detection
+# Called via -z4m-with-local-history for proper history scope
+#
+
+if (( ${_z4m_atuin_up_arrow:-0} )); then
+  # Atuin handles up-arrow (v18+ uses atuin-down-search, older uses _atuin_down_search_widget)
+  if (( $+widgets[atuin-down-search] )); then
+    zle atuin-down-search
+  elif (( $+widgets[_atuin_down_search_widget] )); then
+    zle _atuin_down_search_widget
+  else
+    # Atuin widget not found, fall through to substring
+    zle history-substring-search-down
+  fi
+elif (( ${_z4m_substring_search_loaded:-0} )); then
+  # Embedded substring search
+  zle history-substring-search-down
+else
+  # Fallback to prefix search
+  zle down-line-or-beginning-search
+fi

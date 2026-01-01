@@ -51,7 +51,7 @@ add-zsh-hook -- precmd  -z4m-set-term-title-precmd                     || return
 
 local pkg
 typeset -gA _z4m_use
-for pkg in fzf powerlevel10k zsh-history-substring-search \
+for pkg in fzf powerlevel10k \
           zsh-completions zsh-autosuggestions fast-syntax-highlighting; do
   zstyle -t :z4m:$pkg channel none || _z4m_use[$pkg]=1
 done
@@ -100,21 +100,6 @@ function z4m-down-prefix-global() {
   -z4m-with-local-history 0 down-line-or-beginning-search "$@"
 }
 
-if (( _z4m_use[zsh-history-substring-search] )); then
-  function z4m-up-substring-local() {
-    -z4m-with-local-history 1 history-substring-search-up "$@"
-  }
-  function z4m-down-substring-local() {
-    -z4m-with-local-history 1 history-substring-search-down "$@"
-  }
-  function z4m-up-substring-global() {
-    -z4m-with-local-history 0 history-substring-search-up "$@"
-  }
-  function z4m-down-substring-global() {
-    -z4m-with-local-history 0 history-substring-search-down "$@"
-  }
-fi
-
 function z4m-kill-word()           { -z4m-move-and-kill z4m-forward-word   }
 function z4m-backward-kill-word()  { -z4m-move-and-kill z4m-backward-word  }
 function z4m-kill-zword()          { -z4m-move-and-kill z4m-forward-zword  }
@@ -131,6 +116,24 @@ function z4m-cd-forward() { -z4m-cd-rotate -0 }
 function z4m-cd-up() { builtin cd -q .. && -z4m-redraw-prompt }
 
 function z4m-do-nothing() {}
+
+# Re-bind unified history keys.
+# This is intentionally callable after other initializers (e.g., atuin) to
+# ensure z4m keeps ownership of Up/Down key bindings.
+function -z4m-rebind-history-keys() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  # Local history (current session first)
+  bindkey   '^P'      z4m-history-up                 # ctrl+p
+  bindkey   '^[[A'    z4m-history-up                 # up
+  bindkey   '^N'      z4m-history-down               # ctrl+n
+  bindkey   '^[[B'    z4m-history-down               # down
+
+  # Global history (all sessions)
+  bindkey   '^[[1;5A' z4m-history-up-global          # ctrl+up
+  bindkey   '^[[1;5B' z4m-history-down-global        # ctrl+down
+}
 
 if (( $+terminfo[civis] && $+terminfo[cnorm] )) && [[ -v _z4m_tty_fd ]]; then
   function -z4m-cursor-hide() {
@@ -171,12 +174,10 @@ zle -N z4m-up-prefix-local
 zle -N z4m-down-prefix-local
 zle -N z4m-up-prefix-global
 zle -N z4m-down-prefix-global
-if (( _z4m_use[zsh-history-substring-search] )); then
-  zle -N z4m-up-substring-local
-  zle -N z4m-down-substring-local
-  zle -N z4m-up-substring-global
-  zle -N z4m-down-substring-global
-fi
+zle -N z4m-history-up
+zle -N z4m-history-down
+zle -N z4m-history-up-global
+zle -N z4m-history-down-global
 zle -N z4m-cd-back
 zle -N z4m-cd-forward
 zle -N z4m-cd-up
@@ -288,26 +289,9 @@ done
 bindkey   '^[[D'    backward-char                  # left
 # Move cursor one char forward.
 bindkey   '^[[C'    forward-char                   # right
-if (( _z4m_use[zsh-history-substring-search] )); then
-  # Move cursor one line up or fetch the previous command from LOCAL history.
-  bindkey '^P'      z4m-up-substring-local         # ctrl+p
-  bindkey '^[[A'    z4m-up-substring-local         # up
-  # Move cursor one line down or fetch the next command from LOCAL history.
-  bindkey   '^N'    z4m-down-substring-local       # ctrl+n
-  bindkey   '^[[B'  z4m-down-substring-local       # down
-else
-  # Move cursor one line up or fetch the previous command from LOCAL history.
-  bindkey '^P'      z4m-up-prefix-local            # ctrl+p
-  bindkey '^[[A'    z4m-up-prefix-local            # up
-  # Move cursor one line down or fetch the next command from LOCAL history.
-  bindkey '^N'      z4m-down-prefix-local          # ctrl+n
-  bindkey '^[[B'    z4m-down-prefix-local          # down
-fi
 
-# Move cursor one line up or fetch the previous command from GLOBAL history.
-bindkey   '^[[1;5A' z4m-up-prefix-global           # ctrl+up
-# Move cursor one line down or fetch the next command from GLOBAL history.
-bindkey   '^[[1;5B' z4m-down-prefix-global         # ctrl+down
+# History navigation (unified widget: Atuin -> Substring -> Prefix)
+-z4m-rebind-history-keys
 # Move cursor to the beginning of line.
 bindkey   '^[[H'    beginning-of-line              # home
 # Move cursor to the end of line.
@@ -739,17 +723,13 @@ if (( _z4m_use[zsh-autosuggestions] )); then
     z4m-down-prefix-local
     z4m-up-prefix-global
     z4m-up-prefix-local
+    z4m-history-up
+    z4m-history-down
+    z4m-history-up-global
+    z4m-history-down-global
   )
   # Note: Atuin widgets are added to ZSH_AUTOSUGGEST_CLEAR_WIDGETS in -z4m-post-init
   # because Atuin is initialized after this point
-  if (( _z4m_use[zsh-history-substring-search] )); then
-    ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(
-      z4m-down-substring-global
-      z4m-down-substring-local
-      z4m-up-substring-global
-      z4m-up-substring-local
-    )
-  fi
   typeset -g ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS=(
     emacs-forward-word
     forward-word
@@ -900,8 +880,7 @@ else
   }
 fi
 
-# Define _zsh_highlight before sourcing history-substring-search to work around bugs
-# in the latter: https://github.com/romkatv/zsh4monkey/issues/58.
+# Define _zsh_highlight for substring search highlighting integration
 function _zsh_highlight() {
   if [[ $WIDGET == zle-line-finish || ! -v _z4m_substring_search_highlight ]]; then
     region_highlight=()
@@ -909,10 +888,6 @@ function _zsh_highlight() {
     region_highlight=("${_z4m_substring_search_highlight[@]}")
   fi
 }
-
-if (( _z4m_use[zsh-history-substring-search] )); then
-  builtin source $Z4M/zsh-history-substring-search/zsh-history-substring-search.zsh
-fi
 
 if (( _z4m_use[fast-syntax-highlighting] )); then
   ZSH_HIGHLIGHT_MAXLENGTH=1024                # don't colorize long command lines (slow)
@@ -981,12 +956,17 @@ function -z4m-post-init() {
     }'
   fi
 
-  if (( _z4m_use[zsh-history-substring-search] )); then
+  # Override embedded substring search functions for z4m integration
+  if (( ${_z4m_substring_search_loaded:-0} )); then
     function _history-substring-search-end() {
       builtin emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
       if (( _history_substring_search_refresh_display )); then
-        typeset -gi CURSOR='_z4m_cursor_max()'
+        # In cursor-aware mode, preserve the cursor position set by _history-substring-search-found
+        # Otherwise, move cursor to end of buffer
+        if [[ -z $HISTORY_SUBSTRING_SEARCH_CURSOR_AWARE ]]; then
+          typeset -gi CURSOR='_z4m_cursor_max()'
+        fi
       fi
       typeset -g _history_substring_search_result=$BUFFER
       typeset -gi _history_substring_search_cursor=CURSOR
@@ -1003,37 +983,6 @@ function -z4m-post-init() {
         _z4m_substring_search_highlight+=(
             "$((highlight_start_index - 1)) $((highlight_end_index - 1)) $_history_substring_search_query_highlight")
       done
-    }
-
-    # This function is buggy in the original implementation when vicmd is active.
-    _history-substring-search-up-buffer() {
-      builtin emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
-    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
-
-      # The original implementation is equivalent to this one with the exception
-      # of the condition on the next line being (( CURSOR != $#BUFFER )).
-      (( CURSOR != _z4m_cursor_max() )) || return
-
-      [[ $LBUFFER == *$'\n'* ]]         || return
-      builtin zle up-line-or-history    || true
-    }
-
-    # See _history-substring-search-up-buffer above.
-    _history-substring-search-down-buffer() {
-      builtin emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
-    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
-      (( CURSOR != _z4m_cursor_max() )) || return
-      [[ $RBUFFER == *$'\n'* ]]         || return
-      builtin zle down-line-or-history  || true
-    }
-  elif (( $+functions[_history-substring-search-end] )); then
-    # Turn off highlighting in _history-substring-search-end. It doesn't work anyway.
-    function _history-substring-search-end() {
-      emulate -L zsh
-      _history_substring_search_result=$BUFFER
-      if (( _history_substring_search_refresh_display )); then
-        typeset -gi CURSOR='_z4m_cursor_max()'
-      fi
     }
   fi
 

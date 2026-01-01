@@ -1,0 +1,7 @@
+#!/usr/bin/env zsh
+#
+# Unified history-up widget with local history scope
+# Fallback chain: Atuin -> Substring Search -> Prefix Search
+#
+
+-z4m-with-local-history 1 -z4m-history-up-impl

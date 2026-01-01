@@ -96,8 +96,13 @@ See [tmux-unified-nav.md](tmux-unified-nav.md) for details.
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m:atuin enabled` | bool | `yes` | Enable atuin history |
+| `:z4m:atuin up-arrow` | bool | `no` | Use atuin for up-arrow (default: substring search) |
 | `:z4m:atuin ctrl-r` | bool | `yes` | Bind Ctrl+R to atuin |
 | `:z4m:atuin nobind` | bool | `no` | Disable all atuin bindings |
+| `:z4m:atuin force-remote` | bool | `no` | Force atuin on SSH (not recommended) |
+| `:z4m:atuin debug` | bool | `no` | Show debug info on startup |
+
+See [docs/history-search.md](history-search.md) for detailed history search documentation.
 
 ## SSH Teleportation
 

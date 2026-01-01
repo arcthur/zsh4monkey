@@ -1,0 +1,51 @@
+#!/usr/bin/env zsh
+#
+# z4m history-debug
+# Print effective history-search wiring: flags, widgets, and key bindings.
+#
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local -a keys
+keys=( '^P' '^N' '^[[A' '^[[B' '^[[1;5A' '^[[1;5B' )
+
+print -r -- '== z4m history debug =='
+print -r -- "zsh: ${ZSH_VERSION:-unknown}"
+print -r -- "zle: $(( ${_z4m_zle:-0} ? 1 : 0 ))"
+
+print -r -- ''
+print -r -- 'Flags:'
+print -r -- "  _z4m_atuin_available: $(( ${_z4m_atuin_available:-0} ? 1 : 0 ))"
+print -r -- "  _z4m_atuin_ctrl_r:   $(( ${_z4m_atuin_ctrl_r:-0} ? 1 : 0 ))"
+print -r -- "  _z4m_atuin_up_arrow: $(( ${_z4m_atuin_up_arrow:-0} ? 1 : 0 ))"
+print -r -- "  _z4m_substring_search_loaded: $(( ${_z4m_substring_search_loaded:-0} ? 1 : 0 ))"
+
+print -r -- ''
+print -r -- 'Widgets present:'
+local -a widget_names
+widget_names=(
+  z4m-history-up z4m-history-down z4m-history-up-global z4m-history-down-global
+  history-substring-search-up history-substring-search-down
+  atuin-up-search atuin-down-search _atuin_up_search_widget _atuin_down_search_widget
+  atuin-search _atuin_search_widget
+)
+local w
+for w in $widget_names; do
+  print -r -- "  ${w}: $(( $+widgets[$w] ? 1 : 0 ))"
+done
+
+print -r -- ''
+print -r -- 'Bindings (main keymap):'
+local k
+for k in $keys; do
+  bindkey $k 2>/dev/null || print -r -- "${k} not bound"
+done
+
+# Best-effort: vi keymaps (if enabled/available)
+print -r -- ''
+print -r -- 'Bindings (viins/vicmd, if available):'
+for k in '^[[A' '^[[B' '^P' '^N' '^[[1;5A' '^[[1;5B'; do
+  bindkey -M viins $k 2>/dev/null || true
+  bindkey -M vicmd $k 2>/dev/null || true
+done

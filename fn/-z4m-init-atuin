@@ -71,6 +71,8 @@ source $cache_file
 typeset -gi _z4m_atuin_available=1
 # Track if Atuin handles Ctrl+R (for fallback to fzf)
 zstyle -T :z4m:atuin ctrl-r && ! zstyle -t :z4m:atuin nobind && typeset -gi _z4m_atuin_ctrl_r=1
+# Track if Atuin handles up-arrow (for unified history widgets)
+zstyle -t :z4m:atuin up-arrow && ! zstyle -t :z4m:atuin nobind && typeset -gi _z4m_atuin_up_arrow=1
 
 if zstyle -t :z4m:atuin debug; then
   print -Pru2 -- "%F{3}z4m%f: atuin initialized"
@@ -81,3 +83,6 @@ if zstyle -t :z4m:atuin debug; then
   print -Pru2 -- "  nobind: $(zstyle -t :z4m:atuin nobind && echo 'enabled (custom bindings)' || echo 'disabled')"
   print -Pru2 -- "  cache: $cache_file"
 fi
+
+# Ensure z4m owns Up/Down bindings even if atuin init script rebinds them.
+(( ${+functions[-z4m-rebind-history-keys]} )) && -z4m-rebind-history-keys

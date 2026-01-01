@@ -167,6 +167,8 @@ if [[ ! -e $Z4M/zsh4monkey/fn/-z4m-compinit-impl ]]; then
 fi
 
 if (( _z4m_zle )); then
+  # Load embedded history substring search before ZLE init
+  -z4m-history-substring-search
   -z4m-init-zle || return
 else
   -z4m-cmd-bindkey() {}

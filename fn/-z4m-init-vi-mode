@@ -88,22 +88,15 @@ function -z4m-setup-viins-bindings() {
   bindkey -M viins '^?'      backward-delete-char           # backspace
   bindkey -M viins '^H'      backward-delete-char           # ctrl+backspace
 
-  # History navigation
-  if (( ${+functions[z4m-up-substring-local]} )); then
-    bindkey -M viins '^P'      z4m-up-substring-local
-    bindkey -M viins '^[[A'    z4m-up-substring-local         # up
-    bindkey -M viins '^N'      z4m-down-substring-local
-    bindkey -M viins '^[[B'    z4m-down-substring-local       # down
-  else
-    bindkey -M viins '^P'      z4m-up-prefix-local
-    bindkey -M viins '^[[A'    z4m-up-prefix-local            # up
-    bindkey -M viins '^N'      z4m-down-prefix-local
-    bindkey -M viins '^[[B'    z4m-down-prefix-local          # down
-  fi
+  # History navigation (unified widget: Atuin -> Substring -> Prefix)
+  bindkey -M viins '^P'      z4m-history-up
+  bindkey -M viins '^[[A'    z4m-history-up                   # up
+  bindkey -M viins '^N'      z4m-history-down
+  bindkey -M viins '^[[B'    z4m-history-down                 # down
 
   # Global history
-  bindkey -M viins '^[[1;5A' z4m-up-prefix-global           # ctrl+up
-  bindkey -M viins '^[[1;5B' z4m-down-prefix-global         # ctrl+down
+  bindkey -M viins '^[[1;5A' z4m-history-up-global            # ctrl+up
+  bindkey -M viins '^[[1;5B' z4m-history-down-global          # ctrl+down
 
   # Word navigation
   bindkey -M viins '^[[1;5D' z4m-backward-word              # ctrl+left
@@ -162,26 +155,17 @@ function -z4m-setup-viins-bindings() {
 
 # === Setup Vi Bindings for vicmd keymap (Normal Mode) ===
 function -z4m-setup-vicmd-bindings() {
-  # History navigation with j/k
-  if (( ${+functions[z4m-up-substring-local]} )); then
-    bindkey -M vicmd 'k'      z4m-up-substring-local
-    bindkey -M vicmd 'j'      z4m-down-substring-local
-    bindkey -M vicmd '^P'     z4m-up-substring-local
-    bindkey -M vicmd '^[[A'   z4m-up-substring-local         # up
-    bindkey -M vicmd '^N'     z4m-down-substring-local
-    bindkey -M vicmd '^[[B'   z4m-down-substring-local       # down
-  else
-    bindkey -M vicmd 'k'      z4m-up-prefix-local
-    bindkey -M vicmd 'j'      z4m-down-prefix-local
-    bindkey -M vicmd '^P'     z4m-up-prefix-local
-    bindkey -M vicmd '^[[A'   z4m-up-prefix-local
-    bindkey -M vicmd '^N'     z4m-down-prefix-local
-    bindkey -M vicmd '^[[B'   z4m-down-prefix-local
-  fi
+  # History navigation with j/k (unified widget: Atuin -> Substring -> Prefix)
+  bindkey -M vicmd 'k'      z4m-history-up
+  bindkey -M vicmd 'j'      z4m-history-down
+  bindkey -M vicmd '^P'     z4m-history-up
+  bindkey -M vicmd '^[[A'   z4m-history-up                   # up
+  bindkey -M vicmd '^N'     z4m-history-down
+  bindkey -M vicmd '^[[B'   z4m-history-down                 # down
 
   # Global history navigation
-  bindkey -M vicmd '^[[1;5A' z4m-up-prefix-global           # ctrl+up
-  bindkey -M vicmd '^[[1;5B' z4m-down-prefix-global         # ctrl+down
+  bindkey -M vicmd '^[[1;5A' z4m-history-up-global           # ctrl+up
+  bindkey -M vicmd '^[[1;5B' z4m-history-down-global         # ctrl+down
 
   # Directory navigation
   bindkey -M vicmd '^[[1;2D' z4m-cd-back                    # shift+left
