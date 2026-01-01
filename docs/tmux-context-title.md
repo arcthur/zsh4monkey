@@ -131,7 +131,7 @@ Full list in `fn/-z4m-init-tmux-title`.
 
 ### Fallback
 
-Unknown commands show the generic `` icon.
+Unknown commands show no icon (command name only).
 
 ## Requirements
 

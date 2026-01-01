@@ -120,11 +120,11 @@ zstyle ':z4m:fzf-complete' accept-line 'ctrl-x'
 # Tmux popup mode (requires fzf 0.54+, tmux)
 zstyle ':z4m:fzf-complete' fzf-tmux 'popup'  # or: top, bottom, left, right
 
-# Highlight current line (fzf 0.52+)
-zstyle ':z4m:fzf-complete' fzf-highlight-line yes
+# Highlight current line (fzf 0.52+, enabled by default)
+zstyle ':z4m:fzf-complete' fzf-highlight-line no
 
-# Line wrapping (fzf 0.56+)
-zstyle ':z4m:fzf-complete' fzf-wrap yes
+# Line wrapping (fzf 0.56+, enabled by default)
+zstyle ':z4m:fzf-complete' fzf-wrap no
 
 # Custom pointer/marker (fzf 0.54+)
 zstyle ':z4m:*' fzf-pointer '>'

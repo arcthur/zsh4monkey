@@ -2,17 +2,44 @@
 
 All configuration uses `zstyle`. Place settings in `~/.zshrc` before `z4m init`.
 
+## Notes on `zstyle` semantics
+
+- Most feature toggles in z4m use `zstyle -T ...`, which treats an **unset** style as **enabled**.
+  - To disable such features, explicitly set the style to `no`.
+- Use `zstyle -L <context> <style>` to inspect the current effective values.
+
+## Quick Start
+
+```zsh
+# Keyboard type (recommended)
+zstyle ':z4m:bindkey' keyboard 'pc'  # or 'mac'
+
+# Optional customizations
+zstyle ':z4m:' editor-mode 'vi'
+zstyle ':z4m:' prompt-at-bottom 'yes'
+zstyle ':z4m:direnv' enable 'yes'
+zstyle ':z4m:ssh:*' enable 'yes'
+zstyle ':z4m:ssh-agent:' start 'yes'
+
+# Install CLI tools
+# Note: for these “CLI tool” packages, `z4m install` registers integrations and runs
+# a post-install check. Install the actual binaries via your package manager.
+z4m install eza bat fd rg zoxide fzf carapace atuin || return
+```
+
+---
+
 ## Core
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m: editor-mode` | string | `emacs` | Editing mode: `emacs` or `vi` |
 | `:z4m: prompt-at-bottom` | bool | `yes` | Position prompt at terminal bottom |
-| `:z4m: chsh` | bool | `yes` | Change login shell to zsh |
-| `:z4m: propagate-cwd` | bool | `yes` | Propagate CWD to new terminals |
+| `:z4m: propagate-cwd` | bool | `yes` | Propagate CWD to new tmux panes |
 | `:z4m: term-shell-integration` | bool | `yes` | Enable OSC 133 shell integration |
-| `:z4m: start-tmux` | array | `(isolated)` | Tmux startup mode |
-| `:z4m: check-orphan-rc-zwc` | bool | `yes` | Check for orphaned compiled files |
+| `:z4m: start-tmux` | string | `isolated` | Tmux startup: `no`, `integrated`, `isolated`, `system`, `command <cmd>` |
+| `:z4m: auto-update` | string | `ask` | Update prompt policy: `ask` (default) or `no` |
+| `:z4m: auto-update-days` | int | `28` | Days between update checks |
 
 ## Keyboard
 
@@ -21,34 +48,14 @@ All configuration uses `zstyle`. Place settings in `~/.zshrc` before `z4m init`.
 | `:z4m:bindkey keyboard` | string | `pc` | Layout: `pc` or `mac` |
 | `:z4m:bindkey macos-option-as-alt` | bool | `yes` | Treat Option as Alt on macOS |
 
-## FZF Completion
-
-| Style | Type | Default | Description |
-|-------|------|---------|-------------|
-| `:z4m:fzf-complete continuous-trigger` | string | `/` | Key to accept and continue path completion |
-| `:z4m:fzf-complete accept-line` | string | — | Key to accept and execute command |
-| `:z4m:fzf-complete recurse-dirs` | bool | `yes` | Enable recursive directory search |
-| `:z4m:fzf-complete fzf-preview` | bool/string | `yes` | Preview: `yes`, `no`, or custom command |
-| `:z4m:fzf-complete find-command` | array | auto | File finder: `(bfs)` or `(fd)` |
-| `:z4m:fzf-complete find-flags` | array | — | Extra flags for find command |
-| `:z4m:fzf-complete fzf-command` | array | `(fzf)` | fzf binary and base args |
-| `:z4m:fzf-complete fzf-flags` | array | — | Extra fzf flags |
-| `:z4m:fzf-complete fzf-bindings` | array | — | Custom key bindings (`key:action`) |
-| `:z4m:fzf-complete fzf-tmux` | string | — | Tmux popup: `popup`, `top`, `bottom`, `left`, `right` |
-| `:z4m:fzf-complete fzf-highlight-line` | bool | `yes` | Highlight current line (fzf 0.52+) |
-| `:z4m:fzf-complete fzf-wrap` | bool | `yes` | Wrap long lines (fzf 0.56+) |
-| `:z4m:* fzf-pointer` | string | — | Pointer character (fzf 0.54+) |
-| `:z4m:* fzf-marker` | string | — | Multi-select marker (fzf 0.54+) |
-| `:z4m:* fzf-theme` | string | auto | Theme: `dark`, `light`, or custom |
-
-See [fzf-completion.md](fzf-completion.md) for details.
+See [keybindings.md](keybindings.md) for key binding reference.
 
 ## Autosuggestions
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
-| `:z4m:autosuggestions forward-char` | bool | `yes` | Accept suggestion on cursor right |
-| `:z4m:autosuggestions end-of-line` | bool | `yes` | Accept suggestion on end-of-line |
+| `:z4m:autosuggestions forward-char` | string | `accept` | Cursor right behavior: `accept` or `partial-accept` |
+| `:z4m:autosuggestions end-of-line` | string | `accept` | End-of-line behavior: `accept` or `partial-accept` |
 
 ## Terminal Title
 
@@ -59,14 +66,11 @@ See [fzf-completion.md](fzf-completion.md) for details.
 | `:z4m:term-title:ssh preexec` | string | `%n@%m: ${1//\%/%%}` | Title during command (SSH) |
 | `:z4m:term-title:ssh precmd` | string | `%n@%m: %~` | Title at prompt (SSH) |
 
-## Tmux Title
+## Tmux
 
-| Style | Type | Default | Description |
-|-------|------|---------|-------------|
-| `:z4m:tmux-title enable` | bool | `yes` | Enable tmux pane titles |
-| `:z4m:tmux-title max-length` | int | `24` | Maximum title length |
+`start-tmux` is a core setting; see **Core**.
 
-## Tmux Navigation
+### Navigation
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -76,6 +80,84 @@ See [fzf-completion.md](fzf-completion.md) for details.
 
 See [tmux-unified-nav.md](tmux-unified-nav.md) for details.
 
+### Window Title
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:tmux-title enable` | bool | `yes` | Enable context-aware window naming |
+| `:z4m:tmux-title git-branch` | bool | `yes` | Show git branch in title |
+| `:z4m:tmux-title command-icons` | bool | `yes` | Show command icons (requires Nerd Font) |
+| `:z4m:tmux-title max-length` | int | `24` | Maximum title length |
+
+See [tmux-context-title.md](tmux-context-title.md) for details.
+
+## FZF
+
+### Global Settings
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:* fzf-flags` | array | — | Extra fzf flags for all widgets |
+| `:z4m:* fzf-theme` | string | `default` | Theme: `dracula`, `gruvbox`, `catppuccin`, `nord`, etc. |
+| `:z4m:* fzf-tmux` | string | — | Tmux popup mode: `no` (disable), `yes`/`popup`/`center`, `top`, `bottom`, `left`, `right` |
+| `:z4m:* fzf-highlight-line` | bool | `yes` | Highlight current line (fzf 0.52+) |
+| `:z4m:* fzf-wrap` | bool | `yes` | Line wrapping (fzf 0.56+) |
+| `:z4m:* fzf-pointer` | string | — | Pointer symbol (fzf 0.54+) |
+| `:z4m:* fzf-marker` | string | — | Multi-select marker (fzf 0.54+) |
+
+### Completion
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:fzf-complete recurse-dirs` | bool | `yes` | Recursive directory search |
+| `:z4m:fzf-complete fzf-preview` | bool/string | `yes` | Preview: `yes`, `no`, or custom command |
+| `:z4m:fzf-complete continuous-trigger` | string | `/` | Key to accept and continue path completion |
+| `:z4m:fzf-complete accept-line` | string | — | Key to accept and execute command |
+| `:z4m:fzf-complete fzf-bindings` | array | — | Custom key bindings |
+
+See [fzf-completion.md](fzf-completion.md) for details.
+
+### History
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:fzf-history fzf-preview` | bool | `yes` | Show command preview |
+
+### Directory Navigation
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:fzf-dir-history fzf-bindings` | array | — | Key bindings |
+| `:z4m:cd-down fzf-bindings` | array | — | Key bindings |
+| `:z4m:cd-down find-command` | array | — | Custom find command (command + args) |
+
+## SSH Teleportation
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:ssh:* enable` | bool | `no` | Enable for all hosts |
+| `:z4m:ssh:<host> enable` | bool | — | Enable for specific host |
+| `:z4m:ssh:* send-extra-files` | array | — | Extra files to send |
+| `:z4m:ssh:* retrieve-extra-files` | array | — | Files to retrieve after session |
+| `:z4m:ssh:* retrieve-history` | array | — | Remote history files to retrieve |
+| `:z4m:ssh:* propagate-env` | array | — | Environment variables to propagate |
+| `:z4m:ssh:* propagate-env-patterns` | array | — | Glob patterns for env propagation |
+| `:z4m:ssh:* propagate-env-exclude` | array | — | Patterns to exclude from propagation |
+| `:z4m:ssh:* sync-mode` | string | `smart` | `smart`, `full`, `incremental` |
+| `:z4m:ssh:* offline-mode` | bool | `no` | Bundle z4m for air-gapped hosts |
+| `:z4m:ssh:* term` | string | — | Override TERM for specific hosts |
+| `:z4m:ssh:* ssh-command` | array | `command ssh` | Custom ssh command (command + args; do not quote multi-word values as a single string) |
+| `:z4m:ssh:* configure` | string | — | Custom configuration function |
+
+See [ssh.md](ssh.md) for details.
+
+## SSH Agent
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:ssh-agent: start` | bool | `no` | Start ssh-agent automatically |
+| `:z4m:ssh-agent: extra-args` | array | — | Extra ssh-agent args (e.g., `-t 20h`) |
+
 ## CLI Tools
 
 | Style | Type | Default | Description |
@@ -84,89 +166,73 @@ See [tmux-unified-nav.md](tmux-unified-nav.md) for details.
 | `:z4m:bat enabled` | bool | `yes` | Enable bat aliases |
 | `:z4m:zoxide enabled` | bool | `yes` | Enable zoxide integration |
 
+See [cli-tools.md](cli-tools.md) for details.
+
 ## Carapace
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m:carapace enabled` | bool | `yes` | Enable carapace completions |
-| `:z4m:carapace exclude` | array | — | Commands to exclude |
+| `:z4m:carapace exclude` | array | — | Commands to use native completion |
+| `:z4m:carapace force-remote` | bool | `no` | Use on SSH (not recommended) |
+| `:z4m:carapace debug` | bool | `no` | Show debug info |
 
 ## Atuin
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m:atuin enabled` | bool | `yes` | Enable atuin history |
-| `:z4m:atuin up-arrow` | bool | `no` | Use atuin for up-arrow (default: substring search) |
+| `:z4m:atuin up-arrow` | bool | `no` | Use atuin for up-arrow |
 | `:z4m:atuin ctrl-r` | bool | `yes` | Bind Ctrl+R to atuin |
 | `:z4m:atuin nobind` | bool | `no` | Disable all atuin bindings |
-| `:z4m:atuin force-remote` | bool | `no` | Force atuin on SSH (not recommended) |
-| `:z4m:atuin debug` | bool | `no` | Show debug info on startup |
+| `:z4m:atuin force-remote` | bool | `no` | Use on SSH (not recommended) |
+| `:z4m:atuin debug` | bool | `no` | Show debug info |
 
-See [docs/history-search.md](history-search.md) for detailed history search documentation.
-
-## SSH Teleportation
-
-| Style | Type | Default | Description |
-|-------|------|---------|-------------|
-| `:z4m:ssh:* enable` | bool | `no` | Enable for all hosts |
-| `:z4m:ssh:<host> enable` | bool | — | Enable for specific host |
-
-## Directory History
-
-| Style | Type | Default | Description |
-|-------|------|---------|-------------|
-| `:z4m:dir-history: cwd` | string | `%~` | CWD format |
-| `:z4m:dir-history: max-size` | int | `1000` | Maximum entries |
-
-## Command Notification
-
-| Style | Type | Default | Description |
-|-------|------|---------|-------------|
-| `:z4m:cmd-notify enable` | bool | `yes` | Enable long-command notifications |
-| `:z4m:cmd-notify threshold` | int | `30` | Minimum seconds before notify |
-| `:z4m:cmd-notify exclude` | array | — | Commands to exclude |
+See [history-search.md](history-search.md) for details.
 
 ## Direnv
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
-| `:z4m:direnv notify` | bool | `yes` | Show direnv error notifications |
+| `:z4m:direnv enable` | bool | `no` | Enable direnv integration |
+| `:z4m:direnv timeout` | int | `10` | Timeout in seconds |
+| `:z4m:direnv:success notify` | bool | `no` | Show success notifications |
 
-## Docker/Sudo
+See [direnv.md](direnv.md) for details.
 
-| Style | Type | Default | Description |
-|-------|------|---------|-------------|
-| `:z4m:docker term` | string | auto | TERM for docker containers |
-| `:z4m:sudo term` | string | auto | TERM for sudo sessions |
-
-## Plugin Installation
+## Shell Integration
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
-| `:z4m:<plugin> channel` | array | `(stable)` | Update channel |
-| `:z4m:<plugin> postinstall` | string | — | Post-install command |
+| `:z4m:cmd-notify enable` | bool | `yes` | Enable long-command notifications |
+| `:z4m:cmd-notify threshold` | int | `30` | Seconds before notification |
+| `:z4m:cmd-notify exclude` | array | — | Commands to exclude |
 
-## Examples
+OSC 133 prompt marking is controlled by `:z4m: term-shell-integration` (see **Core**).
 
-```zsh
-# Vi mode with custom bindings
-zstyle ':z4m:' editor-mode 'vi'
+See [shell-integration.md](shell-integration.md) for details.
 
-# Mac keyboard layout
-zstyle ':z4m:bindkey' keyboard 'mac'
+## Directory History
 
-# FZF completion with Ctrl+X to execute
-zstyle ':z4m:fzf-complete' accept-line 'ctrl-x'
-zstyle ':z4m:fzf-complete' fzf-tmux 'popup'
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:dir-history: cwd` | string | `%~` | CWD display format |
+| `:z4m:dir-history: max-size` | int | `1000` | Maximum entries |
 
-# SSH teleportation for specific hosts
-zstyle ':z4m:ssh:*' enable 'no'
-zstyle ':z4m:ssh:devbox' enable 'yes'
-zstyle ':z4m:ssh:prod-*' enable 'yes'
+---
 
-# Atuin without Ctrl+R binding
-zstyle ':z4m:atuin' ctrl-r no
+## Related Documentation
 
-# Disable specific carapace completions
-zstyle ':z4m:carapace' exclude git docker
-```
+| Document | Description |
+|----------|-------------|
+| [keybindings.md](keybindings.md) | Key binding reference |
+| [commands.md](commands.md) | Command reference |
+| [ssh.md](ssh.md) | SSH teleportation guide |
+| [cli-tools.md](cli-tools.md) | CLI tools integration |
+| [fzf-completion.md](fzf-completion.md) | FZF completion details |
+| [history-search.md](history-search.md) | History search and Atuin |
+| [shell-integration.md](shell-integration.md) | OSC 133 and notifications |
+| [tmux-unified-nav.md](tmux-unified-nav.md) | Tmux navigation |
+| [tmux-context-title.md](tmux-context-title.md) | Tmux window naming |
+| [direnv.md](direnv.md) | Direnv integration |
+| [recovery.md](recovery.md) | Safe mode and recovery |

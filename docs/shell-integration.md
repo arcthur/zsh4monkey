@@ -123,6 +123,8 @@ These commands are excluded by default (interactive/long-running by nature):
 
 ### Terminal Support
 
+Support varies by terminal version and settings. If you're unsure, use the test commands in the Troubleshooting section to confirm OSC 133 / OSC 9 behavior in your environment.
+
 | Terminal | OSC 133 | OSC 9 (Notify) |
 |----------|---------|----------------|
 | Ghostty | ✓ | ✓ |

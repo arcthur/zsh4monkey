@@ -104,6 +104,9 @@ Enabled by default. Optional configuration:
 ```zsh
 # ~/.zshrc
 
+# Enable/disable unified navigation entirely (default: enabled in tmux)
+zstyle ':z4m:tmux-nav' enable yes
+
 # Navigation mode: unified (default) | pane | disabled
 zstyle ':z4m:tmux-nav' mode unified
 

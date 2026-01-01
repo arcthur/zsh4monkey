@@ -65,6 +65,12 @@ Atuin provides:
 - Cross-device sync (optional)
 - Context-aware filtering (by directory, session, etc.)
 
+Over SSH, z4m disables Atuin by default for faster startup. Override with:
+
+```zsh
+zstyle ':z4m:atuin' force-remote yes
+```
+
 ## Fallback Chain
 
 ```
