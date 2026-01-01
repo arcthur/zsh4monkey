@@ -63,7 +63,8 @@
     [[ $preview_cmd == (no|false|off|0) ]] && preview_cmd=
   elif zstyle -T :z4m:${WIDGET#z4m-} fzf-preview; then
     # Default preview using z4m-preview
-    preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview-b64 ${(q)_z4m_curcontext} {1} ${(q)_z4m_path_prefix}"
+    local preview_script="${Z4M}/zsh4monkey/fn/z4m-preview-b64"
+    preview_cmd="zsh ${(q)preview_script} ${(q)_z4m_curcontext} {1} ${(q)_z4m_path_prefix}"
   fi
 
   local opts=(

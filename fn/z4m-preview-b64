@@ -4,12 +4,16 @@
 
 emulate -L zsh -o typeset_silent -o pipe_fail
 
-autoload +X -Uz -- -z4m-b64dec-fast
-
 local ctx=$1 b64=$2 path_prefix=$3
-local -a reply=()
 
--z4m-b64dec-fast "$b64" || exit 0
+[[ -n $b64 ]] || exit 0
+
+# Validate as data-only payload (consistent with -z4m-b64dec-fast)
+[[ $b64 =~ '^[A-Za-z0-9+/=]+$' ]] || exit 0
+
+local word
+word=$(print -r -- "$b64" | command base64 -d 2>/dev/null) ||
+	word=$(print -r -- "$b64" | command base64 -D 2>/dev/null) || exit 0
 
 # Delegate to the existing preview dispatcher.
-"${0:A:h}/z4m-preview" "$ctx" "$reply[1]" "$path_prefix"
+"${0:A:h}/z4m-preview" "$ctx" "$word" "$path_prefix"
