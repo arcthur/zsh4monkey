@@ -8,7 +8,9 @@ print -Prnv title -- $title
 printf -v title '\e]0;%s\a' "${(V)title}"
 
 if [[ -t 1 ]]; then
-  print -rn -- $title
+  print -rn -- $title || true
 elif [[ -v _z4m_tty_fd ]]; then
-  print -rnu $_z4m_tty_fd -- $title
+  print -rnu $_z4m_tty_fd -- $title 2>/dev/null || true
 fi
+
+return 0

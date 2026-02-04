@@ -16,6 +16,18 @@
 
 'emulate' '-L' 'zsh' '-o' 'no_aliases'
 
+'local' _z4m_dir=${Z4M:-$HOME/.cache/zsh4monkey}
+'local' _z4m_last_fail_marker=$_z4m_dir/.last-init-failed
+'local' _z4m_last_fail_log=$_z4m_dir/cache/last-init-failed.log
+if [[ -e $_z4m_last_fail_marker ]]; then
+  'command' 'mkdir' '-p' -- "$_z4m_dir/cache" 2>/dev/null || 'true'
+  if [[ -s $_z4m_last_fail_marker ]]; then
+    'command' 'cp' '-f' -- "$_z4m_last_fail_marker" "$_z4m_last_fail_log" 2>/dev/null || 'true'
+  elif [[ ! -e $_z4m_last_fail_log ]]; then
+    'print' -l -- 'type=unknown' 'note=empty marker file' >"$_z4m_last_fail_log" 2>/dev/null || 'true'
+  fi
+fi
+
 # Clear any pending install queue to skip plugins
 'unset' '_z4m_install_queue'
 typeset -ga _z4m_install_queue=()
@@ -74,26 +86,23 @@ function z4m-safe-diagnose() {
   'print' -P '%F{cyan}=== z4m Safe Mode Diagnostics ===%f'
   'print' ''
 
-  # Check for failure marker
-  if [[ -e ${Z4M:-$HOME/.cache/zsh4monkey}/.last-init-failed ]]; then
-    'print' -P '%F{red}Last startup failed.%f'
-    'print' -P "Marker file: ${Z4M:-$HOME/.cache/zsh4monkey}/.last-init-failed"
-  else
-    'print' -P '%F{green}No startup failure detected.%f'
-  fi
+  'local' z4m_dir=${Z4M:-$HOME/.cache/zsh4monkey}
+
+  # Check for last init failure info
+  -z4m-show-failure-log "$z4m_dir"
   'print' ''
 
   # Check safe mode trigger
-  if [[ -e ${Z4M:-$HOME/.cache/zsh4monkey}/.safe-mode ]]; then
+  if [[ -e $z4m_dir/.safe-mode ]]; then
     'print' -P '%F{yellow}Persistent safe mode enabled.%f'
-    'print' -P "Remove with: rm ${Z4M:-$HOME/.cache/zsh4monkey}/.safe-mode"
+    'print' -P "Remove with: rm $z4m_dir/.safe-mode"
   fi
   'print' ''
 
   # Show key paths
   'print' -P '%F{cyan}Key paths:%f'
   'print' -P "  ZDOTDIR: ${ZDOTDIR:-$HOME}"
-  'print' -P "  Z4M:     ${Z4M:-$HOME/.cache/zsh4monkey}"
+  'print' -P "  Z4M:     $z4m_dir"
   'print' -P "  .zshrc:  ${ZDOTDIR:-$HOME}/.zshrc"
   'print' ''
 
@@ -152,6 +161,7 @@ function z4m() {
 'print' ''
 'print' -P '%F{yellow}=== z4m Safe Mode ===%f'
 'print' -P 'Plugins disabled. Type %Bz4m-safe-help%b for commands.'
+[[ -r $_z4m_last_fail_log ]] && 'print' -P "Last failure log: $_z4m_last_fail_log"
 'print' ''
 
 # Clear the failure marker since we successfully entered safe mode

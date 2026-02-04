@@ -7,7 +7,7 @@ autoload -Uz +X compinit || return
 local orig="bindkey '^i' | IFS=\$' \t' read -A _i_line"
 local replacement="_i_line=( '\"^I\"' z4m-fzf-complete )"
 print -r -- ${functions[compinit]/$orig/$replacement} >$Z4M/zsh4monkey/fn/tmp.$$.compinit || return
-zf_mv -- $Z4M/zsh4monkey/fn/tmp.$$.compinit $Z4M/zsh4monkey/fn/-z4m-compinit-impl || return
+zf_mv -f -- $Z4M/zsh4monkey/fn/tmp.$$.compinit $Z4M/zsh4monkey/fn/-z4m-compinit-impl || return
 z4m compile -- $Z4M/zsh4monkey/fn/-z4m-compinit-impl || return
 autoload -Uz -- -z4m-compinit-impl
 

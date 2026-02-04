@@ -1,0 +1,43 @@
+#!/usr/bin/env zsh
+#
+# -z4m-show-failure-log - Display init failure status and log contents
+#
+# Shared helper for safe mode and recovery shell diagnostics.
+# Uses quoted builtins for safety in broken environments.
+#
+# Usage: -z4m-show-failure-log [z4m_dir]
+#   z4m_dir: Optional, defaults to ${Z4M:-$HOME/.cache/zsh4monkey}
+#
+# Returns: 0 if failure detected, 1 if no failure
+#
+
+'local' z4m_dir=${1:-${Z4M:-$HOME/.cache/zsh4monkey}}
+'local' marker_file=$z4m_dir/.last-init-failed
+'local' log_file=$z4m_dir/cache/last-init-failed.log
+
+if [[ -e $marker_file ]]; then
+  'print' -P '%F{red}Previous startup failed (marker present).%f'
+  'print' -P "Marker: $marker_file"
+  if [[ -r $log_file && -s $log_file ]]; then
+    'print' ''
+    'print' -P '%F{cyan}Failure log:%f'
+    'local' line
+    for line in "${(@f)$(<$log_file)}"; do
+      'print' -r -- "  $line"
+    done
+  fi
+  return 0
+elif [[ -r $log_file && -s $log_file ]]; then
+  'print' -P '%F{red}Previous startup failed (log present).%f'
+  'print' -P "Log: $log_file"
+  'print' ''
+  'print' -P '%F{cyan}Failure log:%f'
+  'local' line
+  for line in "${(@f)$(<$log_file)}"; do
+    'print' -r -- "  $line"
+  done
+  return 0
+else
+  'print' -P '%F{green}No startup failure detected.%f'
+  return 1
+fi

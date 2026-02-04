@@ -2,6 +2,8 @@
 
 autoload -Uz add-zsh-hook || return
 
+unset _z4m_init_failed_step _z4m_init_failed_rc
+
 # Restore propagated environment variables from SSH session
 # Complex types (arrays, associative arrays) are Base64 encoded
 if [[ -v _Z4M_PROPAGATED_ENV_B64 && -n $_Z4M_PROPAGATED_ENV_B64 ]]; then
@@ -163,13 +165,25 @@ function -z4m-wrap-commands() {
 -z4m-wrap-commands
 
 if [[ ! -e $Z4M/zsh4monkey/fn/-z4m-compinit-impl ]]; then
-  -z4m-postinstall-self || return
+  local -i rc
+  if ! -z4m-postinstall-self; then
+    rc=$?
+    typeset -g _z4m_init_failed_step=postinstall-self
+    typeset -gi _z4m_init_failed_rc=$rc
+    return $rc
+  fi
 fi
 
 if (( _z4m_zle )); then
   # Load embedded history substring search before ZLE init
   -z4m-history-substring-search
-  -z4m-init-zle || return
+  local -i rc
+  if ! -z4m-init-zle; then
+    rc=$?
+    typeset -g _z4m_init_failed_step=init-zle
+    typeset -gi _z4m_init_failed_rc=$rc
+    return $rc
+  fi
 else
   -z4m-cmd-bindkey() {}
   function compdef() {}

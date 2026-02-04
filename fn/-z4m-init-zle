@@ -702,7 +702,7 @@ if (( _z4m_use[powerlevel10k] )); then
   z4m source -c $POWERLEVEL9K_CONFIG_FILE
 fi
 
--z4m-set-term-title-precmd || return
+-z4m-set-term-title-precmd || true
 
 if (( _z4m_use[zsh-autosuggestions] )); then
   if (( terminfo[colors] >= 256 )); then
@@ -923,9 +923,8 @@ function -z4m-post-init() {
   fi
 
   typeset -gi _z4m_compinit_fd
-  if [[ -v __p9k_fd_0 ]] && zselect -t0 -r $__p9k_fd_0 &&
-     sysopen -o cloexec -ru _z4m_compinit_fd /dev/null; then
-    zle -F $_z4m_compinit_fd -z4m-compinit
+  if sysopen -o cloexec -ru _z4m_compinit_fd /dev/null 2>/dev/null; then
+    zle -F $_z4m_compinit_fd -z4m-compinit || true
   else
     unset _z4m_compinit_fd
     -z4m-compinit

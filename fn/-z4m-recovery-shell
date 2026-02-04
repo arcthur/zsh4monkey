@@ -74,6 +74,7 @@
     'print' -P '%F{yellow}Clearing failure state...%f'
     command rm -f -- "$z4m_dir"/.last-init-failed 2>/dev/null
     command rm -f -- "$z4m_dir"/.safe-mode 2>/dev/null
+    command rm -f -- "$z4m_dir"/cache/last-init-failed.log 2>/dev/null
     'print' -P '%F{green}State cleared. Reloading zsh normally...%f'
     'exec' 'zsh' '-i'
   }
@@ -83,13 +84,8 @@
     'print' -P '%F{cyan}=== z4m Recovery Diagnostics ===%f'
     'print' ''
 
-    # Check for failure marker
-    if [[ -e $z4m_dir/.last-init-failed ]]; then
-      'print' -P '%F{red}Previous startup failed.%f'
-      'print' -P "Marker: $z4m_dir/.last-init-failed"
-    else
-      'print' -P '%F{green}No startup failure marker found.%f'
-    fi
+    # Check for failure marker and show log
+    -z4m-show-failure-log "$z4m_dir"
     'print' ''
 
     # Check safe mode trigger

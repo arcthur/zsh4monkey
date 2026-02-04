@@ -33,5 +33,30 @@ fi
 
 # zoxide -> z
 if zstyle -T :z4m:zoxide enabled && (( $+commands[zoxide] )); then
-  eval "$(zoxide init zsh)"
+  local cache_dir=$Z4M/cache/zoxide-$EUID
+  local cache_file=$cache_dir/init.zsh
+  local cache_valid=0
+
+  [[ -d $cache_dir ]] || zf_mkdir -p -- "$cache_dir" 2>/dev/null || true
+
+  if [[ -r $cache_file ]]; then
+    local -a cache_stat bin_stat
+    if zstat -A cache_stat +mtime -- $cache_file 2>/dev/null &&
+       zstat -A bin_stat +mtime -- $commands[zoxide] 2>/dev/null &&
+       (( cache_stat[1] >= bin_stat[1] )); then
+      cache_valid=1
+    fi
+  fi
+
+  if (( cache_valid )); then
+    source $cache_file
+  else
+    local init_output
+    init_output=$(zoxide init zsh 2>/dev/null) || init_output=
+    if [[ -n $init_output ]]; then
+      print -r -- "$init_output" >$cache_file 2>/dev/null || true
+      -z4m-compile $cache_file 2>/dev/null || true
+      source $cache_file 2>/dev/null || eval "$init_output"
+    fi
+  fi
 fi

@@ -434,12 +434,35 @@ function -z4m-cmd-init() {
     emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
       -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
     if -z4m-init; then
-      # Success: clear any failure marker
-      zf_rm -f -- $Z4M/.last-init-failed 2>/dev/null
+      # Success: clear any failure marker and stale log
+      zf_rm -f -- $Z4M/.last-init-failed $Z4M/cache/last-init-failed.log 2>/dev/null
+      unset _z4m_init_failed_step _z4m_init_failed_rc
       return 0
     fi
     # Failure: create marker for next startup
-    print -n >$Z4M/.last-init-failed 2>/dev/null
+    local -i rc=$?
+    local -a lines=(
+      "type=init"
+      "epoch=$EPOCHSECONDS"
+      "pid=$sysparams[pid]"
+      "ppid=$sysparams[ppid]"
+      "rc=$rc"
+      "fail_step=${_z4m_init_failed_step-}"
+      "fail_step_rc=${_z4m_init_failed_rc-}"
+      "zsh_version=$ZSH_VERSION"
+      "zsh_patchlevel=${ZSH_PATCHLEVEL-}"
+      "ostype=$OSTYPE"
+      "term=${TERM-}"
+      "tty=${TTY-}"
+      "z4m_dir=$Z4M"
+      "zdotdir=${ZDOTDIR:-$HOME}"
+      "exe=$_z4m_exe"
+      "ssh=${Z4M_SSH-}"
+    )
+    zf_mkdir -p -- $Z4M/cache 2>/dev/null || true
+    print -l -- "${lines[@]}" >$Z4M/cache/last-init-failed.log 2>/dev/null || true
+    print -l -- "${lines[@]}" >$Z4M/.last-init-failed 2>/dev/null || true
+    unset _z4m_init_failed_step _z4m_init_failed_rc
     [[ -e $Z4M/.updating ]] || -z4m-error-command init
     return 1
   }
@@ -482,4 +505,3 @@ function z4m() {
 }
 
 [[ ${Z4M_SSH-} != <1->:* ]] || -z4m-ssh-maybe-update || return
-

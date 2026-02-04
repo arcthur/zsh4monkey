@@ -6,13 +6,13 @@ When configuration errors prevent normal startup, z4m provides recovery mechanis
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Startup Problem Detection                                   │
+│  Startup Problem Detection                                  │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  Normal startup fails?                                      │
 │       │                                                     │
 │       ▼                                                     │
-│  .last-init-failed created                                  │
+│  .last-init-failed + cache/last-init-failed.log written     │
 │       │                                                     │
 │       ▼                                                     │
 │  Next startup → Safe Mode (automatic)                       │
@@ -103,10 +103,13 @@ z4m bindkey z4m-recovery-shell Ctrl+Alt+R
 
 | File | Purpose |
 |------|---------|
-| `$Z4M/.last-init-failed` | Created on startup failure, triggers safe mode |
+| `$Z4M/.last-init-failed` | Transient failure marker (next startup enters safe mode) |
 | `$Z4M/.safe-mode` | Persistent safe mode flag |
+| `$Z4M/cache/last-init-failed.log` | Detailed init failure diagnostics (key=value lines) |
 
 Default location: `~/.cache/zsh4monkey/`
+
+Note: `.last-init-failed` is a trigger file and is typically cleared once you enter safe mode. Use `cache/last-init-failed.log` for persistent diagnostics; it is cleared automatically on the next successful init (or via manual cleanup).
 
 ## Clearing State
 
@@ -128,6 +131,7 @@ z4m reset
 ```bash
 rm -f ~/.cache/zsh4monkey/.last-init-failed
 rm -f ~/.cache/zsh4monkey/.safe-mode
+rm -f ~/.cache/zsh4monkey/cache/last-init-failed.log
 ```
 
 ## Common Issues
@@ -204,21 +208,23 @@ It does not remove installed plugins or z4m-managed repositories; it only clears
 ### z4m-safe-diagnose Output
 
 ```
-z4m Safe Mode Diagnostics
-========================
+=== z4m Safe Mode Diagnostics ===
 
-State files:
-  .last-init-failed: exists
-  .safe-mode: not found
+Previous startup failed (log present).
+Log: /Users/me/.cache/zsh4monkey/cache/last-init-failed.log
 
-Environment:
+Failure log:
+  type=init
+  epoch=1700000000
+  pid=12345
+  ppid=6789
+  rc=1
+  fail_step=init-zle
+  fail_step_rc=1
+
+Key paths:
   ZDOTDIR: /Users/me
-  Z4M: /Users/me/.cache/zsh4monkey
-
-Recent errors:
-  [last 10 lines of error log]
-
-Zsh version: 5.9
+  Z4M:     /Users/me/.cache/zsh4monkey
 ```
 
 ### Debug Mode
@@ -274,15 +280,18 @@ Safe mode:
 
 ### How Failure Detection Works
 
-1. At startup, z4m creates `.last-init-failed`
-2. At successful completion, z4m removes it
-3. If startup crashes, the file remains
-4. Next startup sees the file → enters safe mode
+1. If `z4m init` fails, z4m writes a failure marker and log:
+   - `$Z4M/.last-init-failed` (marker that triggers safe mode)
+   - `$Z4M/cache/last-init-failed.log` (diagnostics)
+2. Next startup sees the marker file → enters safe mode automatically
+3. Safe mode copies marker contents into the log (if needed), then clears the marker
+4. A successful init clears both the marker and the log to avoid stale diagnostics
 
 ### Implementation Files
 
 | File | Purpose |
 |------|---------|
-| `fn/-z4m-init-safe-mode` | Safe mode initialization |
+| `fn/-z4m-safe-mode-init` | Safe mode initialization |
 | `fn/-z4m-recovery-shell` | Recovery shell |
-| `fn/z4m-reset` | Reset command |
+| `fn/-z4m-cmd-reset` | Reset command |
+| `fn/-z4m-show-failure-log` | Shared helper to display failure status/log |
