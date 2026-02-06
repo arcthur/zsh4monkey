@@ -5,7 +5,8 @@
 builtin echoti civis >&$_z4m_tty_fd
 local -i cursor_x cursor_y
 -z4m-get-cursor-pos || cursor_y=0
-builtin print -rnu $_z4m_tty_fd -- "${(pl:$((2 * LINES - cursor_y))::\n:)}"$'\e[H\e[2J'
+local -i pad_lines=$((2 * LINES - cursor_y))
+builtin print -rnu $_z4m_tty_fd -- "${(pl:$pad_lines::\n:)}"$'\e[H\e[2J'
 builtin zle .reset-prompt
 builtin zle -R
 -z4m-cursor-show

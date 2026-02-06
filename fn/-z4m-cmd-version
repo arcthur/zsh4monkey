@@ -41,7 +41,11 @@ done
 
 # Read z4m version
 local z4m_version
-z4m_version=${$(<$Z4M/zsh4monkey/version)%$'\r'} 2>/dev/null || z4m_version="unknown"
+if [[ -r $Z4M/zsh4monkey/version ]]; then
+  z4m_version=${$(<$Z4M/zsh4monkey/version)%$'\r'}
+else
+  z4m_version="unknown"
+fi
 
 # Format version for display (500000033 -> 5.0.0.33)
 local z4m_display_version

@@ -18,7 +18,7 @@ local -a stat
 [[ -w "${1:h}" ]] || return
 
 local t
-builtin strftime -s t '%Y%m%d%H%M.%S' $((stat + 1))
+strftime -s t '%Y%m%d%H%M.%S' $((stat + 1))
 
 local tmp="$1".tmp."${sysparams[pid]}".zwc
 {

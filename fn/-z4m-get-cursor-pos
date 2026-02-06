@@ -5,13 +5,11 @@
 local fd=${_z4m_tty_fd-1}
 [[ -t $fd ]] || return
 
-# Note: `read -u $fd` doesn't work.
-
 local resp
-IFS= builtin read -srt 5 -d R resp$'?\e[6n' <&$fd || return
+IFS= builtin read -srt 5 -u $fd -d R resp$'?\e[6n' || return
 
 while [[ $resp != *$'\e['<->';'<-> ]]; do
-  IFS= builtin read -srt 5 -d R resp <&$fd || return
+  IFS= builtin read -srt 5 -u $fd -d R resp || return
 done
 
 if (( ARGC )); then
