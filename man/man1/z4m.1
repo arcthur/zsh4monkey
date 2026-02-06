@@ -41,7 +41,7 @@ This sets up completion, keybindings, prompt, and all features.
 Update
 .Nm zsh4monkey
 and all installed dependencies including fzf, powerlevel10k,
-zsh-autosuggestions, and fast-syntax-highlighting.
+zsh-autosuggestions, and built-in fast-syntax-highlighting.
 .It Cm install Oo Fl f | Fl -force Oc Ar user/project Ns Op @ Ns Ar branch
 Clone or update GitHub project(s) to
 .Ev Z4M
@@ -118,6 +118,19 @@ Show current debug status
 Measure shell startup time.
 Default: 10 iterations.
 Reports min, max, and average startup time.
+.It Cm highlight Oo status | doctor | events | reset Oc Op Ar options
+Inspect and control the highlight backend subsystem.
+.Bl -tag -width "events --tail N" -compact
+.It Cm status Op Fl -json Op Fl -init
+Show configured backend, active backend, lifecycle state, and vendor metadata.
+.It Cm doctor Op Fl -json Op Fl -no-init
+Run highlight consistency checks.
+Exit codes: 0 (healthy), 1 (warnings/degraded), 2 (errors).
+.It Cm events Op Fl -tail Ar N Oc Op Fl -json
+Show recent highlight lifecycle events (init/render/degrade/reset).
+.It Cm reset Op Fl -json
+Reset highlight caches and runtime state without changing configuration.
+.El
 .It Cm env Oo summary | full | paths Oc
 Display environment information.
 .Bl -tag -width "summary" -compact
@@ -241,6 +254,13 @@ z4m ssh -J jumphost user@target
 Benchmark startup time:
 .Bd -literal -offset indent
 z4m bench 20
+.Ed
+.Pp
+Inspect highlight health:
+.Bd -literal -offset indent
+z4m highlight status
+z4m highlight doctor --json
+z4m highlight events --tail 20
 .Ed
 .Pp
 Toggle Vi mode:

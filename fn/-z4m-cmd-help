@@ -33,7 +33,7 @@ if (( ARGC == 1 )); then
       print -Pr -- "  - fzf"
       print -Pr -- "  - powerlevel10k"
       print -Pr -- "  - zsh-autosuggestions"
-      print -Pr -- "  - fast-syntax-highlighting"
+      print -Pr -- "  - built-in fast-syntax-highlighting (bundled with z4m)"
       print -Pr -- "  - User-installed plugins"
     ;;
     init)
@@ -119,6 +119,20 @@ if (( ARGC == 1 )); then
       print -Pr -- ""
       print -Pr -- "Measure shell startup time. Default: 10 iterations."
       print -Pr -- "Reports min, max, and average startup time."
+    ;;
+    highlight)
+      print -Pr -- "Usage: %F{2}z4m%f %Bhighlight%b [status|doctor|events|reset] [options]"
+      print -Pr -- ""
+      print -Pr -- "Inspect and control the highlight backend subsystem."
+      print -Pr -- ""
+      print -Pr -- "Subcommands:"
+      print -Pr -- "  %Bstatus%b [--json] [--init]      Show highlight status (use --init to force backend init)"
+      print -Pr -- "  %Bdoctor%b [--json] [--no-init]   Run backend contract and runtime checks"
+      print -Pr -- "  %Bevents%b [--tail N] [--json] Show recent highlight lifecycle events"
+      print -Pr -- "  %Breset%b [--json]             Reset highlight caches and state"
+      print -Pr -- ""
+      print -Pr -- "Exit codes for %Bdoctor%b:"
+      print -Pr -- "  0 = healthy, 1 = degraded/warnings, 2 = errors"
     ;;
     env)
       print -Pr -- "Usage: %F{2}z4m%f %Benv%b [summary|full|paths]"
@@ -281,6 +295,7 @@ print -Pru$fd -- ""
 print -Pru$fd -- "%F{6}Diagnostics:%f"
 print -Pru$fd -- "  %F{2}z4m%f %Bdebug%b [on|off|status]   Toggle debug mode"
 print -Pru$fd -- "  %F{2}z4m%f %Bbench%b [%Ucount%u]            Benchmark startup time"
+print -Pru$fd -- "  %F{2}z4m%f %Bhighlight%b [subcmd]       Highlight status, checks, events"
 print -Pru$fd -- "  %F{2}z4m%f %Benv%b [full|paths]        Show environment info"
 print -Pru$fd -- "  %F{2}z4m%f %Btime%b %Ucommand%u             Time command execution"
 print -Pru$fd -- "  %F{2}z4m%f %Brecovery%b               Enter recovery shell"

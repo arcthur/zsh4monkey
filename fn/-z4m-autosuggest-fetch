@@ -28,7 +28,4 @@ else
   }
 fi
 
-if [[ -n $POSTDISPLAY ]]; then
-  region_highlight+=(
-    "${#BUFFER} $((${#BUFFER} + ${#POSTDISPLAY})) $ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE")
-fi
+# Highlight overlay is applied by the unified z4m highlight pipeline.

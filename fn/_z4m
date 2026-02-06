@@ -20,6 +20,7 @@ _z4m_commands() {
     'vi-mode:Toggle Vi editing mode'
     'debug:Toggle debug mode'
     'bench:Benchmark startup time'
+    'highlight:Highlight backend diagnostics'
     'env:Show environment info'
     'time:Time command execution'
     'recovery:Enter recovery shell'
@@ -181,6 +182,46 @@ _z4m() {
           ;;
         bench)
           _arguments '1: :_message "iteration count (default: 10)"'
+          ;;
+        highlight)
+          if (( CURRENT == 3 )); then
+            local -a highlight_cmds
+            highlight_cmds=(
+              'status:Show highlight status'
+              'doctor:Run highlight checks'
+              'events:Show highlight lifecycle events'
+              'reset:Reset highlight caches'
+            )
+            _describe -t highlight_cmds 'highlight subcommand' highlight_cmds
+          else
+            case $words[3] in
+              status|doctor|reset)
+                case $words[3] in
+                  status)
+                    _arguments \
+                      '--json[Print machine-readable JSON output]' \
+                      '--init[Initialize backend before printing status]'
+                    ;;
+                  doctor)
+                    _arguments \
+                      '--json[Print machine-readable JSON output]' \
+                      '--no-init[Do not initialize backend (static checks only)]'
+                    ;;
+                  reset)
+                    _arguments '--json[Print machine-readable JSON output]'
+                    ;;
+                esac
+                ;;
+              events)
+                _arguments \
+                  '--json[Print machine-readable JSON output]' \
+                  '--tail[Show only last N events]:count:'
+                ;;
+              *)
+                _message 'highlight subcommand'
+                ;;
+            esac
+          fi
           ;;
         env)
           local -a env_cmds

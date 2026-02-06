@@ -20,13 +20,19 @@ local -a stat
 local t
 strftime -s t '%Y%m%d%H%M.%S' $((stat + 1))
 
+local src_dir="${1:h}"
+local src_base="${1:t}"
 local tmp="$1".tmp."${sysparams[pid]}".zwc
+local tmp_base="$src_base".tmp."${sysparams[pid]}".zwc
 {
   (( !_z4m_dangerous_root ))       &&
-    zcompile -R -- "$tmp" "$1"     &&
-    command touch -ct $t -- "$tmp" &&
-    zf_rm -f -- "$1".zwc           &&
-    zf_mv -f -- "$tmp" "$1".zwc
+    (
+      builtin cd -q -- "$src_dir" &&
+        zcompile -R -- "$tmp_base" "$src_base" &&
+        command touch -ct $t -- "$tmp_base" &&
+        zf_rm -f -- "$src_base".zwc &&
+        zf_mv -f -- "$tmp_base" "$src_base".zwc
+    )
 } always {
   (( $? )) && zf_rm -f -- "$tmp" "$1".zwc 2>/dev/null
 }

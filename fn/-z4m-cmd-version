@@ -105,13 +105,24 @@ if (( verbose )); then
     print -Pr -- "  %Bautosuggestions%b: $zas_version"
   fi
 
-  # fast-syntax-highlighting
-  if [[ -d $Z4M/fast-syntax-highlighting ]]; then
-    local fsh_version="installed"
-    if [[ -r $Z4M/fast-syntax-highlighting/.version ]]; then
-      fsh_version=$(<$Z4M/fast-syntax-highlighting/.version)
+  # fast-syntax-highlighting (built-in vendor)
+  local fsh_meta=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting/.z4m-vendor-meta
+  if [[ -r $fsh_meta ]]; then
+    local fsh_version="unknown" fsh_commit="unknown"
+    local key value
+    while IFS='=' read -r key value; do
+      case $key in
+        fast_highlight_version) fsh_version=$value ;;
+        upstream_commit)        fsh_commit=$value ;;
+      esac
+    done <$fsh_meta
+    if [[ $fsh_commit == unknown ]]; then
+      print -Pr -- "  %Bfast-syntax-highlighting%b: built-in ${fsh_version}"
+    else
+      print -Pr -- "  %Bfast-syntax-highlighting%b: built-in ${fsh_version} (commit ${fsh_commit[1,12]})"
     fi
-    print -Pr -- "  %Bfast-syntax-highlighting%b: $fsh_version"
+  elif [[ -d $Z4M/zsh4monkey/vendor/fast-syntax-highlighting ]]; then
+    print -Pr -- "  %Bfast-syntax-highlighting%b: built-in"
   fi
 
   # tmux

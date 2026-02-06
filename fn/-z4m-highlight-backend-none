@@ -1,0 +1,26 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+(( ${+functions[-z4m-highlight-none-probe]} )) && return 0
+
+function -z4m-highlight-none-probe() {
+  return 0
+}
+
+function -z4m-highlight-none-init() {
+  return 0
+}
+
+function -z4m-highlight-none-render() {
+  region_highlight=()
+  return 0
+}
+
+function -z4m-highlight-none-reset() {
+  region_highlight=()
+  return 0
+}
+
+function -z4m-highlight-none-teardown() {}

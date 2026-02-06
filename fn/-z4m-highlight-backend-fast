@@ -1,0 +1,139 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+(( ${+functions[-z4m-highlight-fast-probe]} )) && return 0
+
+function -z4m-highlight-fast-warn-theme-fallback() {
+  local requested=${1:-clean}
+  local reason=${2:-invalid}
+  local key="${requested}|${reason}"
+
+  (( ${+_z4m_highlight_warned_theme_fallback} )) || typeset -gA _z4m_highlight_warned_theme_fallback
+  [[ -n ${_z4m_highlight_warned_theme_fallback[$key]-} ]] && return 0
+  _z4m_highlight_warned_theme_fallback[$key]=1
+
+  print -Pru2 -- "%F{3}z4m%f: %F{1}warning%f: invalid highlight theme %B${requested//\%/%%}%b (${reason}); falling back to %Bclean%b"
+}
+
+function -z4m-highlight-fast-resolve-theme() {
+  local vendor_dir=$1
+  local requested=$2
+  local key=${requested:l}
+
+  case $key in
+    ''|clean)
+      REPLY=$vendor_dir/themes/clean.zsh
+      [[ -r $REPLY ]]
+      return
+      ;;
+    catppuccin-mocha)
+      REPLY=$vendor_dir/themes/catppuccin-mocha.zsh
+      [[ -r $REPLY ]]
+      return
+      ;;
+  esac
+
+  REPLY=
+  return 1
+}
+
+function -z4m-highlight-fast-apply-theme() {
+  local vendor_dir=$1
+  local requested resolved target theme_name theme_source
+
+  zstyle -s :z4m:highlight theme requested || requested=clean
+  [[ -n $requested ]] || requested=clean
+
+  if -z4m-highlight-fast-resolve-theme "$vendor_dir" "$requested"; then
+    resolved=$REPLY
+  else
+    -z4m-highlight-fast-warn-theme-fallback "$requested" "unknown theme"
+    requested=clean
+    -z4m-highlight-fast-resolve-theme "$vendor_dir" clean || return 1
+    resolved=$REPLY
+  fi
+
+  target=$FAST_WORK_DIR/current_theme.zsh
+  if command cp -f -- "$resolved" "$target" 2>/dev/null; then
+    command rm -f -- "$target.zwc" 2>/dev/null || true
+    theme_name=${resolved:t:r}
+    theme_source=$resolved
+  else
+    -z4m-highlight-fast-warn-theme-fallback "$requested" "copy failed"
+    return 1
+  fi
+
+  zstyle :plugin:fast-syntax-highlighting theme "$theme_name"
+
+  if (( ${+_z4m_highlight_state} )); then
+    _z4m_highlight_state[configured_theme]=$requested
+    _z4m_highlight_state[active_theme]=$theme_name
+    _z4m_highlight_state[theme_source]=$theme_source
+  fi
+}
+
+function -z4m-highlight-fast-probe() {
+  local vendor_dir=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting
+  [[ -r $vendor_dir/fast-syntax-highlighting.plugin.zsh ]]
+}
+
+function -z4m-highlight-fast-init() {
+  local vendor_dir=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting
+  [[ -r $vendor_dir/fast-syntax-highlighting.plugin.zsh ]] || return 1
+
+  : ${FAST_WORK_DIR:=$Z4M/cache/fast-syntax-highlighting}
+  zf_mkdir -p -- $FAST_WORK_DIR 2>/dev/null || true
+
+  -z4m-highlight-fast-apply-theme "$vendor_dir" || return 1
+  if (( ${+_z4m_highlight_fast_loaded} )); then
+    return 0
+  fi
+
+  # Compile vendor files on first load for faster subsequent sourcing
+  local f
+  for f in $vendor_dir/{fast-syntax-highlighting.plugin.zsh,fast-highlight,fast-string-highlight}(N); do
+    if [[ ! -e $f.zwc || $f -nt $f.zwc ]]; then
+      zcompile -R -- $f 2>/dev/null || true
+    fi
+  done
+
+  : ${ZSH_HIGHLIGHT_MAXLENGTH=1024}  # keep short-line default unless user overrides
+  (( ${+ZSH_HIGHLIGHT_HIGHLIGHTERS} )) || typeset -ga ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets)
+
+  builtin source $vendor_dir/fast-syntax-highlighting.plugin.zsh || return
+
+  (( ${+functions[_zsh_highlight]} )) || return 1
+  builtin functions -c -- _zsh_highlight -z4m-highlight-fast-core || return 1
+
+  -z4m-highlight-core-install-facade || return 1
+
+  -z4m-highlight-fast-teardown
+  typeset -gi _z4m_highlight_fast_loaded=1
+}
+
+function -z4m-highlight-fast-render() {
+  [[ ${WIDGET-} == zle-line-pre-redraw && ${LASTWIDGET-} == accept-line ]] && return 0
+  if [[ ${#BUFFER} -gt ${ZSH_HIGHLIGHT_MAXLENGTH:-${#BUFFER}} ]]; then
+    region_highlight=()
+  else
+    (( ${+functions[-z4m-highlight-fast-core]} )) || return 1
+    local -i pending=${PENDING:-0} keys_queued=${KEYS_QUEUED_COUNT:-0}
+    local -ih PENDING=$pending KEYS_QUEUED_COUNT=$keys_queued
+    -z4m-highlight-fast-core "$@" || true
+  fi
+  return 0
+}
+
+function -z4m-highlight-fast-reset() {
+  unset _zsh_highlight__highlighter_${^ZSH_HIGHLIGHT_HIGHLIGHTERS}_cache
+  typeset -g _ZSH_HIGHLIGHT_PRIOR_BUFFER=
+  unset _ZSH_HIGHLIGHT_PRIOR_RACTIVE
+  typeset -ga _FAST_MAIN_CACHE
+  _FAST_MAIN_CACHE=()
+}
+
+function -z4m-highlight-fast-teardown() {
+  preexec_functions=(${preexec_functions:#_zsh_highlight_preexec_hook})
+}

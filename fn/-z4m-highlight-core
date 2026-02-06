@@ -1,0 +1,388 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+# This is an autoloaded function body; guard against repeated re-definition.
+(( ${+functions[-z4m-highlight-core-ensure]} )) && return 0
+
+# Eagerly initialise globals so hot-path functions never need to check.
+(( ${+_z4m_highlight_state} ))  || typeset -gA _z4m_highlight_state
+(( ${+_z4m_highlight_events} )) || typeset -ga _z4m_highlight_events
+: ${_z4m_highlight_state[state]:=uninitialized}
+: ${_z4m_highlight_state[active_backend]:=none}
+: ${_z4m_highlight_state[configured_theme]:=clean}
+: ${_z4m_highlight_state[active_theme]:=none}
+: ${_z4m_highlight_state[theme_source]:=none}
+: ${_z4m_highlight_state[overlay_count]:=0}
+: ${_z4m_highlight_state[event_capacity]:=200}
+
+function -z4m-highlight-core-install-facade() {
+  function _zsh_highlight() {
+    -z4m-highlight-render "$@"
+  }
+}
+
+# Re-entrant guard for callers that may run before the module is loaded.
+function -z4m-highlight-core-ensure() {
+  (( ${+_z4m_highlight_state} )) || typeset -gA _z4m_highlight_state
+  (( ${+_z4m_highlight_events} )) || typeset -ga _z4m_highlight_events
+  : ${_z4m_highlight_state[state]:=uninitialized}
+  : ${_z4m_highlight_state[active_backend]:=none}
+  : ${_z4m_highlight_state[configured_theme]:=clean}
+  : ${_z4m_highlight_state[active_theme]:=none}
+  : ${_z4m_highlight_state[theme_source]:=none}
+  : ${_z4m_highlight_state[overlay_count]:=0}
+  : ${_z4m_highlight_state[event_capacity]:=200}
+}
+
+function -z4m-highlight-core-log() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  -z4m-highlight-core-ensure
+
+  local level=${1:-info}
+  local event=${2:-event}
+  local message=${3-}
+  local ts
+  if [[ -n ${EPOCHREALTIME-} ]]; then
+    ts=$EPOCHREALTIME
+  elif [[ -n ${EPOCHSECONDS-} ]]; then
+    ts=${EPOCHSECONDS}.0
+  else
+    ts=0.0
+  fi
+  _z4m_highlight_events+=("${ts}"$'\t'"${level}"$'\t'"${event}"$'\t'"${message}")
+
+  local -i max=${_z4m_highlight_state[event_capacity]:-200}
+  if (( max > 0 && $#_z4m_highlight_events > max )); then
+    _z4m_highlight_events=("${(@)_z4m_highlight_events[-$max,-1]}")
+  fi
+}
+
+function -z4m-highlight-core-degrade() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  -z4m-highlight-core-ensure
+  local reason=${1:-runtime-failure}
+  local current=${_z4m_highlight_state[active_backend]-none}
+
+  _z4m_highlight_state[last_error]=$reason
+
+  if (( ! ${+_z4m_highlight_warned_runtime_fail} )); then
+    print -Pru2 -- "%F{3}z4m%f: %F{1}warning%f: highlight backend failed at runtime, switching to %Bnone%b"
+    typeset -gi _z4m_highlight_warned_runtime_fail=1
+  fi
+
+  if [[ $current == fast ]] && (( ${+functions[-z4m-highlight-fast-teardown]} )); then
+    -z4m-highlight-fast-teardown || true
+  elif [[ $current == none ]] && (( ${+functions[-z4m-highlight-none-teardown]} )); then
+    -z4m-highlight-none-teardown || true
+  fi
+
+  (( ${+functions[-z4m-highlight-backend-none]} )) && -z4m-highlight-backend-none || true
+  if (( ${+functions[-z4m-highlight-none-probe]} )) && (( ${+functions[-z4m-highlight-none-init]} )) &&
+     -z4m-highlight-none-probe && -z4m-highlight-none-init; then
+    _z4m_highlight_state[active_backend]=none
+    _z4m_highlight_state[active_theme]=none
+    _z4m_highlight_state[theme_source]=none
+    _z4m_highlight_state[state]=degraded
+    _z4m_highlight_state[last_error]=$reason
+    -z4m-highlight-core-log warn degrade "$reason"
+    -z4m-highlight-core-log info activate "active=none state=degraded"
+    return 0
+  fi
+
+  _z4m_highlight_state[state]=degraded
+  _z4m_highlight_state[active_backend]=none
+  _z4m_highlight_state[active_theme]=none
+  _z4m_highlight_state[theme_source]=none
+  _z4m_highlight_state[overlay_count]=0
+  region_highlight=()
+  -z4m-highlight-core-log error degrade "failed to activate none backend (${reason})"
+  return 1
+}
+
+function -z4m-highlight-core-init() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  local requested=${1:-fast}
+  local requested_theme
+  zstyle -s :z4m:highlight theme requested_theme || requested_theme=clean
+  [[ -n $requested_theme ]] || requested_theme=clean
+
+  -z4m-highlight-core-ensure
+  local prev_active=${_z4m_highlight_state[active_backend]-none}
+
+  if [[ ${_z4m_highlight_state[state]-uninitialized} == (ready|disabled) ]] &&
+     [[ ${_z4m_highlight_state[configured_backend]-} == $requested ]] &&
+     [[ ${_z4m_highlight_state[configured_theme]-clean} == $requested_theme ]]; then
+    return 0
+  fi
+
+  _z4m_highlight_state[configured_backend]=$requested
+  _z4m_highlight_state[configured_theme]=$requested_theme
+  _z4m_highlight_state[state]=initializing
+  _z4m_highlight_state[last_error]=
+  _z4m_highlight_state[first_render_logged]=0
+  -z4m-highlight-core-log info init "requested=${requested} theme=${requested_theme}"
+
+  local -i reconfigure_fast=0
+  if [[ $requested == fast ]] &&
+     [[ $prev_active == fast ]] &&
+     [[ ${_z4m_highlight_state[active_theme]-clean} != $requested_theme ]]; then
+    reconfigure_fast=1
+  fi
+
+  (( ${+functions[-z4m-highlight-backend-none]} )) && -z4m-highlight-backend-none || true
+  [[ $requested == fast ]] && (( ${+functions[-z4m-highlight-backend-fast]} )) && -z4m-highlight-backend-fast || true
+
+  if [[ $prev_active != none ]] && (( reconfigure_fast || prev_active != requested )); then
+    if [[ $prev_active == fast ]] && (( ${+functions[-z4m-highlight-fast-teardown]} )); then
+      -z4m-highlight-fast-teardown || true
+      unset _z4m_highlight_fast_loaded
+    elif [[ $prev_active == none ]] && (( ${+functions[-z4m-highlight-none-teardown]} )); then
+      -z4m-highlight-none-teardown || true
+    fi
+    -z4m-highlight-core-log info teardown "backend=${prev_active}"
+  fi
+
+  if [[ $requested == none ]]; then
+    if (( ${+functions[-z4m-highlight-none-probe]} )) && (( ${+functions[-z4m-highlight-none-init]} )) &&
+       -z4m-highlight-none-probe && -z4m-highlight-none-init; then
+      _z4m_highlight_state[active_backend]=none
+      _z4m_highlight_state[active_theme]=none
+      _z4m_highlight_state[theme_source]=none
+      _z4m_highlight_state[state]=disabled
+      -z4m-highlight-core-log info activate "active=none state=disabled"
+      return 0
+    fi
+  elif [[ $requested == fast ]]; then
+    if (( ${+functions[-z4m-highlight-fast-probe]} )) && (( ${+functions[-z4m-highlight-fast-init]} )) &&
+       -z4m-highlight-fast-probe && -z4m-highlight-fast-init; then
+      _z4m_highlight_state[active_backend]=fast
+      : ${_z4m_highlight_state[active_theme]:=clean}
+      : ${_z4m_highlight_state[theme_source]:=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting/themes/clean.zsh}
+      _z4m_highlight_state[state]=ready
+      -z4m-highlight-core-log info activate "active=fast state=ready theme=${_z4m_highlight_state[active_theme]}"
+      return 0
+    fi
+  fi
+
+  _z4m_highlight_state[last_error]="failed to initialize backend ${requested}"
+  -z4m-highlight-core-log warn init "${_z4m_highlight_state[last_error]}"
+
+  if [[ $requested != none ]] &&
+     (( ${+functions[-z4m-highlight-none-probe]} )) && (( ${+functions[-z4m-highlight-none-init]} )) &&
+     -z4m-highlight-none-probe && -z4m-highlight-none-init; then
+    _z4m_highlight_state[active_backend]=none
+    _z4m_highlight_state[active_theme]=none
+    _z4m_highlight_state[theme_source]=none
+    _z4m_highlight_state[state]=degraded
+    -z4m-highlight-core-log info activate "active=none state=degraded"
+    if (( ! ${+_z4m_highlight_warned_fast_init_fail} )); then
+      print -Pru2 -- "%F{3}z4m%f: %F{1}warning%f: failed to initialize built-in %Bfast-syntax-highlighting%b, falling back to %Bnone%b"
+      typeset -gi _z4m_highlight_warned_fast_init_fail=1
+    fi
+    return 0
+  fi
+
+  _z4m_highlight_state[state]=degraded
+  _z4m_highlight_state[active_backend]=none
+  _z4m_highlight_state[active_theme]=none
+  _z4m_highlight_state[theme_source]=none
+  _z4m_highlight_state[overlay_count]=0
+  return 1
+}
+
+function -z4m-highlight-core-strip-overlays() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  local -i overlay_prev=${_z4m_highlight_state[overlay_count]:-0}
+  _z4m_highlight_state[overlay_count]=0
+
+  if (( overlay_prev <= 0 )) || [[ ! -v region_highlight ]]; then
+    return 0
+  fi
+
+  local -i keep=$(( $#region_highlight - overlay_prev ))
+  if (( keep <= 0 )); then
+    region_highlight=()
+  else
+    region_highlight=("${region_highlight[1,$keep]}")
+  fi
+}
+
+function -z4m-highlight-core-apply-overlays() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  # Avoid work during paste/copy where redraw is deferred by zle-line-pre-redraw.
+  if (( ${PENDING:-0} || ${KEYS_QUEUED_COUNT:-0} )) || [[ ! -v region_highlight ]]; then
+    _z4m_highlight_state[overlay_count]=0
+    return 0
+  fi
+
+  local -i overlays=0
+
+  # Substring-search overlay (query highlight), independent from syntax backend.
+  if [[ ${WIDGET-} != zle-line-finish ]] &&
+     [[ ${WIDGET-} != zle-line-pre-redraw || ${LASTWIDGET-} != accept-line ]] &&
+     (( ${+_z4m_substring_search_highlight} )); then
+    region_highlight+=("${_z4m_substring_search_highlight[@]}")
+    overlays+=$#_z4m_substring_search_highlight
+  fi
+
+  # Autosuggestion overlay (POSTDISPLAY), independent from syntax backend.
+  if [[ ${WIDGET-} != zle-line-finish ]] &&
+     [[ ${WIDGET-} != zle-line-pre-redraw || ${LASTWIDGET-} != accept-line ]] &&
+     [[ -n ${POSTDISPLAY-} ]]; then
+    local style=${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE-}
+    if [[ -n $style ]]; then
+      region_highlight+=(
+        "${#BUFFER} $(( ${#BUFFER} + ${#POSTDISPLAY} )) ${style}")
+      (( overlays++ ))
+    fi
+  fi
+
+  _z4m_highlight_state[overlay_count]=$overlays
+}
+
+function -z4m-highlight-core-render() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  -z4m-highlight-core-strip-overlays || true
+
+  local backend=${_z4m_highlight_state[active_backend]-none}
+  case $backend in
+    fast)
+      if (( ! ${+functions[-z4m-highlight-fast-render]} )) || ! -z4m-highlight-fast-render "$@"; then
+        region_highlight=()
+        -z4m-highlight-core-degrade "render failure on backend fast" || true
+        -z4m-highlight-core-apply-overlays || true
+        return 1
+      fi
+      ;;
+    none)
+      region_highlight=()
+      ;;
+    *)
+      region_highlight=()
+      -z4m-highlight-core-degrade "invalid active backend ${backend}" || true
+      -z4m-highlight-core-apply-overlays || true
+      return 1
+      ;;
+  esac
+
+  -z4m-highlight-core-apply-overlays || true
+
+  if [[ ${_z4m_highlight_state[first_render_logged]-0} == 0 ]]; then
+    _z4m_highlight_state[first_render_logged]=1
+    -z4m-highlight-core-log info render "backend=${backend}"
+  fi
+}
+
+function -z4m-highlight-core-reset() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  -z4m-highlight-core-ensure
+
+  local reason=${1:-reset}
+  local backend=${_z4m_highlight_state[active_backend]-none}
+  if [[ $backend == fast ]] && (( ${+functions[-z4m-highlight-fast-reset]} )); then
+    -z4m-highlight-fast-reset "$reason" || true
+  elif [[ $backend == none ]] && (( ${+functions[-z4m-highlight-none-reset]} )); then
+    -z4m-highlight-none-reset "$reason" || true
+  fi
+
+  typeset -g _ZSH_HIGHLIGHT_PRIOR_BUFFER=
+  if [[ $reason == init ]]; then
+    typeset -gi _ZSH_HIGHLIGHT_PRIOR_CURSOR=CURSOR
+  else
+    typeset -gi _ZSH_HIGHLIGHT_PRIOR_CURSOR=0
+  fi
+  _z4m_highlight_state[overlay_count]=0
+  region_highlight=()
+
+  -z4m-highlight-core-log info reset "$reason"
+}
+
+function -z4m-highlight-core-status() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  -z4m-highlight-core-ensure
+
+  local configured
+  zstyle -s :z4m:highlight backend configured || configured=fast
+
+  local configured_theme
+  zstyle -s :z4m:highlight theme configured_theme || configured_theme=clean
+  [[ -n $configured_theme ]] || configured_theme=clean
+
+  local active=${_z4m_highlight_state[active_backend]-none}
+  local active_theme=${_z4m_highlight_state[active_theme]-}
+  local theme_source=${_z4m_highlight_state[theme_source]-}
+  if [[ -z $active_theme ]]; then
+    if [[ $active == fast ]]; then
+      active_theme=clean
+    else
+      active_theme=none
+    fi
+  fi
+  if [[ -z $theme_source ]]; then
+    if [[ $active == fast ]]; then
+      theme_source=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting/themes/clean.zsh
+    else
+      theme_source=none
+    fi
+  fi
+  local state=${_z4m_highlight_state[state]-uninitialized}
+  local syntax_enabled=0
+  [[ $active == none ]] || syntax_enabled=1
+  local initialized=0
+  [[ $state == uninitialized ]] || initialized=1
+  local maxlength=${ZSH_HIGHLIGHT_MAXLENGTH-unset}
+  local event_count=$#_z4m_highlight_events
+  local overlay_count=${_z4m_highlight_state[overlay_count]:-0}
+  local last_error=${_z4m_highlight_state[last_error]-}
+  local facade_bound=0
+  if (( ${+functions[_zsh_highlight]} )) && [[ ${functions[_zsh_highlight]} == *'-z4m-highlight-render'* ]]; then
+    facade_bound=1
+  fi
+
+  local fsh_version=unknown
+  local fsh_commit=unknown
+  local fsh_meta=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting/.z4m-vendor-meta
+  if [[ -r $fsh_meta ]]; then
+    local key value
+    while IFS='=' read -r key value; do
+      case $key in
+        fast_highlight_version) fsh_version=$value ;;
+        upstream_commit)        fsh_commit=$value ;;
+      esac
+    done <$fsh_meta
+  fi
+
+  print -r -- "configured_backend=$configured"
+  print -r -- "configured_theme=$configured_theme"
+  print -r -- "active_backend=$active"
+  print -r -- "active_theme=$active_theme"
+  print -r -- "theme_source=$theme_source"
+  print -r -- "state=$state"
+  print -r -- "syntax_enabled=$syntax_enabled"
+  print -r -- "initialized=$initialized"
+  print -r -- "maxlength=$maxlength"
+  print -r -- "event_count=$event_count"
+  print -r -- "overlay_count=$overlay_count"
+  print -r -- "facade_bound=$facade_bound"
+  print -r -- "last_error=$last_error"
+  print -r -- "fsh_version=$fsh_version"
+  print -r -- "fsh_commit=$fsh_commit"
+}

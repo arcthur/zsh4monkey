@@ -8,6 +8,6 @@ fi
 
 if [[ -v region_highlight &&
       ( ${LASTWIDGET-} != accept-line || ${WIDGET-} != zle-line-pre-redraw ) ]]; then
-  _zsh_highlight
-  -z4m-autosuggest-fetch
+  (( ${+_z4m_skip_autosuggest_fetch} )) || -z4m-autosuggest-fetch
+  -z4m-highlight-render
 fi

@@ -7,6 +7,11 @@
 # Keyboard type: 'mac' or 'pc'.
 zstyle ':z4m:bindkey' keyboard  'mac'
 
+# Syntax highlighting backend: 'fast' (default) or 'none' to disable.
+# zstyle ':z4m:highlight' backend 'fast'
+# Syntax highlighting theme (built-in fast themes or custom file path).
+# zstyle ':z4m:highlight' theme 'clean'
+
 # Enable direnv to automatically source .envrc files.
 zstyle ':z4m:direnv' enable 'no'
 

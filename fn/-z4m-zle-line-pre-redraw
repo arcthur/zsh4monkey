@@ -23,15 +23,20 @@ if (( PENDING || KEYS_QUEUED_COUNT )); then
       unset _z4m_redraw_fd
     fi
   fi
-  if [[ -n "${POSTDISPLAY-}" &&
-        "${#BUFFER}" -ne "${#_z4m_autosuggest_buffer}" &&
-        -v region_highlight ]]; then
+
+  if (( ${+_z4m_highlight_state} )) && (( ${_z4m_highlight_state[overlay_count]:-0} > 0 )); then
+    -z4m-highlight-core-strip-overlays || true
+  fi
+
+  if [[ -n ${POSTDISPLAY-} && ${#BUFFER} -ne ${#_z4m_autosuggest_buffer} ]]; then
     POSTDISPLAY=${_z4m_autosuggestion:${#BUFFER}}
-    if [[ -n "$POSTDISPLAY" ]]; then
-      region_highlight[-1]="${#BUFFER} $((${#BUFFER} + ${#POSTDISPLAY})) $ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE"
-    else
-      unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
-    fi
+    [[ -n $POSTDISPLAY ]] || unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
+  fi
+
+  # Re-apply autosuggestion overlay so POSTDISPLAY keeps its dim style during fast typing
+  if [[ -n ${POSTDISPLAY-} && -n ${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE-} ]]; then
+    region_highlight+=("${#BUFFER} $(( ${#BUFFER} + ${#POSTDISPLAY} )) ${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE}")
+    (( ${+_z4m_highlight_state} )) && _z4m_highlight_state[overlay_count]=$(( ${_z4m_highlight_state[overlay_count]:-0} + 1 ))
   fi
 else
   -z4m-redraw-buffer

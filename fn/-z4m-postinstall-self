@@ -2,6 +2,9 @@
 
 z4m compile -- $Z4M/zsh4monkey/{main.zsh,sc/exec-zsh-i,fn/(|-|_)z4m[^.]#~*.zwc} $Z4M/z4m.zsh || return
 
+local vendor_fast=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting
+z4m compile -- $vendor_fast/{fast-syntax-highlighting.plugin.zsh,fast-highlight,fast-string-highlight,.fast-run-git-command,.fast-make-targets,.fast-run-command,.fast-zts-read-all,share/free_theme.zsh,themes/*.zsh,*chroma/*.ch}(N) || return
+
 [[ -v functions[compinit] ]] && unfunction compinit
 autoload -Uz +X compinit || return
 local orig="bindkey '^i' | IFS=\$' \t' read -A _i_line"
@@ -12,3 +15,9 @@ z4m compile -- $Z4M/zsh4monkey/fn/-z4m-compinit-impl || return
 autoload -Uz -- -z4m-compinit-impl
 
 function compinit() {}
+
+# Clean up stale plugin directories from pre-vendor era
+local stale
+for stale in $Z4M/fast-syntax-highlighting $Z4M/zsh-syntax-highlighting $Z4M/zsh-history-substring-search; do
+  [[ -d $stale ]] && zf_rm -rf -- $stale 2>/dev/null
+done

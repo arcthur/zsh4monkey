@@ -6,7 +6,8 @@ local fd=${_z4m_tty_fd-1}
 [[ -t $fd ]] || return
 
 local resp
-IFS= builtin read -srt 5 -u $fd -d R resp$'?\e[6n' || return
+builtin print -rnu $fd -- $'\e[6n' || return
+IFS= builtin read -srt 5 -u $fd -d R resp || return
 
 while [[ $resp != *$'\e['<->';'<-> ]]; do
   IFS= builtin read -srt 5 -u $fd -d R resp || return

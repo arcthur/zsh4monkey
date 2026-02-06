@@ -166,7 +166,7 @@ fi
       typeset -g _z4m_autosuggest_buffer=$BUFFER
       unset _z4m_autosuggestion POSTDISPLAY
     fi
-    if (( _z4m_use[zsh-autosuggestions] || _z4m_use[fast-syntax-highlighting] )); then
+    if (( _z4m_use[zsh-autosuggestions] )) || [[ ${_z4m_highlight_state[active_backend]-none} != none ]]; then
       -z4m-redraw-buffer
     fi
     return 0

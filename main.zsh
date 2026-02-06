@@ -370,7 +370,7 @@ function -z4m-cmd-init() {
 
     _z4m_install_queue+=(
       zsh-autosuggestions zsh-completions
-      fast-syntax-highlighting terminfo fzf powerlevel10k)
+      terminfo fzf powerlevel10k)
     (( install_tmux )) && _z4m_install_queue+=(tmux)
     if ! -z4m-install-many; then
       [[ -e $Z4M/.updating ]] || -z4m-error-command init
@@ -474,20 +474,42 @@ function -z4m-cmd-install() {
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
   -z4m-check-core-params || return
 
-  local -a flush
-  zparseopts -D -F -- f=flush -flush=flush || return '_z4m_err()'
+	  local -a flush
+	  zparseopts -D -F -- f=flush -flush=flush || return '_z4m_err()'
 
-  # Allow both user/repo format and simple names for built-in packages (eza, bat, fd, rg, zoxide)
-  local -a builtin_pkgs=(eza bat fd rg zoxide carapace atuin)
-  local pattern="(([^/]##/)##[^/]##|${(j:|:)builtin_pkgs})"
-  local invalid=("${@:#$~pattern}")
-  if (( $#invalid )); then
-    print -Pru2 -- '%F{3}z4m%f: %Binstall%b: invalid project name(s)'
-    print -Pru2 -- ''
-    print -Prlu2 -- '  %F{1}'${(q)^invalid//\%/%%}'%f'
+	  local -a args=("$@")
+	  local -i empty=0
+	  local arg
+	  for arg in "${args[@]}"; do
+	    [[ -n $arg ]] || (( empty++ ))
+	  done
+	  if (( empty )); then
+	    # Avoid failing update/init due to accidental empty arguments such as:
+	    #   z4m install "$SOME_VAR"
+	    # where $SOME_VAR is unset/empty.
+	    args=("${(@)args:#}")
+	    if (( ! ${+_z4m_warned_install_empty_arg} )); then
+	      typeset -gi _z4m_warned_install_empty_arg=1
+	      local where=${funcfiletrace[-1]-}
+	      if [[ -n $where ]]; then
+	        print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: ignoring empty project name passed to %Binstall%b (%F{4}${where//\%/%%}%f)"
+	      else
+	        print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: ignoring empty project name passed to %Binstall%b"
+	      fi
+	    fi
+	  fi
+
+	  # Allow both user/repo format and simple names for built-in packages.
+	  local -a builtin_pkgs=(eza bat fd rg zoxide carapace atuin)
+	  local pattern="(([^/]##/)##[^/]##|${(j:|:)builtin_pkgs})"
+	  local invalid=("${(@)args:#$~pattern}")
+	  if (( $#invalid )); then
+	    print -Pru2 -- '%F{3}z4m%f: %Binstall%b: invalid project name(s)'
+	    print -Pru2 -- ''
+	    print -Prlu2 -- '  %F{1}'${(q)^invalid//\%/%%}'%f'
     return 1
   fi
-  _z4m_install_queue+=("$@")
+  _z4m_install_queue+=("${args[@]}")
   (( $#flush && $#_z4m_install_queue )) || return 0
   -z4m-install-many && return
   -z4m-error-command install

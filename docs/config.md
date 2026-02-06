@@ -57,6 +57,37 @@ See [keybindings.md](keybindings.md) for key binding reference.
 | `:z4m:autosuggestions forward-char` | string | `accept` | Cursor right behavior: `accept` or `partial-accept` |
 | `:z4m:autosuggestions end-of-line` | string | `accept` | End-of-line behavior: `accept` or `partial-accept` |
 
+## Highlighting
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:highlight backend` | string | `fast` | Highlight backend: `fast` or `none` |
+| `:z4m:highlight theme` | string | `clean` | Built-in fast theme: `clean` (default) or `catppuccin-mocha` |
+
+Syntax highlighting is built into z4m (based on fast-syntax-highlighting). No installation required.
+
+The backend controls syntax highlighting only. UI overlays such as autosuggestions and history substring-search query highlights are applied independently.
+
+Theme contract is strict: only `clean` and `catppuccin-mocha` are accepted.
+Unknown values are rejected and runtime falls back to `clean`.
+Backend contract is strict: only `fast` and `none` are accepted.
+Unknown backend values are forced to `none`.
+
+Example:
+
+```zsh
+zstyle ':z4m:highlight' backend fast
+zstyle ':z4m:highlight' theme clean
+```
+
+Diagnostics:
+
+```zsh
+z4m highlight status --init
+z4m highlight doctor
+z4m highlight events --tail 20
+```
+
 ## Terminal Title
 
 | Style | Type | Default | Description |

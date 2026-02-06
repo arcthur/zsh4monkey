@@ -257,10 +257,26 @@ $ docker run \
 
 ### Highlighting not working
 
-The highlighting integrates with fast-syntax-highlighting. Ensure it's enabled:
+The highlighting backend is built-in fast-syntax-highlighting. Ensure backend is `fast`:
 
 ```zsh
-zstyle ':z4m:fast-syntax-highlighting' channel stable  # default
+zstyle ':z4m:highlight' backend fast  # default
+```
+
+To disable syntax highlighting:
+
+```zsh
+zstyle ':z4m:highlight' backend none
+```
+
+Note: UI overlays such as autosuggestions and history substring-search query highlights are applied independently from the syntax backend.
+
+Run diagnostics:
+
+```zsh
+z4m highlight doctor
+z4m highlight status --init --json
+z4m highlight events --tail 20
 ```
 
 ### Atuin not activating

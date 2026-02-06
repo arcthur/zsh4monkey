@@ -1,0 +1,413 @@
+#!/usr/bin/env zsh
+#
+# z4m highlight - Highlight backend diagnostics and controls
+#
+# Usage:
+#   z4m highlight status [--json]
+#   z4m highlight doctor [--json]
+#   z4m highlight events [--tail N] [--json]
+#   z4m highlight reset [--json]
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+function -z4m-cmd-highlight-usage() {
+  print -Pru2 -- "Usage: %F{2}z4m%f %Bhighlight%b [status|doctor|events|reset] [options]"
+  print -Pru2 -- ""
+  print -Pru2 -- "Subcommands:"
+  print -Pru2 -- "  %Bstatus%b [--json] [--init]   Show highlight status (use --init to force backend init)"
+  print -Pru2 -- "  %Bdoctor%b [--json] [--no-init]  Run highlight consistency checks"
+  print -Pru2 -- "  %Bevents%b [--tail N] [--json]  Show highlight lifecycle events"
+  print -Pru2 -- "  %Breset%b [--json]           Reset highlight caches and state"
+}
+
+function -z4m-cmd-highlight-json-escape() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  print -rn -- "$value"
+}
+
+function -z4m-cmd-highlight-load-core() {
+  (( ${+functions[-z4m-highlight-core-status]} )) || -z4m-highlight-core || return 1
+}
+
+function -z4m-cmd-highlight-load-status-map() {
+  typeset -gA _z4m_highlight_cmd_status
+  _z4m_highlight_cmd_status=()
+
+  local -a lines
+  lines=("${(@f)$(-z4m-highlight-core-status)}")
+
+  local line key value
+  for line in "${lines[@]}"; do
+    key=${line%%=*}
+    value=${line#*=}
+    _z4m_highlight_cmd_status[$key]=$value
+  done
+}
+
+function -z4m-cmd-highlight-status() {
+  local -i json=0
+  local -i do_init=0
+  while (( $# )); do
+    case $1 in
+      --json) json=1 ;;
+      --init) do_init=1 ;;
+      *)
+        print -Pru2 -- "%F{3}z4m%f: %Bhighlight status%b: unknown option: %F{1}${1//\%/%%}%f"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  (( do_init )) && -z4m-highlight-init || true
+  -z4m-cmd-highlight-load-status-map
+
+  local configured=${_z4m_highlight_cmd_status[configured_backend]-unknown}
+  local configured_theme=${_z4m_highlight_cmd_status[configured_theme]-clean}
+  local active=${_z4m_highlight_cmd_status[active_backend]-unknown}
+  local active_theme=${_z4m_highlight_cmd_status[active_theme]-unknown}
+  local theme_source=${_z4m_highlight_cmd_status[theme_source]-unknown}
+  local state=${_z4m_highlight_cmd_status[state]-unknown}
+  local syntax_enabled=${_z4m_highlight_cmd_status[syntax_enabled]-0}
+  local initialized=${_z4m_highlight_cmd_status[initialized]-0}
+  local maxlength=${_z4m_highlight_cmd_status[maxlength]-unset}
+  local events=${_z4m_highlight_cmd_status[event_count]-0}
+  local overlays=${_z4m_highlight_cmd_status[overlay_count]-0}
+  local facade=${_z4m_highlight_cmd_status[facade_bound]-0}
+  local last_error=${_z4m_highlight_cmd_status[last_error]-}
+  local fsh_version=${_z4m_highlight_cmd_status[fsh_version]-unknown}
+  local fsh_commit=${_z4m_highlight_cmd_status[fsh_commit]-unknown}
+
+  if (( json )); then
+    local -i syntax_enabled_i=${syntax_enabled:-0}
+    local -i initialized_i=${initialized:-0}
+    local -i events_i=${events:-0}
+    local -i overlays_i=${overlays:-0}
+    local -i facade_i=${facade:-0}
+
+    local enabled_json=false initialized_json=false facade_json=false
+    (( syntax_enabled_i )) && enabled_json=true
+    (( initialized_i )) && initialized_json=true
+    (( facade_i )) && facade_json=true
+
+    local maxlength_json
+    if [[ $maxlength == unset ]]; then
+      maxlength_json=null
+    elif [[ $maxlength == <-> ]]; then
+      maxlength_json=$maxlength
+    else
+      maxlength_json="\"$(-z4m-cmd-highlight-json-escape "$maxlength")\""
+    fi
+
+    print -rn -- "{"
+    print -rn -- "\"configured_backend\":\"$(-z4m-cmd-highlight-json-escape "$configured")\","
+    print -rn -- "\"configured_theme\":\"$(-z4m-cmd-highlight-json-escape "$configured_theme")\","
+    print -rn -- "\"active_backend\":\"$(-z4m-cmd-highlight-json-escape "$active")\","
+    print -rn -- "\"active_theme\":\"$(-z4m-cmd-highlight-json-escape "$active_theme")\","
+    print -rn -- "\"theme_source\":\"$(-z4m-cmd-highlight-json-escape "$theme_source")\","
+    print -rn -- "\"state\":\"$(-z4m-cmd-highlight-json-escape "$state")\","
+    print -rn -- "\"syntax_enabled\":$enabled_json,"
+    print -rn -- "\"initialized\":$initialized_json,"
+    print -rn -- "\"maxlength\":$maxlength_json,"
+    print -rn -- "\"event_count\":$events_i,"
+    print -rn -- "\"overlay_count\":$overlays_i,"
+    print -rn -- "\"facade_bound\":$facade_json,"
+    if [[ -z $last_error ]]; then
+      print -rn -- "\"last_error\":null,"
+    else
+      print -rn -- "\"last_error\":\"$(-z4m-cmd-highlight-json-escape "$last_error")\","
+    fi
+    print -rn -- "\"fsh_version\":\"$(-z4m-cmd-highlight-json-escape "$fsh_version")\","
+    print -rn -- "\"fsh_commit\":\"$(-z4m-cmd-highlight-json-escape "$fsh_commit")\""
+    print -r -- "}"
+    return 0
+  fi
+
+  print -Pr -- "%F{3}z4m%f: highlight status"
+  print -Pr -- "  configured backend: ${configured}"
+  print -Pr -- "  configured theme:   ${configured_theme}"
+  print -Pr -- "  active backend:     ${active}"
+  print -Pr -- "  active theme:       ${active_theme}"
+  print -Pr -- "  theme source:       ${theme_source}"
+  print -Pr -- "  lifecycle state:    ${state}"
+  print -Pr -- "  syntax enabled:     ${syntax_enabled}"
+  print -Pr -- "  initialized:        ${initialized}"
+  print -Pr -- "  maxlength:          ${maxlength}"
+  print -Pr -- "  facade bound:       ${facade}"
+  print -Pr -- "  events buffered:    ${events}"
+  print -Pr -- "  overlays applied:   ${overlays}"
+  print -Pr -- "  vendor version:     ${fsh_version}"
+  if [[ $fsh_commit == unknown ]]; then
+    print -Pr -- "  vendor commit:      ${fsh_commit}"
+  else
+    print -Pr -- "  vendor commit:      ${fsh_commit[1,12]}"
+  fi
+  [[ -z $last_error ]] || print -Pr -- "  last error:         ${last_error}"
+}
+
+function -z4m-cmd-highlight-doctor() {
+  local -i json=0
+  local -i do_init=1
+  while (( $# )); do
+    case $1 in
+      --json) json=1 ;;
+      --no-init) do_init=0 ;;
+      *)
+        print -Pru2 -- "%F{3}z4m%f: %Bhighlight doctor%b: unknown option: %F{1}${1//\%/%%}%f"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  # Ensure backend implementation functions are loaded for checks.
+  (( ${+functions[-z4m-highlight-backend-none]} )) && -z4m-highlight-backend-none || true
+  (( ${+functions[-z4m-highlight-backend-fast]} )) && -z4m-highlight-backend-fast || true
+
+  (( do_init )) && -z4m-highlight-init || true
+  -z4m-cmd-highlight-load-status-map
+
+  local configured=${_z4m_highlight_cmd_status[configured_backend]-unknown}
+  local configured_theme=${_z4m_highlight_cmd_status[configured_theme]-clean}
+  local active=${_z4m_highlight_cmd_status[active_backend]-unknown}
+  local active_theme=${_z4m_highlight_cmd_status[active_theme]-unknown}
+  local state=${_z4m_highlight_cmd_status[state]-unknown}
+  local last_error=${_z4m_highlight_cmd_status[last_error]-}
+
+  local -a checks
+  local -i errors=0 warnings=0
+
+  if [[ $configured == (fast|none) ]]; then
+    checks+=("ok"$'\t'"config"$'\t'"configured backend is ${configured}")
+  else
+    checks+=("error"$'\t'"config"$'\t'"configured backend is invalid: ${configured}")
+    (( errors++ ))
+  fi
+
+  if [[ $active == (fast|none) ]]; then
+    checks+=("ok"$'\t'"runtime"$'\t'"active backend is ${active}")
+  else
+    checks+=("error"$'\t'"runtime"$'\t'"active backend is invalid: ${active}")
+    (( errors++ ))
+  fi
+
+  if [[ $configured_theme == (clean|catppuccin-mocha) ]]; then
+    checks+=("ok"$'\t'"config"$'\t'"configured theme is ${configured_theme}")
+  else
+    checks+=("warn"$'\t'"config"$'\t'"configured theme is unsupported: ${configured_theme} (allowed: clean|catppuccin-mocha)")
+    (( warnings++ ))
+  fi
+
+  if [[ $active == fast ]] && [[ $active_theme != (clean|catppuccin-mocha) ]]; then
+    checks+=("warn"$'\t'"runtime"$'\t'"active theme is unexpected: ${active_theme}")
+    (( warnings++ ))
+  fi
+
+  local backend action fn
+  for backend in none fast; do
+    for action in probe init render reset teardown; do
+      fn="-z4m-highlight-${backend}-${action}"
+      if (( ${+functions[$fn]} )); then
+        checks+=("ok"$'\t'"contract"$'\t'"${backend}.${action}: ${fn}")
+      else
+        checks+=("error"$'\t'"contract"$'\t'"missing function: ${fn}")
+        (( errors++ ))
+      fi
+    done
+  done
+
+  if (( ${+functions[_zsh_highlight]} )) && [[ ${functions[_zsh_highlight]} == *'-z4m-highlight-render'* ]]; then
+    checks+=("ok"$'\t'"facade"$'\t'"_zsh_highlight points to z4m facade")
+  else
+    if (( ! do_init )) && [[ $state == uninitialized ]]; then
+      checks+=("warn"$'\t'"facade"$'\t'"_zsh_highlight is not bound (uninitialized; run: z4m highlight doctor --init)")
+      (( warnings++ ))
+    else
+      checks+=("error"$'\t'"facade"$'\t'"_zsh_highlight is not bound to -z4m-highlight-render")
+      (( errors++ ))
+    fi
+  fi
+
+  if [[ $configured == fast || $active == fast ]]; then
+    local vendor_dir=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting
+    if [[ -r $vendor_dir/fast-syntax-highlighting.plugin.zsh ]]; then
+      checks+=("ok"$'\t'"vendor"$'\t'"fast plugin file is present")
+    else
+      checks+=("error"$'\t'"vendor"$'\t'"missing fast plugin file in vendor directory")
+      (( errors++ ))
+    fi
+    if [[ -r $vendor_dir/.z4m-vendor-meta ]]; then
+      checks+=("ok"$'\t'"vendor"$'\t'"vendor metadata file is present")
+    else
+      checks+=("warn"$'\t'"vendor"$'\t'"vendor metadata file is missing")
+      (( warnings++ ))
+    fi
+  fi
+
+  if [[ $state == degraded ]]; then
+    checks+=("warn"$'\t'"state"$'\t'"highlight backend is degraded")
+    (( warnings++ ))
+  elif [[ $state == disabled ]]; then
+    checks+=("ok"$'\t'"state"$'\t'"highlight backend is disabled")
+  elif [[ $state == ready ]]; then
+    checks+=("ok"$'\t'"state"$'\t'"highlight backend is ready")
+  else
+    checks+=("warn"$'\t'"state"$'\t'"unexpected lifecycle state: ${state}")
+    (( warnings++ ))
+  fi
+
+  [[ -z $last_error ]] || {
+    checks+=("warn"$'\t'"state"$'\t'"last error: ${last_error}")
+    (( warnings++ ))
+  }
+
+  local -i code=0
+  if (( errors )); then
+    code=2
+  elif (( warnings )); then
+    code=1
+  fi
+
+  if (( json )); then
+    local health=ok
+    (( code == 1 )) && health=warn
+    (( code == 2 )) && health=error
+    print -rn -- '{"summary":{'
+    print -rn -- "\"health\":\"$health\",\"errors\":$errors,\"warnings\":$warnings"
+    print -rn -- '},"checks":['
+
+    local -i i
+    local level name message sep=
+    for (( i = 1; i <= $#checks; i++ )); do
+      IFS=$'\t' read -r level name message <<< "${checks[i]}"
+      print -rn -- "${sep}{\"level\":\"$(-z4m-cmd-highlight-json-escape "$level")\",\"name\":\"$(-z4m-cmd-highlight-json-escape "$name")\",\"message\":\"$(-z4m-cmd-highlight-json-escape "$message")\"}"
+      sep=","
+    done
+    print -r -- "]}"
+    return code
+  fi
+
+  print -Pr -- "%F{3}z4m%f: highlight doctor"
+  local level name message tag color
+  for message in "${checks[@]}"; do
+    IFS=$'\t' read -r level name tag <<< "$message"
+    case $level in
+      ok)    color=2; level=OK ;;
+      warn)  color=3; level=WARN ;;
+      error) color=1; level=ERROR ;;
+      *)     color=7 ;;
+    esac
+    print -Pr -- "  %F{$color}[$level]%f ${name}: ${tag}"
+  done
+
+  print -Pr -- ""
+  print -Pr -- "  summary: errors=${errors} warnings=${warnings}"
+  return code
+}
+
+function -z4m-cmd-highlight-events() {
+  local -i json=0
+  local -i tail=20
+
+  while (( $# )); do
+    case $1 in
+      --json)
+        json=1
+        ;;
+      --tail)
+        shift
+        if (( $# == 0 )) || [[ $1 != <-> ]]; then
+          print -Pru2 -- "%F{3}z4m%f: %Bhighlight events%b: --tail requires a non-negative integer"
+          return 1
+        fi
+        tail=$1
+        ;;
+      *)
+        print -Pru2 -- "%F{3}z4m%f: %Bhighlight events%b: unknown option: %F{1}${1//\%/%%}%f"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  local -a events=("${_z4m_highlight_events[@]}")
+  if (( tail > 0 && $#events > tail )); then
+    events=("${(@)events[-$tail,-1]}")
+  fi
+
+  if (( json )); then
+    print -rn -- '{"count":'"${#events}"',"events":['
+    local -i i
+    local ts level event message sep=
+    for (( i = 1; i <= $#events; i++ )); do
+      IFS=$'\t' read -r ts level event message <<< "${events[i]}"
+      print -rn -- "${sep}{\"time\":\"$(-z4m-cmd-highlight-json-escape "$ts")\",\"level\":\"$(-z4m-cmd-highlight-json-escape "$level")\",\"event\":\"$(-z4m-cmd-highlight-json-escape "$event")\",\"message\":\"$(-z4m-cmd-highlight-json-escape "$message")\"}"
+      sep=","
+    done
+    print -r -- "]}"
+    return 0
+  fi
+
+  print -Pr -- "%F{3}z4m%f: highlight events (showing ${#events})"
+  if (( $#events == 0 )); then
+    print -Pr -- "  no highlight events recorded yet"
+    return 0
+  fi
+
+  local entry ts level event message
+  for entry in "${events[@]}"; do
+    IFS=$'\t' read -r ts level event message <<< "$entry"
+    printf '  %-17s %-5s %-10s %s\n' "$ts" "$level" "$event" "$message"
+  done
+}
+
+function -z4m-cmd-highlight-reset() {
+  local -i json=0
+  while (( $# )); do
+    case $1 in
+      --json) json=1 ;;
+      *)
+        print -Pru2 -- "%F{3}z4m%f: %Bhighlight reset%b: unknown option: %F{1}${1//\%/%%}%f"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  -z4m-highlight-reset cmd
+  if (( json )); then
+    print -r -- '{"result":"ok"}'
+  else
+    print -Pr -- "%F{3}z4m%f: highlight caches reset"
+  fi
+}
+
+-z4m-cmd-highlight-load-core || return 1
+
+local subcmd=status
+if (( ARGC )) && [[ $1 != --* ]]; then
+  subcmd=$1
+  shift
+fi
+
+case $subcmd in
+  status) -z4m-cmd-highlight-status "$@" ;;
+  doctor) -z4m-cmd-highlight-doctor "$@" ;;
+  events) -z4m-cmd-highlight-events "$@" ;;
+  reset)  -z4m-cmd-highlight-reset "$@" ;;
+  help|-h|--help)
+    -z4m-cmd-highlight-usage
+    ;;
+  *)
+    print -Pru2 -- "%F{3}z4m%f: %Bhighlight%b: unknown subcommand: %F{1}${subcmd//\%/%%}%f"
+    print -Pru2 -- ""
+    -z4m-cmd-highlight-usage
+    return 1
+    ;;
+esac

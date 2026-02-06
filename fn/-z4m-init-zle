@@ -52,7 +52,7 @@ add-zsh-hook -- precmd  -z4m-set-term-title-precmd                     || return
 local pkg
 typeset -gA _z4m_use
 for pkg in fzf powerlevel10k \
-          zsh-completions zsh-autosuggestions fast-syntax-highlighting; do
+          zsh-completions zsh-autosuggestions; do
   zstyle -t :z4m:$pkg channel none || _z4m_use[$pkg]=1
 done
 typeset -grA _z4m_use
@@ -767,7 +767,6 @@ if (( _z4m_use[zsh-autosuggestions] )); then
     -z4m-autosuggest-fetch
     if [[ -n $POSTDISPLAY ]]; then
       BUFFER=$BUFFER$POSTDISPLAY
-      region_highlight[-1]=()
       typeset -g _z4m_autosuggest_buffer=$BUFFER
       unset _z4m_autosuggestion POSTDISPLAY
     fi
@@ -778,7 +777,6 @@ if (( _z4m_use[zsh-autosuggestions] )); then
     _zsh_autosuggest_invoke_original_widget "$@"
     local -i ret=$?
     if [[ $CONTEXT == start ]]; then
-      [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
       if (( ret )); then
         -z4m-autosuggest-fetch
       else
@@ -796,7 +794,6 @@ if (( _z4m_use[zsh-autosuggestions] )); then
       return
     fi
     BUFFER="$BUFFER$POSTDISPLAY"
-    region_highlight[-1]=()
     unset _z4m_autosuggestion POSTDISPLAY
     _zsh_autosuggest_invoke_original_widget "$@"
     local -i ret=$?
@@ -832,26 +829,19 @@ if (( _z4m_use[zsh-autosuggestions] )); then
   _zsh_autosuggest_widget_modify() {
     _zsh_autosuggest_invoke_original_widget "$@"
     local -i retval=$?
-    [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
     -z4m-autosuggest-fetch
     return retval
   }
 
   _zsh_autosuggest_widget_fetch() {
-    [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
     -z4m-autosuggest-fetch
   }
 
   _zsh_autosuggest_widget_suggest() {
     [[ -z $BUFFER || $CONTEXT != start ]] && return
-    [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
     POSTDISPLAY=${1-}
     typeset -g _z4m_autosuggest_buffer="$BUFFER"
     typeset -g _z4m_autosuggestion="${BUFFER}${POSTDISPLAY}"
-    if [[ -n $POSTDISPLAY ]]; then
-      region_highlight+=(
-        "${#BUFFER} $((${#BUFFER} + ${#POSTDISPLAY})) $ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE")
-    fi
   }
 
   _zsh_autosuggest_widget_enable() {
@@ -863,7 +853,6 @@ if (( _z4m_use[zsh-autosuggestions] )); then
   _zsh_autosuggest_widget_disable() {
     (( ${+_ZSH_AUTOSUGGEST_DISABLED} )) && return
     typeset -g _ZSH_AUTOSUGGEST_DISABLED
-    [[ -z $POSTDISPLAY ]] || region_highlight[-1]=()
     unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
   }
 
@@ -880,19 +869,8 @@ else
   }
 fi
 
-# Define _zsh_highlight for substring search highlighting integration
-function _zsh_highlight() {
-  if [[ $WIDGET == zle-line-finish || ! -v _z4m_substring_search_highlight ]]; then
-    region_highlight=()
-  else
-    region_highlight=("${_z4m_substring_search_highlight[@]}")
-  fi
-}
-
-if (( _z4m_use[fast-syntax-highlighting] )); then
-  ZSH_HIGHLIGHT_MAXLENGTH=1024                # don't colorize long command lines (slow)
-  ZSH_HIGHLIGHT_HIGHLIGHTERS=(main brackets)  # main syntax highlighting plus matching brackets
-fi
+(( ${+functions[-z4m-highlight-core-install-facade]} )) || -z4m-highlight-core || true
+-z4m-highlight-core-install-facade || true
 
 local event
 for event in pre-redraw init finish; do
@@ -931,29 +909,7 @@ function -z4m-post-init() {
     -z4m-update-dir-history
   fi
 
-  if (( _z4m_use[fast-syntax-highlighting] )); then
-    () {
-      local -hA widgets=(
-        zle-line-finish    user:_zsh_highlight_widget_zle-line-finish
-        zle-isearch-update user:_zsh_highlight_widget_zle-isearch-update
-      )
-      builtin source $Z4M/fast-syntax-highlighting/fast-syntax-highlighting.plugin.zsh
-    }
-    preexec_functions=(${preexec_functions:#_zsh_highlight_preexec_hook})
-    eval '_zsh_highlight() {
-      [[ ${WIDGET-} == zle-line-pre-redraw && ${LASTWIDGET-} == accept-line ]] && return
-      {
-        if [[ ${#BUFFER} -gt ${ZSH_HIGHLIGHT_MAXLENGTH:-${#BUFFER}} ]]; then
-          region_highlight=()
-        else
-          local -ih PENDING=0 KEYS_QUEUED_COUNT=0
-          '$functions[_zsh_highlight]'
-        fi
-      } always {
-        [[ $WIDGET == zle-line-finish ]] || region_highlight+=("${_z4m_substring_search_highlight[@]}")
-      }
-    }'
-  fi
+  -z4m-highlight-init || true
 
   # Override embedded substring search functions for z4m integration
   if (( ${_z4m_substring_search_loaded:-0} )); then

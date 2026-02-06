@@ -1,27 +1,40 @@
 #!/usr/bin/env zsh
 
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
 local -i cursor=CURSOR
 local postdisplay=$POSTDISPLAY
 local buffer=$BUFFER
 
-BUFFER=$1
-POSTDISPLAY=..
-
-if [[ -n $ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE ]]; then
-  local style=$ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE
-elif (( terminfo[colors] >= 256 )); then
-  local style='fg=244'
-else
-  local style='fg=black,bold'
+local -a region_before=()
+if [[ -v region_highlight ]]; then
+  region_before=("${region_highlight[@]}")
 fi
 
-region_highlight+=("$#BUFFER $(($#BUFFER + $#POSTDISPLAY)) $style")
-typeset -gi CURSOR='_z4m_cursor_max()'
+local overlay_before=
+(( ${+_z4m_highlight_state} )) && overlay_before=${_z4m_highlight_state[overlay_count]-}
 
--z4m-cursor-hide
-zle -R
+typeset -gi _z4m_skip_autosuggest_fetch=1
 
-BUFFER=$buffer
-CURSOR=cursor
-POSTDISPLAY=$postdisplay
-region_highlight[-1]=()
+{
+  BUFFER=$1
+  POSTDISPLAY=..
+  typeset -gi CURSOR='_z4m_cursor_max()'
+
+  -z4m-cursor-hide
+  zle -R
+} always {
+  BUFFER=$buffer
+  CURSOR=cursor
+  POSTDISPLAY=$postdisplay
+
+  unset _z4m_skip_autosuggest_fetch
+
+  if [[ -v region_highlight ]]; then
+    region_highlight=("${region_before[@]}")
+  fi
+  if [[ -n ${overlay_before-} ]] && (( ${+_z4m_highlight_state} )); then
+    _z4m_highlight_state[overlay_count]=$overlay_before
+  fi
+}

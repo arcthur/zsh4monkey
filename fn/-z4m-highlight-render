@@ -1,0 +1,12 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+(( ${+functions[-z4m-highlight-core-render]} )) || -z4m-highlight-core || true
+if (( ! ${+_z4m_highlight_state} )) || [[ ${_z4m_highlight_state[state]-uninitialized} == uninitialized ]]; then
+  -z4m-highlight-init || true
+fi
+-z4m-highlight-core-render "$@" || true
+
+return 0

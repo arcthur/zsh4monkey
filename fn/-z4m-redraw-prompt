@@ -6,10 +6,7 @@
   for f in chpwd "${chpwd_functions[@]}" precmd "${(@)precmd_functions:#-z4m-direnv-hook}"; do
     [[ "${+functions[$f]}" == 0 ]] || "$f" &>/dev/null || true
   done
-  if (( _z4m_use[fast-syntax-highlighting] )); then
-    typeset -g _ZSH_HIGHLIGHT_PRIOR_BUFFER=
-    typeset -gi _ZSH_HIGHLIGHT_PRIOR_CURSOR=0
-  fi
+  -z4m-highlight-reset prompt
   zle .reset-prompt
   (( ${1:-0} )) || zle -R
 } always {

@@ -16,6 +16,7 @@ script="$(PATH= MANPATH= $deps[1] -s)" || return
 
 (
   eval "$script" || return
+  zf_mkdir -p -- $Z4M/cache 2>/dev/null || zf_mkdir -p -- $Z4M/cache || return
   >$Z4M/cache/init-darwin-paths.tmp.$$ print -r -- '() {
   local deps=('${(@q)deps}')
   local -a stat files=($~deps)

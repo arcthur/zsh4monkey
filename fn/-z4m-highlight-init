@@ -1,0 +1,25 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local backend
+zstyle -s :z4m:highlight backend backend || backend=fast
+case $backend in
+  fast|none) ;;
+  *)
+    print -Pru2 -- "%F{3}z4m%f: invalid highlight backend %F{1}${backend//\%/%%}%f, forcing %Bnone%b"
+    backend=none
+    ;;
+esac
+
+(( ${+functions[-z4m-highlight-core-init]} )) || -z4m-highlight-core || return 1
+-z4m-highlight-core-install-facade || true
+
+if ! -z4m-highlight-core-init "$backend"; then
+  if (( ! ${+_z4m_highlight_warned_core_init_fail} )); then
+    print -Pru2 -- "%F{3}z4m%f: %F{1}warning%f: failed to initialize highlight core; syntax highlighting disabled"
+    typeset -gi _z4m_highlight_warned_core_init_fail=1
+  fi
+  return 1
+fi
