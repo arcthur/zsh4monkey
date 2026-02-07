@@ -18,7 +18,11 @@ if [[ $BUFFER == *' ' ]] &&
   BUFFER=${BUFFER%% #}
 fi
 
-unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
+# Record PWD→HISTCMD mapping for history_pwd strategy
+(( ${+_z4m_dir_cmd_map} && HISTCMD > 0 )) && \
+  _z4m_dir_cmd_map[$HISTCMD]=${(%):-%~}
+
+-z4m-autosuggest-reset finish
 if [[ -v region_highlight ]]; then
   -z4m-highlight-render
 fi

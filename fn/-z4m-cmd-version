@@ -96,13 +96,24 @@ if (( verbose )); then
     print -Pr -- "  %Bpowerlevel10k%b: $p10k_version"
   fi
 
-  # zsh-autosuggestions
-  if [[ -d $Z4M/zsh-users/zsh-autosuggestions ]]; then
-    local zas_version="installed"
-    if [[ -r $Z4M/zsh-users/zsh-autosuggestions/VERSION ]]; then
-      zas_version=$(<$Z4M/zsh-users/zsh-autosuggestions/VERSION)
+  # zsh-autosuggestions (built-in vendor)
+  local zas_meta=$Z4M/zsh4monkey/vendor/zsh-autosuggestions/.z4m-vendor-meta
+  if [[ -r $zas_meta ]]; then
+    local zas_version="unknown" zas_commit="unknown"
+    local key value
+    while IFS='=' read -r key value; do
+      case $key in
+        zsh_autosuggestions_version) zas_version=$value ;;
+        upstream_commit)             zas_commit=$value ;;
+      esac
+    done <"$zas_meta"
+    if [[ $zas_commit == unknown ]]; then
+      print -Pr -- "  %Bautosuggestions%b: built-in ${zas_version}"
+    else
+      print -Pr -- "  %Bautosuggestions%b: built-in ${zas_version} (commit ${zas_commit[1,12]})"
     fi
-    print -Pr -- "  %Bautosuggestions%b: $zas_version"
+  elif [[ -d $Z4M/zsh4monkey/vendor/zsh-autosuggestions ]]; then
+    print -Pr -- "  %Bautosuggestions%b: built-in"
   fi
 
   # fast-syntax-highlighting (built-in vendor)

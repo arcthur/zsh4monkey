@@ -3,5 +3,5 @@
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
   -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
-(( ${+functions[-z4m-autosuggest-core-fetch]} )) || -z4m-autosuggest-core || return 1
--z4m-autosuggest-core-fetch "$@"
+(( ${+functions[-z4m-autosuggest-core-reset]} )) || -z4m-autosuggest-core || return 1
+-z4m-autosuggest-core-reset "${1:-reset}"

@@ -1,0 +1,14 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+(( ${+functions[-z4m-autosuggest-core-init]} )) || -z4m-autosuggest-core || return 1
+
+if ! -z4m-autosuggest-core-init; then
+  if (( ! ${+_z4m_autosuggest_warned_core_init_fail} )); then
+    print -Pru2 -- "%F{3}z4m%f: %F{1}warning%f: failed to initialize autosuggestions; suggestions disabled"
+    typeset -gi _z4m_autosuggest_warned_core_init_fail=1
+  fi
+  return 1
+fi

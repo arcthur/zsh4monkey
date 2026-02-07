@@ -41,7 +41,7 @@ This sets up completion, keybindings, prompt, and all features.
 Update
 .Nm zsh4monkey
 and all installed dependencies including fzf, powerlevel10k,
-zsh-autosuggestions, and built-in fast-syntax-highlighting.
+built-in zsh-autosuggestions, and built-in fast-syntax-highlighting.
 .It Cm install Oo Fl f | Fl -force Oc Ar user/project Ns Op @ Ns Ar branch
 Clone or update GitHub project(s) to
 .Ev Z4M
@@ -118,6 +118,19 @@ Show current debug status
 Measure shell startup time.
 Default: 10 iterations.
 Reports min, max, and average startup time.
+.It Cm autosuggest Oo status | doctor | events | reset Oc Op Ar options
+Inspect and control the autosuggestions subsystem.
+.Bl -tag -width "events --tail N" -compact
+.It Cm status Op Fl -json Op Fl -init
+Show configured state, runtime state, strategy, and vendor metadata.
+.It Cm doctor Op Fl -json Op Fl -no-init
+Run autosuggest consistency checks.
+Exit codes: 0 (healthy), 1 (warnings/degraded), 2 (errors).
+.It Cm events Op Fl -tail Ar N Oc Op Fl -json
+Show recent autosuggest lifecycle events (init/fetch/reset/degrade).
+.It Cm reset Op Fl -json
+Reset autosuggest runtime state without changing configuration.
+.El
 .It Cm highlight Oo status | doctor | events | reset Oc Op Ar options
 Inspect and control the highlight backend subsystem.
 .Bl -tag -width "events --tail N" -compact
@@ -241,7 +254,6 @@ z4m init
 Install a plugin from GitHub:
 .Bd -literal -offset indent
 z4m install romkatv/powerlevel10k
-z4m install -f zsh-users/zsh-autosuggestions
 z4m install ohmyzsh/ohmyzsh@master
 .Ed
 .Pp
@@ -254,6 +266,13 @@ z4m ssh -J jumphost user@target
 Benchmark startup time:
 .Bd -literal -offset indent
 z4m bench 20
+.Ed
+.Pp
+Inspect autosuggest health:
+.Bd -literal -offset indent
+z4m autosuggest status
+z4m autosuggest doctor --json
+z4m autosuggest events --tail 20
 .Ed
 .Pp
 Inspect highlight health:

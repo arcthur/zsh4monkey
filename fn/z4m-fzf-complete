@@ -277,7 +277,12 @@ done
       builtin zle .split-undo || return
       [[ $LBUFFER == *' ' ]] && return
     } always {
-      if (( _z4m_use[zsh-autosuggestions] )) || [[ ${_z4m_highlight_state[active_backend]-none} != none ]]; then
+      (( ${+functions[-z4m-autosuggest-core-enabled-p]} )) || -z4m-autosuggest-core || true
+      local -i autosuggest_enabled=0
+      if (( ${+functions[-z4m-autosuggest-core-enabled-p]} )) && -z4m-autosuggest-core-enabled-p; then
+        autosuggest_enabled=1
+      fi
+      if (( autosuggest_enabled )) || [[ ${_z4m_highlight_state[active_backend]-none} != none ]]; then
         -z4m-redraw-buffer
       fi
     }

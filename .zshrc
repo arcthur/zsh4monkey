@@ -9,7 +9,7 @@ zstyle ':z4m:bindkey' keyboard  'pc'
 
 # Syntax highlighting backend: 'fast' (default) or 'none' to disable.
 # zstyle ':z4m:highlight' backend 'fast'
-# Syntax highlighting theme (built-in fast themes or custom file path).
+# Syntax highlighting theme (built-in): 'clean' or 'catppuccin-mocha'.
 # zstyle ':z4m:highlight' theme 'clean'
 
 # Enable direnv to automatically source .envrc files.
@@ -38,7 +38,7 @@ z4m install ohmyzsh/ohmyzsh || return
 # Disable individual tools with: zstyle ':z4m:eza' enabled no
 z4m install eza bat fd rg zoxide || return
 
-# Install or update core components (fzf, zsh-autosuggestions, etc.) and
+# Install or update core components (fzf, powerlevel10k, etc.) and
 # initialize Zsh. After this point console I/O is unavailable until Zsh
 # is fully initialized. Everything that requires user interaction or can
 # perform network I/O must be done above. Everything else is best done below.

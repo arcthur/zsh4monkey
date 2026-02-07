@@ -7,7 +7,7 @@ A modern, feature-rich Zsh configuration that just works. Built for developers w
 - **Zero-config excellence** - Works great out of the box
 - **Blazing fast** - Sub-50ms startup with [zsh-bench](https://github.com/romkatv/zsh-bench)
 - **Syntax highlighting** - Built-in [fast-syntax-highlighting](https://github.com/zdharma-continuum/fast-syntax-highlighting) with 256-color themes
-- **Smart autosuggestions** - [Fish-like suggestions](https://github.com/zsh-users/zsh-autosuggestions)
+- **Smart autosuggestions** - Built-in [zsh-autosuggestions](https://github.com/zsh-users/zsh-autosuggestions)
 - **Beautiful prompt** - Powered by [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
 - **Fuzzy completion** - [fzf](https://github.com/junegunn/fzf) with continuous path completion and file coloring
 - **SSH teleportation** - Your shell environment follows you to remote hosts
@@ -61,6 +61,7 @@ The installer backs up existing files, guides you through configuration, and set
 | `z4m env-propagation-diagnose [<base64>]` | Diagnose SSH env propagation payload |
 | `z4m bindkey <widget> <key>` | Bind key |
 | `z4m vi-mode on\|off\|toggle` | Toggle vi mode |
+| `z4m autosuggest [status\|doctor\|events\|reset]` | Autosuggestions subsystem diagnostics |
 | `z4m highlight [status|doctor|events|reset]` | Highlight subsystem diagnostics |
 | `z4m recovery` | Enter recovery shell |
 | `z4m reset [--no-restart]` | Clear failure markers and caches |

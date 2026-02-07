@@ -369,7 +369,7 @@ function -z4m-cmd-init() {
     fi
 
     _z4m_install_queue+=(
-      zsh-autosuggestions zsh-completions
+      zsh-completions
       terminfo fzf powerlevel10k)
     (( install_tmux )) && _z4m_install_queue+=(tmux)
     if ! -z4m-install-many; then
@@ -477,7 +477,7 @@ function -z4m-cmd-install() {
 	  local -a flush
 	  zparseopts -D -F -- f=flush -flush=flush || return '_z4m_err()'
 
-	  local -a args=("$@")
+  local -a args=("$@")
 	  local -i empty=0
 	  local arg
 	  for arg in "${args[@]}"; do
@@ -497,10 +497,24 @@ function -z4m-cmd-install() {
 	        print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: ignoring empty project name passed to %Binstall%b"
 	      fi
 	    fi
-	  fi
+  fi
 
-	  # Allow both user/repo format and simple names for built-in packages.
-	  local -a builtin_pkgs=(eza bat fd rg zoxide carapace atuin)
+  local -a builtin_removed=(zsh-autosuggestions zsh-users/zsh-autosuggestions)
+  local -a removed=()
+  local pkg_name
+  for pkg_name in "${args[@]}"; do
+    (( ${builtin_removed[(Ie)$pkg_name]} )) && removed+=("$pkg_name")
+  done
+  if (( $#removed )); then
+    print -Pru2 -- "%F{3}z4m%f: %Binstall%b: autosuggestions is built-in and no longer installable"
+    print -Pru2 -- ""
+    print -Pru2 -- "Remove this from %U.zshrc%u:"
+    print -Prlu2 -- "  %F{1}${(q)^removed//\\%/%%}%f"
+    return 1
+  fi
+
+  # Allow both user/repo format and simple names for built-in packages.
+  local -a builtin_pkgs=(eza bat fd rg zoxide carapace atuin)
 	  local pattern="(([^/]##/)##[^/]##|${(j:|:)builtin_pkgs})"
 	  local invalid=("${(@)args:#$~pattern}")
 	  if (( $#invalid )); then

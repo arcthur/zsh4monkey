@@ -54,8 +54,25 @@ See [keybindings.md](keybindings.md) for key binding reference.
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
+| `:z4m:autosuggestions enabled` | bool | `yes` | Enable built-in autosuggestions |
+| `:z4m:autosuggestions strategy` | string | `history` | Suggestion strategy: `history` or `match_prev_cmd` |
+| `:z4m:autosuggestions buffer-min-size` | int | unset | Skip suggestions when `BUFFER` length is below this threshold |
+| `:z4m:autosuggestions match-prev-max-cmds` | int | `200` | Max matching history commands to inspect for `match_prev_cmd` (`-1` means all) |
+| `:z4m:autosuggestions match-prev-cmd-count` | int | `1` | Number of preceding commands that must match for `match_prev_cmd` |
 | `:z4m:autosuggestions forward-char` | string | `accept` | Cursor right behavior: `accept` or `partial-accept` |
 | `:z4m:autosuggestions end-of-line` | string | `accept` | End-of-line behavior: `accept` or `partial-accept` |
+
+Autosuggestions are built into z4m. No installation is required.
+
+Example:
+
+```zsh
+zstyle ':z4m:autosuggestions' enabled yes
+zstyle ':z4m:autosuggestions' strategy match_prev_cmd
+zstyle ':z4m:autosuggestions' match-prev-max-cmds 300
+zstyle ':z4m:autosuggestions' match-prev-cmd-count 2
+zstyle ':z4m:autosuggestions' buffer-min-size 3
+```
 
 ## Highlighting
 
@@ -83,6 +100,8 @@ zstyle ':z4m:highlight' theme clean
 Diagnostics:
 
 ```zsh
+z4m autosuggest status --init
+z4m autosuggest doctor
 z4m highlight status --init
 z4m highlight doctor
 z4m highlight events --tail 20

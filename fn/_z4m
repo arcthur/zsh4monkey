@@ -20,6 +20,7 @@ _z4m_commands() {
     'vi-mode:Toggle Vi editing mode'
     'debug:Toggle debug mode'
     'bench:Benchmark startup time'
+    'autosuggest:Autosuggestions diagnostics'
     'highlight:Highlight backend diagnostics'
     'env:Show environment info'
     'time:Time command execution'
@@ -102,7 +103,7 @@ _z4m_builtin_packages() {
 _z4m_github_repos() {
   # Allow user/repo format
   if [[ $words[CURRENT] == */* ]]; then
-    _message 'GitHub user/repo (e.g., zsh-users/zsh-autosuggestions)'
+    _message 'GitHub user/repo (e.g., ohmyzsh/ohmyzsh)'
   else
     _z4m_builtin_packages
   fi
@@ -182,6 +183,46 @@ _z4m() {
           ;;
         bench)
           _arguments '1: :_message "iteration count (default: 10)"'
+          ;;
+        autosuggest)
+          if (( CURRENT == 3 )); then
+            local -a autosuggest_cmds
+            autosuggest_cmds=(
+              'status:Show autosuggest status'
+              'doctor:Run autosuggest checks'
+              'events:Show autosuggest lifecycle events'
+              'reset:Reset autosuggest runtime state'
+            )
+            _describe -t autosuggest_cmds 'autosuggest subcommand' autosuggest_cmds
+          else
+            case $words[3] in
+              status|doctor|reset)
+                case $words[3] in
+                  status)
+                    _arguments \
+                      '--json[Print machine-readable JSON output]' \
+                      '--init[Initialize autosuggest backend before status]'
+                    ;;
+                  doctor)
+                    _arguments \
+                      '--json[Print machine-readable JSON output]' \
+                      '--no-init[Do not initialize autosuggest backend]'
+                    ;;
+                  reset)
+                    _arguments '--json[Print machine-readable JSON output]'
+                    ;;
+                esac
+                ;;
+              events)
+                _arguments \
+                  '--json[Print machine-readable JSON output]' \
+                  '--tail[Show only last N events]:count:'
+                ;;
+              *)
+                _message 'autosuggest subcommand'
+                ;;
+            esac
+          fi
           ;;
         highlight)
           if (( CURRENT == 3 )); then

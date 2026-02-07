@@ -1,0 +1,434 @@
+#!/usr/bin/env zsh
+#
+# z4m autosuggest - Autosuggestions diagnostics and controls
+#
+# Usage:
+#   z4m autosuggest status [--json] [--init]
+#   z4m autosuggest doctor [--json] [--no-init]
+#   z4m autosuggest events [--tail N] [--json]
+#   z4m autosuggest reset [--json]
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+function -z4m-cmd-autosuggest-usage() {
+  print -Pru2 -- "Usage: %F{2}z4m%f %Bautosuggest%b [status|doctor|events|reset] [options]"
+  print -Pru2 -- ""
+  print -Pru2 -- "Subcommands:"
+  print -Pru2 -- "  %Bstatus%b [--json] [--init]      Show autosuggest status"
+  print -Pru2 -- "  %Bdoctor%b [--json] [--no-init]   Run autosuggest checks"
+  print -Pru2 -- "  %Bevents%b [--tail N] [--json]    Show autosuggest lifecycle events"
+  print -Pru2 -- "  %Breset%b [--json]                Reset autosuggest runtime state"
+}
+
+function -z4m-cmd-autosuggest-json-escape() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  value=${value//$'\b'/\\b}
+  value=${value//$'\f'/\\f}
+  # Strip remaining C0 control characters (U+0000–U+001F) except those already handled
+  value=${value//[[:cntrl:]]/}
+  print -rn -- "$value"
+}
+
+function -z4m-cmd-autosuggest-load-core() {
+  (( ${+functions[-z4m-autosuggest-core-status]} )) || -z4m-autosuggest-core || return 1
+}
+
+function -z4m-cmd-autosuggest-load-status-map() {
+  typeset -gA _z4m_autosuggest_cmd_status
+  _z4m_autosuggest_cmd_status=()
+
+  local -a lines
+  lines=("${(@f)$(-z4m-autosuggest-core-status)}")
+
+  local line key value
+  for line in "${lines[@]}"; do
+    key=${line%%=*}
+    value=${line#*=}
+    _z4m_autosuggest_cmd_status[$key]=$value
+  done
+}
+
+function -z4m-cmd-autosuggest-status() {
+  local -i json=0 do_init=0
+  while (( $# )); do
+    case $1 in
+      --json) json=1 ;;
+      --init) do_init=1 ;;
+      *)
+        print -Pru2 -- "%F{3}z4m%f: %Bautosuggest status%b: unknown option: %F{1}${1//\%/%%}%f"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  (( do_init )) && -z4m-autosuggest-init || true
+  -z4m-cmd-autosuggest-load-status-map
+
+  local configured_enabled=${_z4m_autosuggest_cmd_status[configured_enabled]-1}
+  local configured_strategy=${_z4m_autosuggest_cmd_status[configured_strategy]-history}
+  local configured_buffer_min_size=${_z4m_autosuggest_cmd_status[configured_buffer_min_size]-}
+  local configured_match_prev_max_cmds=${_z4m_autosuggest_cmd_status[configured_match_prev_max_cmds]-200}
+  local configured_match_prev_cmd_count=${_z4m_autosuggest_cmd_status[configured_match_prev_cmd_count]-1}
+  local configured_case_insensitive=${_z4m_autosuggest_cmd_status[configured_case_insensitive]-0}
+  local configured_pwd_scan_limit=${_z4m_autosuggest_cmd_status[configured_pwd_scan_limit]-500}
+  local active_strategy=${_z4m_autosuggest_cmd_status[active_strategy]-none}
+  local state=${_z4m_autosuggest_cmd_status[state]-uninitialized}
+  local initialized=${_z4m_autosuggest_cmd_status[initialized]-0}
+  local runtime_enabled=${_z4m_autosuggest_cmd_status[runtime_enabled]-0}
+  local event_count=${_z4m_autosuggest_cmd_status[event_count]-0}
+  local last_error=${_z4m_autosuggest_cmd_status[last_error]-}
+  local zas_version=${_z4m_autosuggest_cmd_status[zas_version]-unknown}
+  local zas_commit=${_z4m_autosuggest_cmd_status[zas_commit]-unknown}
+
+  if (( json )); then
+    local enabled_json=false initialized_json=false runtime_json=false
+    (( configured_enabled )) && enabled_json=true
+    (( initialized )) && initialized_json=true
+    (( runtime_enabled )) && runtime_json=true
+    local -i event_count_i=${event_count:-0}
+    print -rn -- "{"
+    print -rn -- "\"configured_enabled\":$enabled_json,"
+    print -rn -- "\"configured_strategy\":\"$(-z4m-cmd-autosuggest-json-escape "$configured_strategy")\","
+    if [[ -z $configured_buffer_min_size ]]; then
+      print -rn -- "\"configured_buffer_min_size\":null,"
+    else
+      print -rn -- "\"configured_buffer_min_size\":$configured_buffer_min_size,"
+    fi
+    print -rn -- "\"configured_match_prev_max_cmds\":$configured_match_prev_max_cmds,"
+    print -rn -- "\"configured_match_prev_cmd_count\":$configured_match_prev_cmd_count,"
+    local ci_json=false
+    (( configured_case_insensitive )) && ci_json=true
+    print -rn -- "\"configured_case_insensitive\":$ci_json,"
+    print -rn -- "\"configured_pwd_scan_limit\":$configured_pwd_scan_limit,"
+    print -rn -- "\"active_strategy\":\"$(-z4m-cmd-autosuggest-json-escape "$active_strategy")\","
+    print -rn -- "\"state\":\"$(-z4m-cmd-autosuggest-json-escape "$state")\","
+    print -rn -- "\"initialized\":$initialized_json,"
+    print -rn -- "\"runtime_enabled\":$runtime_json,"
+    print -rn -- "\"event_count\":$event_count_i,"
+    if [[ -z $last_error ]]; then
+      print -rn -- "\"last_error\":null,"
+    else
+      print -rn -- "\"last_error\":\"$(-z4m-cmd-autosuggest-json-escape "$last_error")\","
+    fi
+    print -rn -- "\"zas_version\":\"$(-z4m-cmd-autosuggest-json-escape "$zas_version")\","
+    print -rn -- "\"zas_commit\":\"$(-z4m-cmd-autosuggest-json-escape "$zas_commit")\""
+    print -r -- "}"
+    return 0
+  fi
+
+  print -Pr -- "%F{3}z4m%f: autosuggest status"
+  print -Pr -- "  configured enabled: ${configured_enabled}"
+  print -Pr -- "  configured strategy:${configured_strategy}"
+  if [[ -z $configured_buffer_min_size ]]; then
+    print -Pr -- "  buffer min size:     none"
+  else
+    print -Pr -- "  buffer min size:     ${configured_buffer_min_size}"
+  fi
+  print -Pr -- "  match prev max cmds: ${configured_match_prev_max_cmds}"
+  print -Pr -- "  match prev cmd cnt:  ${configured_match_prev_cmd_count}"
+  print -Pr -- "  case insensitive:   ${configured_case_insensitive}"
+  print -Pr -- "  pwd scan limit:     ${configured_pwd_scan_limit}"
+  print -Pr -- "  active strategy:    ${active_strategy}"
+  print -Pr -- "  lifecycle state:    ${state}"
+  print -Pr -- "  initialized:        ${initialized}"
+  print -Pr -- "  runtime enabled:    ${runtime_enabled}"
+  print -Pr -- "  events buffered:    ${event_count}"
+  print -Pr -- "  vendor version:     ${zas_version}"
+  if [[ $zas_commit == unknown ]]; then
+    print -Pr -- "  vendor commit:      ${zas_commit}"
+  else
+    print -Pr -- "  vendor commit:      ${zas_commit[1,12]}"
+  fi
+  [[ -z $last_error ]] || print -Pr -- "  last error:         ${last_error}"
+}
+
+function -z4m-cmd-autosuggest-doctor() {
+  local -i json=0 do_init=1
+  while (( $# )); do
+    case $1 in
+      --json) json=1 ;;
+      --no-init) do_init=0 ;;
+      *)
+        print -Pru2 -- "%F{3}z4m%f: %Bautosuggest doctor%b: unknown option: %F{1}${1//\%/%%}%f"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  (( do_init )) && -z4m-autosuggest-init || true
+  -z4m-cmd-autosuggest-load-status-map
+
+  local state=${_z4m_autosuggest_cmd_status[state]-uninitialized}
+  local configured_strategy=${_z4m_autosuggest_cmd_status[configured_strategy]-history}
+  local configured_enabled=${_z4m_autosuggest_cmd_status[configured_enabled]-1}
+  local configured_buffer_min_size=${_z4m_autosuggest_cmd_status[configured_buffer_min_size]-}
+  local configured_match_prev_max_cmds=${_z4m_autosuggest_cmd_status[configured_match_prev_max_cmds]-200}
+  local configured_match_prev_cmd_count=${_z4m_autosuggest_cmd_status[configured_match_prev_cmd_count]-1}
+  local last_error=${_z4m_autosuggest_cmd_status[last_error]-}
+
+  local -a checks
+  local -i errors=0 warnings=0
+
+  if [[ $configured_enabled == (0|1) ]]; then
+    checks+=("ok"$'\t'"config"$'\t'"configured enabled is ${configured_enabled}")
+  else
+    checks+=("error"$'\t'"config"$'\t'"configured enabled is invalid: ${configured_enabled}")
+    (( errors++ ))
+  fi
+
+  local -a strategy_words=(${=configured_strategy})
+  local -i strategy_valid=1
+  local sw
+  for sw in $strategy_words; do
+    case $sw in
+      history|match_prev_cmd|history_pwd) ;;
+      *) strategy_valid=0; break ;;
+    esac
+  done
+  if (( ${#strategy_words} == 0 )); then
+    strategy_valid=0
+  fi
+  if (( strategy_valid )); then
+    checks+=("ok"$'\t'"config"$'\t'"configured strategy is ${configured_strategy}")
+  else
+    checks+=("error"$'\t'"config"$'\t'"configured strategy is invalid: ${configured_strategy}")
+    (( errors++ ))
+  fi
+
+  if [[ -z $configured_buffer_min_size || $configured_buffer_min_size == <-> ]]; then
+    checks+=("ok"$'\t'"config"$'\t'"buffer min size is ${configured_buffer_min_size:-none}")
+  else
+    checks+=("error"$'\t'"config"$'\t'"buffer min size is invalid: ${configured_buffer_min_size}")
+    (( errors++ ))
+  fi
+
+  if [[ $configured_match_prev_max_cmds == -1 || $configured_match_prev_max_cmds == <-> ]]; then
+    if (( configured_match_prev_max_cmds == -1 || configured_match_prev_max_cmds > 0 )); then
+      checks+=("ok"$'\t'"config"$'\t'"match prev max cmds is ${configured_match_prev_max_cmds}")
+    else
+      checks+=("error"$'\t'"config"$'\t'"match prev max cmds is invalid: ${configured_match_prev_max_cmds}")
+      (( errors++ ))
+    fi
+  else
+    checks+=("error"$'\t'"config"$'\t'"match prev max cmds is invalid: ${configured_match_prev_max_cmds}")
+    (( errors++ ))
+  fi
+
+  if [[ $configured_match_prev_cmd_count == <-> ]] && (( configured_match_prev_cmd_count > 0 )); then
+    checks+=("ok"$'\t'"config"$'\t'"match prev cmd count is ${configured_match_prev_cmd_count}")
+  else
+    checks+=("error"$'\t'"config"$'\t'"match prev cmd count is invalid: ${configured_match_prev_cmd_count}")
+    (( errors++ ))
+  fi
+
+  if [[ $state == (ready|disabled|degraded|initializing|uninitialized) ]]; then
+    checks+=("ok"$'\t'"runtime"$'\t'"lifecycle state is ${state}")
+  else
+    checks+=("error"$'\t'"runtime"$'\t'"invalid lifecycle state: ${state}")
+    (( errors++ ))
+  fi
+
+  local fn
+  for fn in _zsh_autosuggest_start _zsh_autosuggest_fetch_suggestion; do
+    if (( ${+functions[$fn]} )); then
+      checks+=("ok"$'\t'"runtime"$'\t'"function present: ${fn}")
+    else
+      if [[ $state == disabled || ( $state == uninitialized && ! do_init ) ]]; then
+        checks+=("warn"$'\t'"runtime"$'\t'"function not loaded yet: ${fn}")
+        (( warnings++ ))
+      else
+        checks+=("error"$'\t'"runtime"$'\t'"missing function: ${fn}")
+        (( errors++ ))
+      fi
+    fi
+  done
+
+  local vendor_dir=$Z4M/zsh4monkey/vendor/zsh-autosuggestions
+  if [[ -r $vendor_dir/zsh-autosuggestions.zsh ]]; then
+    checks+=("ok"$'\t'"vendor"$'\t'"vendor source file is present")
+  else
+    checks+=("error"$'\t'"vendor"$'\t'"missing vendor source file")
+    (( errors++ ))
+  fi
+  if [[ -r $vendor_dir/.z4m-vendor-meta ]]; then
+    checks+=("ok"$'\t'"vendor"$'\t'"vendor metadata file is present")
+  else
+    checks+=("warn"$'\t'"vendor"$'\t'"vendor metadata file is missing")
+    (( warnings++ ))
+  fi
+
+  if (( ${+Z4M_ZAS_LIBRARY_MODE} )); then
+    checks+=("ok"$'\t'"mode"$'\t'"library mode is enabled")
+  elif [[ $state == ready ]]; then
+    checks+=("warn"$'\t'"mode"$'\t'"library mode is not enabled")
+    (( warnings++ ))
+  fi
+
+  if (( ${+Z4M_ZAS_EXTERNAL_HIGHLIGHT} )); then
+    checks+=("ok"$'\t'"mode"$'\t'"external highlight handoff is enabled")
+  elif [[ $state == ready ]]; then
+    checks+=("warn"$'\t'"mode"$'\t'"external highlight handoff is not enabled")
+    (( warnings++ ))
+  fi
+
+  if [[ $state == degraded ]]; then
+    checks+=("warn"$'\t'"state"$'\t'"autosuggest subsystem is degraded")
+    (( warnings++ ))
+  elif [[ $state == disabled ]]; then
+    checks+=("ok"$'\t'"state"$'\t'"autosuggest subsystem is disabled")
+  elif [[ $state == ready ]]; then
+    checks+=("ok"$'\t'"state"$'\t'"autosuggest subsystem is ready")
+  fi
+
+  [[ -z $last_error ]] || {
+    checks+=("warn"$'\t'"state"$'\t'"last error: ${last_error}")
+    (( warnings++ ))
+  }
+
+  local -i code=0
+  if (( errors )); then
+    code=2
+  elif (( warnings )); then
+    code=1
+  fi
+
+  if (( json )); then
+    local health=ok
+    (( code == 1 )) && health=warn
+    (( code == 2 )) && health=error
+    print -rn -- '{"summary":{'
+    print -rn -- "\"health\":\"$health\",\"errors\":$errors,\"warnings\":$warnings"
+    print -rn -- '},"checks":['
+
+    local -i i
+    local level name message sep=
+    for (( i = 1; i <= $#checks; i++ )); do
+      IFS=$'\t' read -r level name message <<< "${checks[i]}"
+      print -rn -- "${sep}{\"level\":\"$(-z4m-cmd-autosuggest-json-escape "$level")\",\"name\":\"$(-z4m-cmd-autosuggest-json-escape "$name")\",\"message\":\"$(-z4m-cmd-autosuggest-json-escape "$message")\"}"
+      sep=","
+    done
+    print -r -- "]}"
+    return $code
+  fi
+
+  print -Pr -- "%F{3}z4m%f: autosuggest doctor"
+  local level name check_message color entry
+  for entry in "${checks[@]}"; do
+    IFS=$'\t' read -r level name check_message <<< "$entry"
+    case $level in
+      ok)    level=OK; color=2 ;;
+      warn)  level=WARN; color=3 ;;
+      error) level=ERROR; color=1 ;;
+      *)     color=7 ;;
+    esac
+    print -Pr -- "  %F{$color}[$level]%f ${name}: ${check_message}"
+  done
+  print -Pr -- ""
+  print -Pr -- "  summary: errors=${errors} warnings=${warnings}"
+  return $code
+}
+
+function -z4m-cmd-autosuggest-events() {
+  local -i json=0 tail=20
+  while (( $# )); do
+    case $1 in
+      --json) json=1 ;;
+      --tail)
+        shift
+        if (( $# == 0 )) || [[ $1 != <-> ]]; then
+          print -Pru2 -- "%F{3}z4m%f: %Bautosuggest events%b: --tail requires a non-negative integer"
+          return 1
+        fi
+        tail=$1
+        ;;
+      *)
+        print -Pru2 -- "%F{3}z4m%f: %Bautosuggest events%b: unknown option: %F{1}${1//\%/%%}%f"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  local -a events=("${_z4m_autosuggest_events[@]}")
+  if (( tail > 0 && $#events > tail )); then
+    events=("${(@)events[-$tail,-1]}")
+  fi
+
+  if (( json )); then
+    print -rn -- '{"count":'"${#events}"',"events":['
+    local -i i
+    local ts level event message sep=
+    for (( i = 1; i <= $#events; i++ )); do
+      IFS=$'\t' read -r ts level event message <<< "${events[i]}"
+      print -rn -- "${sep}{\"time\":\"$(-z4m-cmd-autosuggest-json-escape "$ts")\",\"level\":\"$(-z4m-cmd-autosuggest-json-escape "$level")\",\"event\":\"$(-z4m-cmd-autosuggest-json-escape "$event")\",\"message\":\"$(-z4m-cmd-autosuggest-json-escape "$message")\"}"
+      sep=","
+    done
+    print -r -- "]}"
+    return 0
+  fi
+
+  print -Pr -- "%F{3}z4m%f: autosuggest events (showing ${#events})"
+  if (( $#events == 0 )); then
+    print -Pr -- "  no autosuggest events recorded yet"
+    return 0
+  fi
+
+  local entry ts level event message
+  for entry in "${events[@]}"; do
+    IFS=$'\t' read -r ts level event message <<< "$entry"
+    printf '  %-17s %-5s %-10s %s\n' "$ts" "$level" "$event" "$message"
+  done
+}
+
+function -z4m-cmd-autosuggest-reset() {
+  local -i json=0
+  while (( $# )); do
+    case $1 in
+      --json) json=1 ;;
+      *)
+        print -Pru2 -- "%F{3}z4m%f: %Bautosuggest reset%b: unknown option: %F{1}${1//\%/%%}%f"
+        return 1
+        ;;
+    esac
+    shift
+  done
+
+  -z4m-autosuggest-reset cmd
+  if (( json )); then
+    print -r -- '{"result":"ok"}'
+  else
+    print -Pr -- "%F{3}z4m%f: autosuggest state reset"
+  fi
+}
+
+-z4m-cmd-autosuggest-load-core || return 1
+
+local subcmd=status
+if (( ARGC )) && [[ $1 != --* ]]; then
+  subcmd=$1
+  shift
+fi
+
+case $subcmd in
+  status) -z4m-cmd-autosuggest-status "$@" ;;
+  doctor) -z4m-cmd-autosuggest-doctor "$@" ;;
+  events) -z4m-cmd-autosuggest-events "$@" ;;
+  reset)  -z4m-cmd-autosuggest-reset "$@" ;;
+  help|-h|--help)
+    -z4m-cmd-autosuggest-usage
+    ;;
+  *)
+    print -Pru2 -- "%F{3}z4m%f: %Bautosuggest%b: unknown subcommand: %F{1}${subcmd//\%/%%}%f"
+    print -Pru2 -- ""
+    -z4m-cmd-autosuggest-usage
+    return 1
+    ;;
+esac

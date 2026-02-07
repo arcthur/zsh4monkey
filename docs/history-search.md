@@ -274,6 +274,7 @@ Note: UI overlays such as autosuggestions and history substring-search query hig
 Run diagnostics:
 
 ```zsh
+z4m autosuggest doctor
 z4m highlight doctor
 z4m highlight status --init --json
 z4m highlight events --tail 20

@@ -3,6 +3,10 @@
 local url postinstall command
 
 if [[ $1 == */* ]]; then
+  if [[ $1 == zsh-users/zsh-autosuggestions ]]; then
+    print -Pru2 -- "%F{3}z4m%f: %Binstall%b: %B$1%b is built-in; remove this install entry"
+    return 1
+  fi
   if [[ $1 == *@* ]]; then
     url=https://github.com/${1%%@*}/archive/${1#*@}.tar.gz
     1=${1%%@*}
@@ -19,9 +23,6 @@ if [[ $1 == */* ]]; then
       ;;
       wfxr/forgit)
         postinstall=-z4m-postinstall-forgit
-      ;;
-      zsh-users/zsh-autosuggestions)
-        postinstall=-z4m-postinstall-zsh-users
       ;;
       *)
         postinstall=
@@ -42,7 +43,10 @@ else
         ;;
         powerlevel10k)                url=https://github.com/romkatv/$1/archive/master.tar.gz;;
         zsh-completions)              url=https://github.com/zsh-users/$1/archive/master.tar.gz;;
-        zsh-autosuggestions)          url=https://github.com/zsh-users/$1/archive/master.tar.gz;;
+        zsh-autosuggestions)
+          print -Pru2 -- "%F{3}z4m%f: %Binstall%b: %B$1%b is built-in; remove this install entry"
+          return 1
+        ;;
         *)
           print -Pru2 -- "%F{3}z4m%f: %F{1}internal error%f: unknown package: ${1//\%/%%}"
           return 1

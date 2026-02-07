@@ -3,7 +3,9 @@
 local -i cursor=CURSOR
 {
   typeset -gi CURSOR='_z4m_cursor_max()'
-  zle autosuggest-accept
+  if (( $+widgets[autosuggest-accept] )); then
+    zle autosuggest-accept
+  fi
 } always {
   CURSOR=cursor
 }

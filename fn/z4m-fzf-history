@@ -162,11 +162,16 @@ fi
     [[ -n $choice ]] || return
     BUFFER=${choice#*$'\n'}
     typeset -gi CURSOR='_z4m_cursor_max()'
-    if (( _z4m_use[zsh-autosuggestions] )); then
+    (( ${+functions[-z4m-autosuggest-core-enabled-p]} )) || -z4m-autosuggest-core || true
+    local -i autosuggest_enabled=0
+    if (( ${+functions[-z4m-autosuggest-core-enabled-p]} )) && -z4m-autosuggest-core-enabled-p; then
+      autosuggest_enabled=1
+    fi
+    if (( autosuggest_enabled )); then
       typeset -g _z4m_autosuggest_buffer=$BUFFER
       unset _z4m_autosuggestion POSTDISPLAY
     fi
-    if (( _z4m_use[zsh-autosuggestions] )) || [[ ${_z4m_highlight_state[active_backend]-none} != none ]]; then
+    if (( autosuggest_enabled )) || [[ ${_z4m_highlight_state[active_backend]-none} != none ]]; then
       -z4m-redraw-buffer
     fi
     return 0

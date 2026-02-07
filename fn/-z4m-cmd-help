@@ -23,7 +23,6 @@ if (( ARGC == 1 )); then
       print -Pr -- ""
       print -Pr -- "Examples:"
       print -Pr -- "  z4m install romkatv/powerlevel10k"
-      print -Pr -- "  z4m install -f zsh-users/zsh-autosuggestions"
       print -Pr -- "  z4m install ohmyzsh/ohmyzsh@master"
     ;;
     update)
@@ -32,7 +31,7 @@ if (( ARGC == 1 )); then
       print -Pr -- "Update %Bzsh4monkey%b and all installed dependencies:"
       print -Pr -- "  - fzf"
       print -Pr -- "  - powerlevel10k"
-      print -Pr -- "  - zsh-autosuggestions"
+      print -Pr -- "  - built-in zsh-autosuggestions (bundled with z4m)"
       print -Pr -- "  - built-in fast-syntax-highlighting (bundled with z4m)"
       print -Pr -- "  - User-installed plugins"
     ;;
@@ -119,6 +118,20 @@ if (( ARGC == 1 )); then
       print -Pr -- ""
       print -Pr -- "Measure shell startup time. Default: 10 iterations."
       print -Pr -- "Reports min, max, and average startup time."
+    ;;
+    autosuggest)
+      print -Pr -- "Usage: %F{2}z4m%f %Bautosuggest%b [status|doctor|events|reset] [options]"
+      print -Pr -- ""
+      print -Pr -- "Inspect and control the autosuggestions subsystem."
+      print -Pr -- ""
+      print -Pr -- "Subcommands:"
+      print -Pr -- "  %Bstatus%b [--json] [--init]      Show autosuggest status"
+      print -Pr -- "  %Bdoctor%b [--json] [--no-init]   Run autosuggest contract and runtime checks"
+      print -Pr -- "  %Bevents%b [--tail N] [--json]    Show recent autosuggest lifecycle events"
+      print -Pr -- "  %Breset%b [--json]                Reset autosuggest runtime state"
+      print -Pr -- ""
+      print -Pr -- "Exit codes for %Bdoctor%b:"
+      print -Pr -- "  0 = healthy, 1 = degraded/warnings, 2 = errors"
     ;;
     highlight)
       print -Pr -- "Usage: %F{2}z4m%f %Bhighlight%b [status|doctor|events|reset] [options]"
@@ -295,6 +308,7 @@ print -Pru$fd -- ""
 print -Pru$fd -- "%F{6}Diagnostics:%f"
 print -Pru$fd -- "  %F{2}z4m%f %Bdebug%b [on|off|status]   Toggle debug mode"
 print -Pru$fd -- "  %F{2}z4m%f %Bbench%b [%Ucount%u]            Benchmark startup time"
+print -Pru$fd -- "  %F{2}z4m%f %Bautosuggest%b [subcmd]     Autosuggest status, checks, events"
 print -Pru$fd -- "  %F{2}z4m%f %Bhighlight%b [subcmd]       Highlight status, checks, events"
 print -Pru$fd -- "  %F{2}z4m%f %Benv%b [full|paths]        Show environment info"
 print -Pru$fd -- "  %F{2}z4m%f %Btime%b %Ucommand%u             Time command execution"

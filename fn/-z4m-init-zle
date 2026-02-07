@@ -52,7 +52,7 @@ add-zsh-hook -- precmd  -z4m-set-term-title-precmd                     || return
 local pkg
 typeset -gA _z4m_use
 for pkg in fzf powerlevel10k \
-          zsh-completions zsh-autosuggestions; do
+          zsh-completions; do
   zstyle -t :z4m:$pkg channel none || _z4m_use[$pkg]=1
 done
 typeset -grA _z4m_use
@@ -704,171 +704,6 @@ fi
 
 -z4m-set-term-title-precmd || true
 
-if (( _z4m_use[zsh-autosuggestions] )); then
-  if (( terminfo[colors] >= 256 )); then
-    LS_COLORS+=':no=38;5;248'
-    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=244'        # the default is hard to see
-  else
-    LS_COLORS+=':no=1;30'
-    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=black,bold' # the default is outside of 8-color range
-  fi
-
-  ZSH_AUTOSUGGEST_MANUAL_REBIND=1
-
-  # Tell zsh-autosuggestions how to handle different widgets.
-  typeset -g ZSH_AUTOSUGGEST_EXECUTE_WIDGETS=()
-  typeset -g ZSH_AUTOSUGGEST_CLEAR_WIDGETS=(
-    z4m-fzf-history
-    z4m-down-prefix-global
-    z4m-down-prefix-local
-    z4m-up-prefix-global
-    z4m-up-prefix-local
-    z4m-history-up
-    z4m-history-down
-    z4m-history-up-global
-    z4m-history-down-global
-  )
-  # Note: Atuin widgets are added to ZSH_AUTOSUGGEST_CLEAR_WIDGETS in -z4m-post-init
-  # because Atuin is initialized after this point
-  typeset -g ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS=(
-    emacs-forward-word
-    forward-word
-    vi-find-next-char
-    vi-find-next-char-skip
-    vi-forward-blank-word
-    vi-forward-blank-word-end
-    vi-forward-word
-    vi-forward-word-end
-    z4m-forward-word
-    z4m-forward-zword
-  )
-  typeset -g ZSH_AUTOSUGGEST_ACCEPT_WIDGETS=(
-    z4m-end-of-buffer
-  )
-
-  if zstyle -T :z4m:autosuggestions forward-char accept; then
-    ZSH_AUTOSUGGEST_ACCEPT_WIDGETS+=(forward-char vi-forward-char)
-  else
-    ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS+=(forward-char vi-forward-char)
-  fi
-
-  if zstyle -T :z4m:autosuggestions end-of-line accept; then
-    ZSH_AUTOSUGGEST_ACCEPT_WIDGETS+=(end-of-line vi-add-eol vi-end-of-line)
-  else
-    ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS+=(end-of-line vi-add-eol vi-end-of-line)
-  fi
-
-  # Note: Atuin automatically configures ZSH_AUTOSUGGEST_STRATEGY when sourced
-
-  builtin source $Z4M/zsh-autosuggestions/zsh-autosuggestions.zsh
-  precmd_functions=(${precmd_functions:#_zsh_autosuggest_start})
-
-  _zsh_autosuggest_widget_execute() {
-    -z4m-autosuggest-fetch
-    if [[ -n $POSTDISPLAY ]]; then
-      BUFFER=$BUFFER$POSTDISPLAY
-      typeset -g _z4m_autosuggest_buffer=$BUFFER
-      unset _z4m_autosuggestion POSTDISPLAY
-    fi
-    zle .accept-line
-  }
-
-  _zsh_autosuggest_widget_clear() {
-    _zsh_autosuggest_invoke_original_widget "$@"
-    local -i ret=$?
-    if [[ $CONTEXT == start ]]; then
-      if (( ret )); then
-        -z4m-autosuggest-fetch
-      else
-        typeset -g _z4m_autosuggest_buffer=$BUFFER
-        unset _z4m_autosuggestion POSTDISPLAY
-      fi
-    fi
-    return ret
-  }
-
-  _zsh_autosuggest_widget_accept() {
-    -z4m-autosuggest-fetch
-    if (( ${#POSTDISPLAY} == 0 || CURSOR < _z4m_cursor_max() )); then
-      _zsh_autosuggest_invoke_original_widget "$@"
-      return
-    fi
-    BUFFER="$BUFFER$POSTDISPLAY"
-    unset _z4m_autosuggestion POSTDISPLAY
-    _zsh_autosuggest_invoke_original_widget "$@"
-    local -i ret=$?
-    typeset -g _z4m_autosuggest_buffer="$BUFFER"
-    typeset -gi CURSOR='_z4m_cursor_max()'
-    return ret
-  }
-
-  _zsh_autosuggest_widget_partial_accept() {
-    -z4m-autosuggest-fetch
-    if (( ${#POSTDISPLAY} == 0 || CURSOR < _z4m_cursor_max() )); then
-      _zsh_autosuggest_invoke_original_widget "$@"
-      return
-    fi
-    local -i buf_len=${#BUFFER}
-    BUFFER="$BUFFER$POSTDISPLAY"
-    _zsh_autosuggest_invoke_original_widget "$@"
-    local -i ret=$?
-    local -i cursor=CURSOR
-    if [[ $KEYMAP == vicmd && -n ${BUFFER##*$'\n'} ]]; then
-      (( ++cursor ))
-    fi
-    if (( cursor > buf_len )); then
-      BUFFER=${BUFFER:0:$cursor}
-      POSTDISPLAY=${POSTDISPLAY:$((cursor - buf_len))}
-    else
-      BUFFER=${BUFFER:0:$buf_len}
-    fi
-    typeset -g _z4m_autosuggest_buffer=$BUFFER
-    return ret
-  }
-
-  _zsh_autosuggest_widget_modify() {
-    _zsh_autosuggest_invoke_original_widget "$@"
-    local -i retval=$?
-    -z4m-autosuggest-fetch
-    return retval
-  }
-
-  _zsh_autosuggest_widget_fetch() {
-    -z4m-autosuggest-fetch
-  }
-
-  _zsh_autosuggest_widget_suggest() {
-    [[ -z $BUFFER || $CONTEXT != start ]] && return
-    POSTDISPLAY=${1-}
-    typeset -g _z4m_autosuggest_buffer="$BUFFER"
-    typeset -g _z4m_autosuggestion="${BUFFER}${POSTDISPLAY}"
-  }
-
-  _zsh_autosuggest_widget_enable() {
-    (( ${+_ZSH_AUTOSUGGEST_DISABLED} )) || return 0
-    unset _ZSH_AUTOSUGGEST_DISABLED
-    _zsh_autosuggest_widget_fetch
-  }
-
-  _zsh_autosuggest_widget_disable() {
-    (( ${+_ZSH_AUTOSUGGEST_DISABLED} )) && return
-    typeset -g _ZSH_AUTOSUGGEST_DISABLED
-    unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
-  }
-
-  _zsh_autosuggest_widget_toggle() {
-    if (( ${+_ZSH_AUTOSUGGEST_DISABLED} )); then
-      _zsh_autosuggest_widget_enable
-    else
-      _zsh_autosuggest_widget_disable
-    fi
-  }
-else
-  function -z4m-autosuggest-fetch() {
-    unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
-  }
-fi
-
 (( ${+functions[-z4m-highlight-core-install-facade]} )) || -z4m-highlight-core || true
 -z4m-highlight-core-install-facade || true
 
@@ -909,6 +744,7 @@ function -z4m-post-init() {
     -z4m-update-dir-history
   fi
 
+  -z4m-autosuggest-init || true
   -z4m-highlight-init || true
 
   # Override embedded substring search functions for z4m integration
@@ -939,27 +775,6 @@ function -z4m-post-init() {
             "$((highlight_start_index - 1)) $((highlight_end_index - 1)) $_history_substring_search_query_highlight")
       done
     }
-  fi
-
-  if (( _z4m_use[zsh-autosuggestions] )); then
-    # Add Atuin widgets to clear list (Atuin is initialized after -z4m-init-zle)
-    # Atuin v18.0+ uses 'atuin-search', older versions use '_atuin_search_widget'
-    if (( ${_z4m_atuin_available:-0} )); then
-      if (( $+widgets[atuin-search] )); then
-        ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(atuin-search atuin-up-search)
-      elif (( $+widgets[_atuin_search_widget] )); then
-        ZSH_AUTOSUGGEST_CLEAR_WIDGETS+=(_atuin_search_widget _atuin_up_search_widget)
-      fi
-    fi
-
-    local suggest_special=(
-      $ZSH_AUTOSUGGEST_EXECUTE_WIDGETS
-      $ZSH_AUTOSUGGEST_CLEAR_WIDGETS
-      $ZSH_AUTOSUGGEST_PARTIAL_ACCEPT_WIDGETS
-      $ZSH_AUTOSUGGEST_ACCEPT_WIDGETS)
-    typeset -g ZSH_AUTOSUGGEST_IGNORE_WIDGETS=(${${(k)widgets}:|suggest_special})
-    unset ZSH_AUTOSUGGEST_USE_ASYNC
-    _zsh_autosuggest_start
   fi
 
   if [[ -v functions[bracketed-paste-magic] ]]; then
