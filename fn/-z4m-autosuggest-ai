@@ -1,0 +1,802 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+(( ${+functions[-z4m-autosuggest-ai-ensure]} )) && return 0
+
+(( ${+_z4m_autosuggest_ai_state} )) || typeset -gA _z4m_autosuggest_ai_state
+
+function -z4m-autosuggest-ai-ensure() {
+  (( ${+_z4m_autosuggest_ai_state} )) || typeset -gA _z4m_autosuggest_ai_state
+
+  : ${_z4m_autosuggest_ai_state[configured_enabled]:=0}
+  : ${_z4m_autosuggest_ai_state[configured_endpoint]:=https://api.deepseek.com/v1}
+  : ${_z4m_autosuggest_ai_state[configured_model]:=deepseek-chat}
+  : ${_z4m_autosuggest_ai_state[configured_api_key_env]:=DEEPSEEK_API_KEY}
+  : ${_z4m_autosuggest_ai_state[configured_mode]:=passive}
+  : ${_z4m_autosuggest_ai_state[configured_timeout_ms]:=700}
+  : ${_z4m_autosuggest_ai_state[configured_debounce_ms]:=160}
+  : ${_z4m_autosuggest_ai_state[configured_cooldown_ms]:=800}
+  : ${_z4m_autosuggest_ai_state[configured_min_input]:=2}
+  : ${_z4m_autosuggest_ai_state[configured_max_input_tokens]:=384}
+  : ${_z4m_autosuggest_ai_state[configured_max_output_tokens]:=96}
+  : ${_z4m_autosuggest_ai_state[configured_history_lines]:=6}
+  : ${_z4m_autosuggest_ai_state[configured_budget_per_minute]:=12000}
+  : ${_z4m_autosuggest_ai_state[configured_budget_per_day]:=300000}
+
+  : ${_z4m_autosuggest_ai_state[enabled]:=0}
+  : ${_z4m_autosuggest_ai_state[api_key_present]:=0}
+  : ${_z4m_autosuggest_ai_state[auth_header_enabled]:=0}
+  : ${_z4m_autosuggest_ai_state[inflight]:=0}
+  : ${_z4m_autosuggest_ai_state[inflight_pid]:=0}
+  : ${_z4m_autosuggest_ai_state[inflight_profile]:=default}
+  : ${_z4m_autosuggest_ai_state[inflight_buffer]:=}
+  : ${_z4m_autosuggest_ai_state[inflight_started_ms]:=0}
+  : ${_z4m_autosuggest_ai_state[inflight_input_tokens]:=0}
+  : ${_z4m_autosuggest_ai_state[inflight_body_file]:=}
+  : ${_z4m_autosuggest_ai_state[inflight_code_file]:=}
+  : ${_z4m_autosuggest_ai_state[inflight_rc_file]:=}
+  : ${_z4m_autosuggest_ai_state[inflight_header_file]:=}
+  : ${_z4m_autosuggest_ai_state[last_submit_ms]:=0}
+  : ${_z4m_autosuggest_ai_state[last_change_ms]:=0}
+  : ${_z4m_autosuggest_ai_state[last_buffer]:=}
+  : ${_z4m_autosuggest_ai_state[last_latency_ms]:=0}
+  : ${_z4m_autosuggest_ai_state[last_reject]:=}
+  : ${_z4m_autosuggest_ai_state[last_error]:=}
+  : ${_z4m_autosuggest_ai_state[last_http_code]:=}
+  : ${_z4m_autosuggest_ai_state[budget_minute_bucket]:=-1}
+  : ${_z4m_autosuggest_ai_state[budget_minute_used]:=0}
+  : ${_z4m_autosuggest_ai_state[budget_day_bucket]:=-1}
+  : ${_z4m_autosuggest_ai_state[budget_day_used]:=0}
+  : ${_z4m_autosuggest_ai_state[cache_buffer]:=}
+  : ${_z4m_autosuggest_ai_state[cache_suggestion]:=}
+  : ${_z4m_autosuggest_ai_state[cache_expires_ms]:=0}
+}
+
+function -z4m-autosuggest-ai-log() {
+  local level=${1:-info}
+  local event=${2:-ai}
+  local message=${3-}
+  (( ${+functions[-z4m-autosuggest-core-log]} )) && -z4m-autosuggest-core-log "$level" "$event" "$message"
+}
+
+function -z4m-autosuggest-ai-now-ms() {
+  if [[ -n ${EPOCHREALTIME-} ]]; then
+    REPLY=$(( EPOCHREALTIME * 1000 ))
+  else
+    REPLY=$(( ${EPOCHSECONDS:-0} * 1000 ))
+  fi
+}
+
+function -z4m-autosuggest-ai-estimate-tokens() {
+  local text=${1-}
+  local -i chars=${#text}
+  REPLY=$(( (chars + 3) / 4 ))
+}
+
+function -z4m-autosuggest-ai-buffer-meta() {
+  local buffer=${1-}
+  local command_name=${buffer%%[[:space:]]*}
+  [[ -n $command_name ]] || { REPLY=; return 0; }
+
+  local kind=unknown
+  local meta="name: ${command_name}"
+  local line=
+
+  line=$(whence -w -- "$command_name" 2>/dev/null)
+  if [[ -n $line && $line != *': none' ]]; then
+    kind=resolved
+    line=${line//$'\n'/ }
+    (( ${#line} > 180 )) && line="${line[1,180]}..."
+    meta+=$'\n'"whence: ${line}"
+  fi
+
+  if alias "$command_name" >/dev/null 2>&1; then
+    kind=alias
+    line=$(alias "$command_name" 2>/dev/null)
+    line=${line#*=}
+    line=${line#\'}
+    line=${line#\"}
+    line=${line%%\'}
+    line=${line%%\"}
+    line=${line%%[[:space:]]*}
+    [[ -n $line ]] && meta+=$'\n'"alias_target: ${line}"
+  fi
+
+  if (( ${+functions[$command_name]} )); then
+    kind=function
+    line=$(functions "$command_name" 2>/dev/null)
+    line=${line%%$'\n'*}
+    line=${line//$'\n'/ }
+    (( ${#line} > 180 )) && line="${line[1,180]}..."
+    [[ -n $line ]] && meta+=$'\n'"func_head: ${line}"
+  fi
+
+  meta=$'BUFFER_META:\n'"kind: ${kind}"$'\n'"${meta}"
+  REPLY=$meta
+}
+
+function -z4m-autosuggest-ai-json-escape() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  value=${value//$'\n'/\\n}
+  value=${value//$'\r'/\\r}
+  value=${value//$'\t'/\\t}
+  value=${value//$'\b'/\\b}
+  value=${value//$'\f'/\\f}
+  value=${value//[[:cntrl:]]/}
+  print -rn -- "$value"
+}
+
+function -z4m-autosuggest-ai-roll-budgets() {
+  -z4m-autosuggest-ai-ensure
+
+  local -i now_sec=${EPOCHSECONDS:-0}
+  local -i minute_bucket=$(( now_sec / 60 ))
+  local -i day_bucket=$(( now_sec / 86400 ))
+
+  if (( ${_z4m_autosuggest_ai_state[budget_minute_bucket]:--1} != minute_bucket )); then
+    _z4m_autosuggest_ai_state[budget_minute_bucket]=$minute_bucket
+    _z4m_autosuggest_ai_state[budget_minute_used]=0
+  fi
+  if (( ${_z4m_autosuggest_ai_state[budget_day_bucket]:--1} != day_bucket )); then
+    _z4m_autosuggest_ai_state[budget_day_bucket]=$day_bucket
+    _z4m_autosuggest_ai_state[budget_day_used]=0
+  fi
+}
+
+function -z4m-autosuggest-ai-read-config() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  -z4m-autosuggest-ai-ensure
+
+  local value
+  local -i enabled=0
+  local endpoint=${_z4m_autosuggest_ai_state[configured_endpoint]}
+  local model=${_z4m_autosuggest_ai_state[configured_model]}
+  local api_key_env=${_z4m_autosuggest_ai_state[configured_api_key_env]}
+  local mode=passive
+  local -i timeout_ms=700 debounce_ms=160 cooldown_ms=800 min_input=2
+  local -i max_input_tokens=384 max_output_tokens=96 history_lines=6
+  local -i budget_per_minute=12000 budget_per_day=300000
+
+  if zstyle -s :z4m:autosuggestions:ai enabled value; then
+    case ${value:l} in
+      1|on|true|yes) enabled=1 ;;
+      0|off|false|no) enabled=0 ;;
+      *)
+        enabled=0
+        -z4m-autosuggest-ai-log warn ai-config "invalid enabled=${value}; forcing no"
+        ;;
+    esac
+  fi
+
+  zstyle -s :z4m:autosuggestions:ai endpoint endpoint || endpoint='https://api.deepseek.com/v1'
+  [[ -n $endpoint ]] || endpoint='https://api.deepseek.com/v1'
+
+  zstyle -s :z4m:autosuggestions:ai model model || model='deepseek-chat'
+  [[ -n $model ]] || model='deepseek-chat'
+
+  zstyle -s :z4m:autosuggestions:ai api-key-env api_key_env || api_key_env='DEEPSEEK_API_KEY'
+  if [[ $api_key_env != [_[:alpha:]][_[:alnum:]]# ]]; then
+    -z4m-autosuggest-ai-log warn ai-config "invalid api-key-env=${api_key_env}; forcing DEEPSEEK_API_KEY"
+    api_key_env='DEEPSEEK_API_KEY'
+  fi
+
+  zstyle -s :z4m:autosuggestions:ai mode mode || mode=passive
+  case ${mode:l} in
+    manual|passive|auto) mode=${mode:l} ;;
+    *)
+      -z4m-autosuggest-ai-log warn ai-config "invalid mode=${mode}; forcing passive"
+      mode=passive
+      ;;
+  esac
+
+  if zstyle -s :z4m:autosuggestions:ai timeout-ms value; then
+    if [[ $value == <-> ]] && (( value > 0 )); then
+      timeout_ms=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid timeout-ms=${value}; forcing 700"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai debounce-ms value; then
+    if [[ $value == <-> ]]; then
+      debounce_ms=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid debounce-ms=${value}; forcing 160"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai cooldown-ms value; then
+    if [[ $value == <-> ]]; then
+      cooldown_ms=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid cooldown-ms=${value}; forcing 800"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai min-input value; then
+    if [[ $value == <-> ]]; then
+      min_input=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid min-input=${value}; forcing 2"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai max-input-tokens value; then
+    if [[ $value == <-> ]] && (( value > 0 )); then
+      max_input_tokens=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid max-input-tokens=${value}; forcing 384"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai max-output-tokens value; then
+    if [[ $value == <-> ]] && (( value > 0 )); then
+      max_output_tokens=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid max-output-tokens=${value}; forcing 96"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai history-lines value; then
+    if [[ $value == <-> ]]; then
+      history_lines=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid history-lines=${value}; forcing 6"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai token-budget-per-minute value; then
+    if [[ $value == <-> ]] && (( value > 0 )); then
+      budget_per_minute=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid token-budget-per-minute=${value}; forcing 12000"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai token-budget-per-day value; then
+    if [[ $value == <-> ]] && (( value > 0 )); then
+      budget_per_day=$value
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid token-budget-per-day=${value}; forcing 300000"
+    fi
+  fi
+
+  _z4m_autosuggest_ai_state[configured_enabled]=$enabled
+  _z4m_autosuggest_ai_state[configured_endpoint]=$endpoint
+  _z4m_autosuggest_ai_state[configured_model]=$model
+  _z4m_autosuggest_ai_state[configured_api_key_env]=$api_key_env
+  _z4m_autosuggest_ai_state[configured_mode]=$mode
+  _z4m_autosuggest_ai_state[configured_timeout_ms]=$timeout_ms
+  _z4m_autosuggest_ai_state[configured_debounce_ms]=$debounce_ms
+  _z4m_autosuggest_ai_state[configured_cooldown_ms]=$cooldown_ms
+  _z4m_autosuggest_ai_state[configured_min_input]=$min_input
+  _z4m_autosuggest_ai_state[configured_max_input_tokens]=$max_input_tokens
+  _z4m_autosuggest_ai_state[configured_max_output_tokens]=$max_output_tokens
+  _z4m_autosuggest_ai_state[configured_history_lines]=$history_lines
+  _z4m_autosuggest_ai_state[configured_budget_per_minute]=$budget_per_minute
+  _z4m_autosuggest_ai_state[configured_budget_per_day]=$budget_per_day
+
+  local api_key=${(P)api_key_env-}
+  local -i api_key_present=$(( ${#api_key} > 0 ? 1 : 0 ))
+  _z4m_autosuggest_ai_state[api_key_present]=$api_key_present
+  _z4m_autosuggest_ai_state[auth_header_enabled]=$(( enabled && api_key_present ? 1 : 0 ))
+
+  if (( enabled && !api_key_present )); then
+    _z4m_autosuggest_ai_state[enabled]=0
+    _z4m_autosuggest_ai_state[last_reject]=missing_api_key
+    _z4m_autosuggest_ai_state[last_error]="missing ${api_key_env}"
+    -z4m-autosuggest-ai-log warn ai-config "enabled but missing ${api_key_env}; disabling ai lane"
+  else
+    _z4m_autosuggest_ai_state[enabled]=$enabled
+  fi
+
+  -z4m-autosuggest-ai-roll-budgets
+}
+
+function -z4m-autosuggest-ai-cleanup-files() {
+  local body=${_z4m_autosuggest_ai_state[inflight_body_file]-}
+  local code=${_z4m_autosuggest_ai_state[inflight_code_file]-}
+  local rc=${_z4m_autosuggest_ai_state[inflight_rc_file]-}
+  local header=${_z4m_autosuggest_ai_state[inflight_header_file]-}
+  [[ -n $body ]] && command rm -f -- "$body" 2>/dev/null || true
+  [[ -n $code ]] && command rm -f -- "$code" 2>/dev/null || true
+  [[ -n $rc ]] && command rm -f -- "$rc" 2>/dev/null || true
+  [[ -n $header ]] && command rm -f -- "$header" 2>/dev/null || true
+  _z4m_autosuggest_ai_state[inflight_body_file]=
+  _z4m_autosuggest_ai_state[inflight_code_file]=
+  _z4m_autosuggest_ai_state[inflight_rc_file]=
+  _z4m_autosuggest_ai_state[inflight_header_file]=
+}
+
+function -z4m-autosuggest-ai-reset() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  -z4m-autosuggest-ai-ensure
+
+  local reason=${1:-reset}
+  local -i pid=${_z4m_autosuggest_ai_state[inflight_pid]:-0}
+  if (( ${_z4m_autosuggest_ai_state[inflight]:-0} && pid > 0 )); then
+    command kill -TERM "$pid" 2>/dev/null || true
+  fi
+  _z4m_autosuggest_ai_state[inflight]=0
+  _z4m_autosuggest_ai_state[inflight_pid]=0
+  _z4m_autosuggest_ai_state[inflight_profile]=default
+  _z4m_autosuggest_ai_state[inflight_buffer]=
+  _z4m_autosuggest_ai_state[inflight_started_ms]=0
+  _z4m_autosuggest_ai_state[inflight_input_tokens]=0
+  _z4m_autosuggest_ai_state[last_reject]=$reason
+  _z4m_autosuggest_ai_state[cache_buffer]=
+  _z4m_autosuggest_ai_state[cache_suggestion]=
+  _z4m_autosuggest_ai_state[cache_expires_ms]=0
+  -z4m-autosuggest-ai-cleanup-files
+}
+
+function -z4m-autosuggest-ai-normalize() {
+  local content=${1-}
+  local buffer=${2-}
+  local suggestion=
+
+  content=${content//$'\r'/}
+  if [[ $content == '```'* ]]; then
+    content=${content#*$'\n'}
+  fi
+  content=${content%%$'\n'*}
+  content=${content##[[:space:]]##}
+  content=${content%%[[:space:]]##}
+  content=${content#'$ '}
+  content=${content#'> '}
+  content=${content##[[:space:]]##}
+  content=${content%%[[:space:]]##}
+
+  if [[ -z $content ]]; then
+    REPLY=
+    return 1
+  fi
+
+  if [[ -n $buffer ]]; then
+    if [[ $content != "$buffer"* ]]; then
+      REPLY=
+      return 3
+    fi
+    suggestion=$content
+  else
+    suggestion=$content
+  fi
+
+  if [[ -z $suggestion || $suggestion == "$buffer" ]]; then
+    REPLY=
+    return 1
+  fi
+
+  REPLY=$suggestion
+}
+
+function -z4m-autosuggest-ai-build-payload() {
+  local buffer=${1-}
+  local profile=${2:-default}
+  local model=${_z4m_autosuggest_ai_state[configured_model]}
+  local -i history_lines=${_z4m_autosuggest_ai_state[configured_history_lines]:-6}
+  local -i max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-384}
+  local -i max_output_tokens=${_z4m_autosuggest_ai_state[configured_max_output_tokens]:-96}
+  local temperature=0.1
+  local system_prompt=$'You are a shell command completion engine for interactive autosuggestions.\nReturn exactly one single-line shell command, with no explanation and no markdown.\nThe output MUST start with BUFFER exactly.\nUse HISTORY as context only; do not copy a history line verbatim unless it is a valid completion of BUFFER.\nNever output placeholders, random identifiers, numeric gibberish, or control characters.\nPrefer safe non-destructive continuations when uncertain.\nIf you cannot produce a safe completion that starts with BUFFER, return an empty string.'
+  if [[ $profile == strict ]]; then
+    temperature=0.2
+    system_prompt+=$'\n''Strict retry mode: avoid empty output; return your best safe completion starting with BUFFER.'
+  fi
+  local user_prompt=$'TASK: Complete the current shell input.\nRULES:\n- Output must start with BUFFER exactly.\n- Output must be a single command line.\n- Prefer a useful continuation for the current working directory.\n- Use HISTORY as reference only.\n'
+  user_prompt+=$'\n'"CWD: $PWD"
+  local buffer_hint=command_prefix
+  if [[ -z $buffer ]]; then
+    buffer_hint=empty
+  elif [[ $buffer == *[[:space:]] ]]; then
+    buffer_hint=awaiting_argument
+  elif [[ $buffer == *[[:space:]]* ]]; then
+    buffer_hint=editing_arguments
+  fi
+  user_prompt+=$'\n'"BUFFER_HINT: $buffer_hint"
+  if [[ -n $buffer ]]; then
+    user_prompt+=$'\n'"BUFFER: $buffer"
+  else
+    user_prompt+=$'\n''BUFFER: <empty>'
+  fi
+  -z4m-autosuggest-ai-buffer-meta "$buffer"
+  [[ -n $REPLY ]] && user_prompt+=$'\n'"$REPLY"
+
+  if (( history_lines > 0 )); then
+    local -a history_context=()
+    local -i i count=0 idx=1
+    for (( i = HISTCMD - 1; i > 0 && count < history_lines; --i )); do
+      [[ -n ${history[$i]-} ]] || continue
+      local line=${history[$i]}
+      if (( ${#line} > 140 )); then
+        history_context+=("${line[1,140]}...")
+      else
+        history_context+=("$line")
+      fi
+      (( ++count ))
+    done
+    user_prompt+=$'\n''HISTORY (most recent first):'
+    local item
+    if (( ${#history_context} )); then
+      for item in "${history_context[@]}"; do
+        user_prompt+=$'\n'"${idx}) ${item}"
+        (( ++idx ))
+      done
+    else
+      user_prompt+=$'\n''(none)'
+    fi
+  else
+    user_prompt+=$'\n''HISTORY (most recent first):'
+    user_prompt+=$'\n''(none)'
+  fi
+
+  local -i max_chars=$(( max_input_tokens * 4 ))
+  if (( ${#user_prompt} > max_chars )); then
+    user_prompt="${user_prompt[1,max_chars]}"
+  fi
+
+  REPLY=$(printf '{"model":"%s","messages":[{"role":"system","content":"%s"},{"role":"user","content":"%s"}],"temperature":%s,"max_tokens":%d,"stop":["\\n"]}' \
+    "$(-z4m-autosuggest-ai-json-escape "$model")" \
+    "$(-z4m-autosuggest-ai-json-escape "$system_prompt")" \
+    "$(-z4m-autosuggest-ai-json-escape "$user_prompt")" \
+    "$temperature" \
+    "$max_output_tokens")
+}
+
+function -z4m-autosuggest-ai-submit() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  -z4m-autosuggest-ai-ensure
+
+  local buffer=${1-}
+  local profile=${2:-default}
+  local api_key_env=${_z4m_autosuggest_ai_state[configured_api_key_env]}
+  local api_key=${(P)api_key_env-}
+  local endpoint=${_z4m_autosuggest_ai_state[configured_endpoint]}/chat/completions
+  local -i timeout_ms=${_z4m_autosuggest_ai_state[configured_timeout_ms]:-700}
+  local -i max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-384}
+
+  if [[ -z ${commands[curl]-} || -z ${commands[jq]-} ]]; then
+    _z4m_autosuggest_ai_state[last_reject]=missing_dependencies
+    _z4m_autosuggest_ai_state[last_error]="missing curl or jq"
+    -z4m-autosuggest-ai-log warn ai-submit "skip: missing curl or jq"
+    return 1
+  fi
+
+  if [[ -z $api_key ]]; then
+    _z4m_autosuggest_ai_state[last_reject]=missing_api_key
+    _z4m_autosuggest_ai_state[last_error]="missing ${api_key_env}"
+    return 1
+  fi
+
+  -z4m-autosuggest-ai-build-payload "$buffer" "$profile"
+  local payload=$REPLY
+
+  -z4m-autosuggest-ai-estimate-tokens "$payload"
+  local -i input_tokens=$REPLY
+  if (( input_tokens > max_input_tokens )); then
+    _z4m_autosuggest_ai_state[last_reject]=input_too_large
+    _z4m_autosuggest_ai_state[last_error]="estimated input tokens ${input_tokens} exceeds ${max_input_tokens}"
+    -z4m-autosuggest-ai-log warn ai-submit "skip: input token estimate ${input_tokens} exceeds ${max_input_tokens}"
+    return 1
+  fi
+
+  -z4m-autosuggest-ai-roll-budgets
+  local -i minute_budget=${_z4m_autosuggest_ai_state[configured_budget_per_minute]:-12000}
+  local -i day_budget=${_z4m_autosuggest_ai_state[configured_budget_per_day]:-300000}
+  local -i minute_used=${_z4m_autosuggest_ai_state[budget_minute_used]:-0}
+  local -i day_used=${_z4m_autosuggest_ai_state[budget_day_used]:-0}
+  if (( minute_used + input_tokens > minute_budget )); then
+    _z4m_autosuggest_ai_state[last_reject]=budget_minute_exceeded
+    _z4m_autosuggest_ai_state[last_error]="minute budget exceeded"
+    return 1
+  fi
+  if (( day_used + input_tokens > day_budget )); then
+    _z4m_autosuggest_ai_state[last_reject]=budget_day_exceeded
+    _z4m_autosuggest_ai_state[last_error]="day budget exceeded"
+    return 1
+  fi
+
+  local timeout_s
+  timeout_s=$(printf '%d.%03d' $(( timeout_ms / 1000 )) $(( timeout_ms % 1000 )))
+  local base=${TMPDIR:-/tmp}/z4m-autosuggest-ai-${EPOCHSECONDS:-0}-${RANDOM}-${$}
+  local body_file=${base}.body
+  local code_file=${base}.code
+  local rc_file=${base}.rc
+  local header_file=${base}.headers
+  print -r -- "Content-Type: application/json" >| "$header_file" || return 1
+  command chmod 600 "$header_file" 2>/dev/null || true
+  print -r -- "Authorization: Bearer ${api_key}" >>| "$header_file" || {
+    command rm -f -- "$header_file" 2>/dev/null || true
+    return 1
+  }
+
+  {
+    local -i curl_rc=1
+    command curl --silent --show-error --max-time "$timeout_s" \
+      --header @"$header_file" \
+      --data "$payload" \
+      --output "$body_file" \
+      --write-out '%{http_code}' \
+      "$endpoint" >| "$code_file" 2>/dev/null
+    curl_rc=$?
+    print -r -- "$curl_rc" >| "$rc_file"
+  } &!
+  local -i pid=$!
+
+  -z4m-autosuggest-ai-now-ms
+  local -i now_ms=$REPLY
+  _z4m_autosuggest_ai_state[inflight]=1
+  _z4m_autosuggest_ai_state[inflight_pid]=$pid
+  _z4m_autosuggest_ai_state[inflight_profile]=$profile
+  _z4m_autosuggest_ai_state[inflight_buffer]=$buffer
+  _z4m_autosuggest_ai_state[inflight_started_ms]=$now_ms
+  _z4m_autosuggest_ai_state[inflight_input_tokens]=$input_tokens
+  _z4m_autosuggest_ai_state[inflight_body_file]=$body_file
+  _z4m_autosuggest_ai_state[inflight_code_file]=$code_file
+  _z4m_autosuggest_ai_state[inflight_rc_file]=$rc_file
+  _z4m_autosuggest_ai_state[inflight_header_file]=$header_file
+  _z4m_autosuggest_ai_state[last_submit_ms]=$now_ms
+  _z4m_autosuggest_ai_state[budget_minute_used]=$(( ${_z4m_autosuggest_ai_state[budget_minute_used]:-0} + input_tokens ))
+  _z4m_autosuggest_ai_state[budget_day_used]=$(( ${_z4m_autosuggest_ai_state[budget_day_used]:-0} + input_tokens ))
+  _z4m_autosuggest_ai_state[last_reject]=
+  _z4m_autosuggest_ai_state[last_error]=
+  -z4m-autosuggest-ai-log info ai-submit "pid=${pid} model=${_z4m_autosuggest_ai_state[configured_model]} input_tokens=${input_tokens} profile=${profile}"
+  return 0
+}
+
+function -z4m-autosuggest-ai-retryable-reject-p() {
+  local reason=${1-}
+  case $reason in
+    empty_suggestion|numeric_tail|prefix_mismatch|no_delta|multiline|control_chars|invalid_head|unknown_command|low_quality) return 0 ;;
+  esac
+  return 1
+}
+
+function -z4m-autosuggest-ai-maybe-retry-strict() {
+  local reason=${1-}
+  local inflight_buffer=${2-}
+  local current_buffer=${3-}
+  local profile=${4:-default}
+
+  (( ${_z4m_autosuggest_ai_state[enabled]:-0} )) || return 1
+  [[ $profile == strict ]] && return 1
+  -z4m-autosuggest-ai-retryable-reject-p "$reason" || return 1
+  [[ -n $inflight_buffer && $inflight_buffer == "$current_buffer" ]] || return 1
+  [[ ${_z4m_autosuggest_ai_state[configured_mode]-passive} == manual ]] && return 1
+
+  -z4m-autosuggest-ai-submit "$inflight_buffer" strict || return 1
+  _z4m_autosuggest_ai_state[last_reject]=retrying_strict
+  _z4m_autosuggest_ai_state[last_error]="retry strict after ${reason}"
+  -z4m-autosuggest-ai-log info ai-retry "strict retry after ${reason}"
+  return 0
+}
+
+function -z4m-autosuggest-ai-harvest() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  -z4m-autosuggest-ai-ensure
+  REPLY=
+
+  (( ${_z4m_autosuggest_ai_state[inflight]:-0} )) || return 1
+
+  local -i pid=${_z4m_autosuggest_ai_state[inflight_pid]:-0}
+  if (( pid > 0 )) && command kill -0 "$pid" 2>/dev/null; then
+    return 1
+  fi
+
+  local inflight_buffer=${_z4m_autosuggest_ai_state[inflight_buffer]-}
+  local -i started_ms=${_z4m_autosuggest_ai_state[inflight_started_ms]:-0}
+  local -i input_tokens=${_z4m_autosuggest_ai_state[inflight_input_tokens]:-0}
+  local inflight_profile=${_z4m_autosuggest_ai_state[inflight_profile]-default}
+  local body_file=${_z4m_autosuggest_ai_state[inflight_body_file]-}
+  local code_file=${_z4m_autosuggest_ai_state[inflight_code_file]-}
+  local rc_file=${_z4m_autosuggest_ai_state[inflight_rc_file]-}
+  local current_buffer=${1-}
+
+  local curl_rc=1 http_code=000 content=
+  [[ -r $rc_file ]] && IFS= read -r curl_rc <"$rc_file"
+  [[ -r $code_file ]] && IFS= read -r http_code <"$code_file"
+
+  -z4m-autosuggest-ai-now-ms
+  local -i finished_ms=$REPLY
+  _z4m_autosuggest_ai_state[last_latency_ms]=$(( finished_ms - started_ms ))
+  _z4m_autosuggest_ai_state[last_http_code]=$http_code
+  _z4m_autosuggest_ai_state[inflight]=0
+  _z4m_autosuggest_ai_state[inflight_pid]=0
+  _z4m_autosuggest_ai_state[inflight_profile]=default
+  _z4m_autosuggest_ai_state[inflight_buffer]=
+  _z4m_autosuggest_ai_state[inflight_started_ms]=0
+  _z4m_autosuggest_ai_state[inflight_input_tokens]=0
+
+  if [[ $curl_rc != 0 ]]; then
+    _z4m_autosuggest_ai_state[last_reject]=curl_failed
+    _z4m_autosuggest_ai_state[last_error]="curl failed rc=${curl_rc}"
+    -z4m-autosuggest-ai-log warn ai-result "curl failed rc=${curl_rc}"
+    -z4m-autosuggest-ai-cleanup-files
+    return 1
+  fi
+  if [[ $http_code != 2* ]]; then
+    _z4m_autosuggest_ai_state[last_reject]=http_error
+    _z4m_autosuggest_ai_state[last_error]="http=${http_code}"
+    -z4m-autosuggest-ai-log warn ai-result "http=${http_code}"
+    -z4m-autosuggest-ai-cleanup-files
+    return 1
+  fi
+
+  if [[ -r $body_file ]]; then
+    content=$(command jq -r '.choices[0].message.content // empty' <"$body_file" 2>/dev/null)
+  fi
+  -z4m-autosuggest-ai-cleanup-files
+
+  local suggestion
+  -z4m-autosuggest-ai-normalize "$content" "$inflight_buffer"
+  local -i normalize_rc=$?
+  if (( normalize_rc != 0 )); then
+    if (( normalize_rc == 3 )); then
+      _z4m_autosuggest_ai_state[last_reject]=prefix_mismatch
+      _z4m_autosuggest_ai_state[last_error]="suggestion does not preserve buffer prefix"
+    else
+      _z4m_autosuggest_ai_state[last_reject]=empty_suggestion
+      _z4m_autosuggest_ai_state[last_error]="empty suggestion from provider"
+    fi
+    -z4m-autosuggest-ai-maybe-retry-strict "${_z4m_autosuggest_ai_state[last_reject]}" "$inflight_buffer" "$current_buffer" "$inflight_profile" && return 1
+    return 1
+  fi
+  suggestion=$REPLY
+
+  if (( ${+functions[-z4m-autosuggest-core-suggestion-valid-p]} )); then
+    if ! -z4m-autosuggest-core-suggestion-valid-p "$inflight_buffer" "$suggestion" ai; then
+      local reason=${REPLY:-low_quality}
+      _z4m_autosuggest_ai_state[last_reject]=$reason
+      _z4m_autosuggest_ai_state[last_error]="invalid suggestion from provider (${reason})"
+      -z4m-autosuggest-ai-maybe-retry-strict "$reason" "$inflight_buffer" "$current_buffer" "$inflight_profile" && return 1
+      return 1
+    fi
+  fi
+
+  -z4m-autosuggest-ai-estimate-tokens "$suggestion"
+  local -i output_tokens=$REPLY
+  -z4m-autosuggest-ai-roll-budgets
+  _z4m_autosuggest_ai_state[budget_minute_used]=$(( ${_z4m_autosuggest_ai_state[budget_minute_used]:-0} + output_tokens ))
+  _z4m_autosuggest_ai_state[budget_day_used]=$(( ${_z4m_autosuggest_ai_state[budget_day_used]:-0} + output_tokens ))
+
+  _z4m_autosuggest_ai_state[cache_buffer]=$inflight_buffer
+  _z4m_autosuggest_ai_state[cache_suggestion]=$suggestion
+  _z4m_autosuggest_ai_state[cache_expires_ms]=$(( finished_ms + 2000 ))
+  _z4m_autosuggest_ai_state[last_reject]=
+  _z4m_autosuggest_ai_state[last_error]=
+  -z4m-autosuggest-ai-log info ai-result "ok latency_ms=${_z4m_autosuggest_ai_state[last_latency_ms]} output_tokens=${output_tokens}"
+
+  if [[ $inflight_buffer == "$current_buffer" ]]; then
+    REPLY=$suggestion
+    return 0
+  fi
+  return 1
+}
+
+function -z4m-autosuggest-ai-allow-empty-p() {
+  -z4m-autosuggest-ai-ensure
+  (( ${_z4m_autosuggest_ai_state[enabled]:-0} )) || return 1
+  [[ ${_z4m_autosuggest_ai_state[configured_mode]-passive} == auto ]] || return 1
+  (( ${_z4m_autosuggest_ai_state[configured_min_input]:-2} == 0 ))
+}
+
+function -z4m-autosuggest-ai-maybe-suggest() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  -z4m-autosuggest-ai-ensure
+  REPLY=
+
+  local buffer=${1-}
+  local reason=${2:-fetch}
+
+  -z4m-autosuggest-ai-harvest "$buffer" && return 0
+
+  if (( ! ${_z4m_autosuggest_ai_state[enabled]:-0} )); then
+    _z4m_autosuggest_ai_state[last_reject]=disabled
+    return 1
+  fi
+
+  local mode=${_z4m_autosuggest_ai_state[configured_mode]-passive}
+  if [[ $mode == manual ]]; then
+    _z4m_autosuggest_ai_state[last_reject]=manual_mode
+    return 1
+  fi
+  if [[ -z $buffer && $mode != auto ]]; then
+    _z4m_autosuggest_ai_state[last_reject]=empty_buffer
+    return 1
+  fi
+
+  -z4m-autosuggest-ai-now-ms
+  local -i now_ms=$REPLY
+
+  if [[ $buffer == ${_z4m_autosuggest_ai_state[cache_buffer]-} ]] &&
+     (( now_ms <= ${_z4m_autosuggest_ai_state[cache_expires_ms]:-0} )); then
+    REPLY=${_z4m_autosuggest_ai_state[cache_suggestion]-}
+    [[ -n $REPLY ]] && return 0
+  fi
+
+  local -i min_input=${_z4m_autosuggest_ai_state[configured_min_input]:-2}
+  if (( ${#buffer} < min_input )); then
+    _z4m_autosuggest_ai_state[last_reject]=below_min_input
+    return 1
+  fi
+
+  local -i changed=0
+  if [[ $buffer != ${_z4m_autosuggest_ai_state[last_buffer]-} ]]; then
+    changed=1
+    _z4m_autosuggest_ai_state[last_buffer]=$buffer
+    _z4m_autosuggest_ai_state[last_change_ms]=$now_ms
+  fi
+
+  local -i debounce_ms=${_z4m_autosuggest_ai_state[configured_debounce_ms]:-160}
+  if (( ! changed && now_ms - ${_z4m_autosuggest_ai_state[last_change_ms]:-0} < debounce_ms )); then
+    _z4m_autosuggest_ai_state[last_reject]=debounce_wait
+    return 1
+  fi
+
+  if (( ${_z4m_autosuggest_ai_state[inflight]:-0} )); then
+    _z4m_autosuggest_ai_state[last_reject]=inflight
+    return 1
+  fi
+
+  local -i cooldown_ms=${_z4m_autosuggest_ai_state[configured_cooldown_ms]:-800}
+  if (( now_ms - ${_z4m_autosuggest_ai_state[last_submit_ms]:-0} < cooldown_ms )); then
+    _z4m_autosuggest_ai_state[last_reject]=cooldown
+    return 1
+  fi
+
+  -z4m-autosuggest-ai-submit "$buffer" default || return 1
+  -z4m-autosuggest-ai-log info ai-trigger "${reason} buffer_len=${#buffer}"
+  return 1
+}
+
+function -z4m-autosuggest-ai-status() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  -z4m-autosuggest-ai-ensure
+  -z4m-autosuggest-ai-roll-budgets
+
+  local -i minute_budget=${_z4m_autosuggest_ai_state[configured_budget_per_minute]:-12000}
+  local -i day_budget=${_z4m_autosuggest_ai_state[configured_budget_per_day]:-300000}
+  local -i minute_used=${_z4m_autosuggest_ai_state[budget_minute_used]:-0}
+  local -i day_used=${_z4m_autosuggest_ai_state[budget_day_used]:-0}
+  local -i minute_remaining=$(( minute_budget - minute_used ))
+  local -i day_remaining=$(( day_budget - day_used ))
+  (( minute_remaining < 0 )) && minute_remaining=0
+  (( day_remaining < 0 )) && day_remaining=0
+
+  print -r -- "ai_configured_enabled=${_z4m_autosuggest_ai_state[configured_enabled]:-0}"
+  print -r -- "ai_enabled=${_z4m_autosuggest_ai_state[enabled]:-0}"
+  print -r -- "ai_api_key_present=${_z4m_autosuggest_ai_state[api_key_present]:-0}"
+  print -r -- "ai_endpoint=${_z4m_autosuggest_ai_state[configured_endpoint]-}"
+  print -r -- "ai_model=${_z4m_autosuggest_ai_state[configured_model]-}"
+  print -r -- "ai_api_key_env=${_z4m_autosuggest_ai_state[configured_api_key_env]-}"
+  print -r -- "ai_auth_header_enabled=${_z4m_autosuggest_ai_state[auth_header_enabled]:-0}"
+  print -r -- "ai_mode=${_z4m_autosuggest_ai_state[configured_mode]-passive}"
+  print -r -- "ai_timeout_ms=${_z4m_autosuggest_ai_state[configured_timeout_ms]:-700}"
+  print -r -- "ai_debounce_ms=${_z4m_autosuggest_ai_state[configured_debounce_ms]:-160}"
+  print -r -- "ai_cooldown_ms=${_z4m_autosuggest_ai_state[configured_cooldown_ms]:-800}"
+  print -r -- "ai_min_input=${_z4m_autosuggest_ai_state[configured_min_input]:-2}"
+  print -r -- "ai_max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-384}"
+  print -r -- "ai_max_output_tokens=${_z4m_autosuggest_ai_state[configured_max_output_tokens]:-96}"
+  print -r -- "ai_history_lines=${_z4m_autosuggest_ai_state[configured_history_lines]:-6}"
+  print -r -- "ai_budget_per_minute=${minute_budget}"
+  print -r -- "ai_budget_per_day=${day_budget}"
+  print -r -- "ai_budget_minute_used=${minute_used}"
+  print -r -- "ai_budget_day_used=${day_used}"
+  print -r -- "ai_budget_minute_remaining=${minute_remaining}"
+  print -r -- "ai_budget_day_remaining=${day_remaining}"
+  print -r -- "ai_inflight=${_z4m_autosuggest_ai_state[inflight]:-0}"
+  print -r -- "ai_last_latency_ms=${_z4m_autosuggest_ai_state[last_latency_ms]:-0}"
+  print -r -- "ai_last_reject=${_z4m_autosuggest_ai_state[last_reject]-}"
+  print -r -- "ai_last_error=${_z4m_autosuggest_ai_state[last_error]-}"
+  print -r -- "ai_last_http_code=${_z4m_autosuggest_ai_state[last_http_code]-}"
+}

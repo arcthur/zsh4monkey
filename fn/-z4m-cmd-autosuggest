@@ -16,7 +16,7 @@ function -z4m-cmd-autosuggest-usage() {
   print -Pru2 -- ""
   print -Pru2 -- "Subcommands:"
   print -Pru2 -- "  %Bstatus%b [--json] [--init]      Show autosuggest status"
-  print -Pru2 -- "  %Bdoctor%b [--json] [--no-init]   Run autosuggest checks"
+  print -Pru2 -- "  %Bdoctor%b [--json] [--init|--no-init]   Run autosuggest checks"
   print -Pru2 -- "  %Bevents%b [--tail N] [--json]    Show autosuggest lifecycle events"
   print -Pru2 -- "  %Breset%b [--json]                Reset autosuggest runtime state"
 }
@@ -79,6 +79,7 @@ function -z4m-cmd-autosuggest-status() {
   local configured_case_insensitive=${_z4m_autosuggest_cmd_status[configured_case_insensitive]-0}
   local configured_pwd_scan_limit=${_z4m_autosuggest_cmd_status[configured_pwd_scan_limit]-500}
   local active_strategy=${_z4m_autosuggest_cmd_status[active_strategy]-none}
+  local active_provider=${_z4m_autosuggest_cmd_status[active_provider]-none}
   local state=${_z4m_autosuggest_cmd_status[state]-uninitialized}
   local initialized=${_z4m_autosuggest_cmd_status[initialized]-0}
   local runtime_enabled=${_z4m_autosuggest_cmd_status[runtime_enabled]-0}
@@ -86,6 +87,32 @@ function -z4m-cmd-autosuggest-status() {
   local last_error=${_z4m_autosuggest_cmd_status[last_error]-}
   local zas_version=${_z4m_autosuggest_cmd_status[zas_version]-unknown}
   local zas_commit=${_z4m_autosuggest_cmd_status[zas_commit]-unknown}
+  local ai_configured_enabled=${_z4m_autosuggest_cmd_status[ai_configured_enabled]-0}
+  local ai_enabled=${_z4m_autosuggest_cmd_status[ai_enabled]-0}
+  local ai_api_key_present=${_z4m_autosuggest_cmd_status[ai_api_key_present]-0}
+  local ai_endpoint=${_z4m_autosuggest_cmd_status[ai_endpoint]-}
+  local ai_model=${_z4m_autosuggest_cmd_status[ai_model]-}
+  local ai_api_key_env=${_z4m_autosuggest_cmd_status[ai_api_key_env]-DEEPSEEK_API_KEY}
+  local ai_auth_header_enabled=${_z4m_autosuggest_cmd_status[ai_auth_header_enabled]-0}
+  local ai_mode=${_z4m_autosuggest_cmd_status[ai_mode]-passive}
+  local ai_timeout_ms=${_z4m_autosuggest_cmd_status[ai_timeout_ms]-700}
+  local ai_debounce_ms=${_z4m_autosuggest_cmd_status[ai_debounce_ms]-160}
+  local ai_cooldown_ms=${_z4m_autosuggest_cmd_status[ai_cooldown_ms]-800}
+  local ai_min_input=${_z4m_autosuggest_cmd_status[ai_min_input]-2}
+  local ai_max_input_tokens=${_z4m_autosuggest_cmd_status[ai_max_input_tokens]-384}
+  local ai_max_output_tokens=${_z4m_autosuggest_cmd_status[ai_max_output_tokens]-96}
+  local ai_history_lines=${_z4m_autosuggest_cmd_status[ai_history_lines]-6}
+  local ai_budget_per_minute=${_z4m_autosuggest_cmd_status[ai_budget_per_minute]-12000}
+  local ai_budget_per_day=${_z4m_autosuggest_cmd_status[ai_budget_per_day]-300000}
+  local ai_budget_minute_used=${_z4m_autosuggest_cmd_status[ai_budget_minute_used]-0}
+  local ai_budget_day_used=${_z4m_autosuggest_cmd_status[ai_budget_day_used]-0}
+  local ai_budget_minute_remaining=${_z4m_autosuggest_cmd_status[ai_budget_minute_remaining]-12000}
+  local ai_budget_day_remaining=${_z4m_autosuggest_cmd_status[ai_budget_day_remaining]-300000}
+  local ai_inflight=${_z4m_autosuggest_cmd_status[ai_inflight]-0}
+  local ai_last_latency_ms=${_z4m_autosuggest_cmd_status[ai_last_latency_ms]-0}
+  local ai_last_reject=${_z4m_autosuggest_cmd_status[ai_last_reject]-}
+  local ai_last_http_code=${_z4m_autosuggest_cmd_status[ai_last_http_code]-}
+  local ai_last_error=${_z4m_autosuggest_cmd_status[ai_last_error]-}
 
   if (( json )); then
     local enabled_json=false initialized_json=false runtime_json=false
@@ -108,6 +135,7 @@ function -z4m-cmd-autosuggest-status() {
     print -rn -- "\"configured_case_insensitive\":$ci_json,"
     print -rn -- "\"configured_pwd_scan_limit\":$configured_pwd_scan_limit,"
     print -rn -- "\"active_strategy\":\"$(-z4m-cmd-autosuggest-json-escape "$active_strategy")\","
+    print -rn -- "\"active_provider\":\"$(-z4m-cmd-autosuggest-json-escape "$active_provider")\","
     print -rn -- "\"state\":\"$(-z4m-cmd-autosuggest-json-escape "$state")\","
     print -rn -- "\"initialized\":$initialized_json,"
     print -rn -- "\"runtime_enabled\":$runtime_json,"
@@ -118,7 +146,53 @@ function -z4m-cmd-autosuggest-status() {
       print -rn -- "\"last_error\":\"$(-z4m-cmd-autosuggest-json-escape "$last_error")\","
     fi
     print -rn -- "\"zas_version\":\"$(-z4m-cmd-autosuggest-json-escape "$zas_version")\","
-    print -rn -- "\"zas_commit\":\"$(-z4m-cmd-autosuggest-json-escape "$zas_commit")\""
+    print -rn -- "\"zas_commit\":\"$(-z4m-cmd-autosuggest-json-escape "$zas_commit")\","
+    local ai_configured_json=false ai_enabled_json=false ai_key_json=false ai_inflight_json=false
+    (( ai_configured_enabled )) && ai_configured_json=true
+    (( ai_enabled )) && ai_enabled_json=true
+    (( ai_api_key_present )) && ai_key_json=true
+    (( ai_inflight )) && ai_inflight_json=true
+    print -rn -- "\"ai\":{\"configured_enabled\":$ai_configured_json,"
+    print -rn -- "\"enabled\":$ai_enabled_json,"
+    print -rn -- "\"api_key_present\":$ai_key_json,"
+    print -rn -- "\"endpoint\":\"$(-z4m-cmd-autosuggest-json-escape "$ai_endpoint")\","
+    print -rn -- "\"model\":\"$(-z4m-cmd-autosuggest-json-escape "$ai_model")\","
+    print -rn -- "\"api_key_env\":\"$(-z4m-cmd-autosuggest-json-escape "$ai_api_key_env")\","
+    local ai_auth_header_json=false
+    (( ai_auth_header_enabled )) && ai_auth_header_json=true
+    print -rn -- "\"auth_header_enabled\":$ai_auth_header_json,"
+    print -rn -- "\"mode\":\"$(-z4m-cmd-autosuggest-json-escape "$ai_mode")\","
+    print -rn -- "\"timeout_ms\":$ai_timeout_ms,"
+    print -rn -- "\"debounce_ms\":$ai_debounce_ms,"
+    print -rn -- "\"cooldown_ms\":$ai_cooldown_ms,"
+    print -rn -- "\"min_input\":$ai_min_input,"
+    print -rn -- "\"max_input_tokens\":$ai_max_input_tokens,"
+    print -rn -- "\"max_output_tokens\":$ai_max_output_tokens,"
+    print -rn -- "\"history_lines\":$ai_history_lines,"
+    print -rn -- "\"budget_per_minute\":$ai_budget_per_minute,"
+    print -rn -- "\"budget_per_day\":$ai_budget_per_day,"
+    print -rn -- "\"budget_minute_used\":$ai_budget_minute_used,"
+    print -rn -- "\"budget_day_used\":$ai_budget_day_used,"
+    print -rn -- "\"budget_minute_remaining\":$ai_budget_minute_remaining,"
+    print -rn -- "\"budget_day_remaining\":$ai_budget_day_remaining,"
+    print -rn -- "\"inflight\":$ai_inflight_json,"
+    print -rn -- "\"last_latency_ms\":$ai_last_latency_ms,"
+    if [[ -z $ai_last_reject ]]; then
+      print -rn -- "\"last_reject\":null,"
+    else
+      print -rn -- "\"last_reject\":\"$(-z4m-cmd-autosuggest-json-escape "$ai_last_reject")\","
+    fi
+    if [[ -z $ai_last_http_code ]]; then
+      print -rn -- "\"last_http_code\":null,"
+    else
+      print -rn -- "\"last_http_code\":\"$(-z4m-cmd-autosuggest-json-escape "$ai_last_http_code")\","
+    fi
+    if [[ -z $ai_last_error ]]; then
+      print -rn -- "\"last_error\":null"
+    else
+      print -rn -- "\"last_error\":\"$(-z4m-cmd-autosuggest-json-escape "$ai_last_error")\""
+    fi
+    print -rn -- "}"
     print -r -- "}"
     return 0
   fi
@@ -136,6 +210,7 @@ function -z4m-cmd-autosuggest-status() {
   print -Pr -- "  case insensitive:   ${configured_case_insensitive}"
   print -Pr -- "  pwd scan limit:     ${configured_pwd_scan_limit}"
   print -Pr -- "  active strategy:    ${active_strategy}"
+  print -Pr -- "  active provider:    ${active_provider}"
   print -Pr -- "  lifecycle state:    ${state}"
   print -Pr -- "  initialized:        ${initialized}"
   print -Pr -- "  runtime enabled:    ${runtime_enabled}"
@@ -146,6 +221,27 @@ function -z4m-cmd-autosuggest-status() {
   else
     print -Pr -- "  vendor commit:      ${zas_commit[1,12]}"
   fi
+  print -Pr -- "  ai configured:      ${ai_configured_enabled}"
+  print -Pr -- "  ai enabled:         ${ai_enabled}"
+  print -Pr -- "  ai mode:            ${ai_mode}"
+  print -Pr -- "  ai model:           ${ai_model}"
+  print -Pr -- "  ai endpoint:        ${ai_endpoint}"
+  print -Pr -- "  ai api key env:     ${ai_api_key_env} (present=${ai_api_key_present})"
+  print -Pr -- "  ai auth header:     ${ai_auth_header_enabled}"
+  print -Pr -- "  ai timeout ms:      ${ai_timeout_ms}"
+  print -Pr -- "  ai debounce ms:     ${ai_debounce_ms}"
+  print -Pr -- "  ai cooldown ms:     ${ai_cooldown_ms}"
+  print -Pr -- "  ai min input:       ${ai_min_input}"
+  print -Pr -- "  ai input/output tk: ${ai_max_input_tokens}/${ai_max_output_tokens}"
+  print -Pr -- "  ai history lines:   ${ai_history_lines}"
+  print -Pr -- "  ai budget min/day:  ${ai_budget_per_minute}/${ai_budget_per_day}"
+  print -Pr -- "  ai used min/day:    ${ai_budget_minute_used}/${ai_budget_day_used}"
+  print -Pr -- "  ai remain min/day:  ${ai_budget_minute_remaining}/${ai_budget_day_remaining}"
+  print -Pr -- "  ai inflight:        ${ai_inflight}"
+  print -Pr -- "  ai last latency ms: ${ai_last_latency_ms}"
+  [[ -z $ai_last_reject ]] || print -Pr -- "  ai last reject:     ${ai_last_reject}"
+  [[ -z $ai_last_http_code ]] || print -Pr -- "  ai last http code:  ${ai_last_http_code}"
+  [[ -z $ai_last_error ]] || print -Pr -- "  ai last error:      ${ai_last_error}"
   [[ -z $last_error ]] || print -Pr -- "  last error:         ${last_error}"
 }
 
@@ -154,6 +250,7 @@ function -z4m-cmd-autosuggest-doctor() {
   while (( $# )); do
     case $1 in
       --json) json=1 ;;
+      --init) do_init=1 ;;
       --no-init) do_init=0 ;;
       *)
         print -Pru2 -- "%F{3}z4m%f: %Bautosuggest doctor%b: unknown option: %F{1}${1//\%/%%}%f"
@@ -173,6 +270,21 @@ function -z4m-cmd-autosuggest-doctor() {
   local configured_match_prev_max_cmds=${_z4m_autosuggest_cmd_status[configured_match_prev_max_cmds]-200}
   local configured_match_prev_cmd_count=${_z4m_autosuggest_cmd_status[configured_match_prev_cmd_count]-1}
   local last_error=${_z4m_autosuggest_cmd_status[last_error]-}
+  local ai_configured_enabled=${_z4m_autosuggest_cmd_status[ai_configured_enabled]-0}
+  local ai_enabled=${_z4m_autosuggest_cmd_status[ai_enabled]-0}
+  local ai_api_key_present=${_z4m_autosuggest_cmd_status[ai_api_key_present]-0}
+  local ai_mode=${_z4m_autosuggest_cmd_status[ai_mode]-passive}
+  local ai_model=${_z4m_autosuggest_cmd_status[ai_model]-}
+  local ai_endpoint=${_z4m_autosuggest_cmd_status[ai_endpoint]-}
+  local ai_auth_header_enabled=${_z4m_autosuggest_cmd_status[ai_auth_header_enabled]-0}
+  local ai_timeout_ms=${_z4m_autosuggest_cmd_status[ai_timeout_ms]-700}
+  local ai_max_input_tokens=${_z4m_autosuggest_cmd_status[ai_max_input_tokens]-384}
+  local ai_max_output_tokens=${_z4m_autosuggest_cmd_status[ai_max_output_tokens]-96}
+  local ai_budget_per_minute=${_z4m_autosuggest_cmd_status[ai_budget_per_minute]-12000}
+  local ai_budget_per_day=${_z4m_autosuggest_cmd_status[ai_budget_per_day]-300000}
+  local ai_budget_minute_used=${_z4m_autosuggest_cmd_status[ai_budget_minute_used]-0}
+  local ai_budget_day_used=${_z4m_autosuggest_cmd_status[ai_budget_day_used]-0}
+  local ai_last_reject=${_z4m_autosuggest_cmd_status[ai_last_reject]-}
 
   local -a checks
   local -i errors=0 warnings=0
@@ -241,7 +353,7 @@ function -z4m-cmd-autosuggest-doctor() {
     if (( ${+functions[$fn]} )); then
       checks+=("ok"$'\t'"runtime"$'\t'"function present: ${fn}")
     else
-      if [[ $state == disabled || ( $state == uninitialized && ! do_init ) ]]; then
+      if [[ $state == disabled || ( $state == uninitialized && $do_init == 0 ) ]]; then
         checks+=("warn"$'\t'"runtime"$'\t'"function not loaded yet: ${fn}")
         (( warnings++ ))
       else
@@ -292,6 +404,98 @@ function -z4m-cmd-autosuggest-doctor() {
     checks+=("warn"$'\t'"state"$'\t'"last error: ${last_error}")
     (( warnings++ ))
   }
+
+  if [[ $ai_configured_enabled == (0|1) ]]; then
+    checks+=("ok"$'\t'"ai"$'\t'"ai configured flag is ${ai_configured_enabled}")
+  else
+    checks+=("error"$'\t'"ai"$'\t'"ai configured flag is invalid: ${ai_configured_enabled}")
+    (( errors++ ))
+  fi
+
+  if [[ $ai_mode == (manual|passive|auto) ]]; then
+    checks+=("ok"$'\t'"ai"$'\t'"ai mode is ${ai_mode}")
+  else
+    checks+=("error"$'\t'"ai"$'\t'"ai mode is invalid: ${ai_mode}")
+    (( errors++ ))
+  fi
+
+  if [[ -n $ai_model && -n $ai_endpoint ]]; then
+    checks+=("ok"$'\t'"ai"$'\t'"ai endpoint/model configured")
+  elif [[ $ai_configured_enabled == 1 ]]; then
+    checks+=("error"$'\t'"ai"$'\t'"ai endpoint or model is empty")
+    (( errors++ ))
+  fi
+
+  if [[ $ai_timeout_ms == <-> ]] && (( ai_timeout_ms > 0 )); then
+    checks+=("ok"$'\t'"ai"$'\t'"ai timeout is ${ai_timeout_ms}ms")
+  else
+    checks+=("error"$'\t'"ai"$'\t'"ai timeout is invalid: ${ai_timeout_ms}")
+    (( errors++ ))
+  fi
+
+  if [[ $ai_max_input_tokens == <-> ]] && (( ai_max_input_tokens > 0 )) &&
+     [[ $ai_max_output_tokens == <-> ]] && (( ai_max_output_tokens > 0 )); then
+    checks+=("ok"$'\t'"ai"$'\t'"ai token bounds in=${ai_max_input_tokens} out=${ai_max_output_tokens}")
+  else
+    checks+=("error"$'\t'"ai"$'\t'"ai token bounds are invalid")
+    (( errors++ ))
+  fi
+
+  if [[ $ai_budget_per_minute == <-> ]] && (( ai_budget_per_minute > 0 )) &&
+     [[ $ai_budget_per_day == <-> ]] && (( ai_budget_per_day > 0 )); then
+    checks+=("ok"$'\t'"ai"$'\t'"ai token budget min/day=${ai_budget_per_minute}/${ai_budget_per_day}")
+  else
+    checks+=("error"$'\t'"ai"$'\t'"ai token budget is invalid")
+    (( errors++ ))
+  fi
+
+  if [[ $ai_budget_minute_used == <-> ]] && [[ $ai_budget_day_used == <-> ]]; then
+    checks+=("ok"$'\t'"ai"$'\t'"ai budget usage min/day=${ai_budget_minute_used}/${ai_budget_day_used}")
+  else
+    checks+=("error"$'\t'"ai"$'\t'"ai budget usage is invalid")
+    (( errors++ ))
+  fi
+
+  if [[ $ai_auth_header_enabled == (0|1) ]]; then
+    checks+=("ok"$'\t'"ai"$'\t'"ai auth header enabled is ${ai_auth_header_enabled}")
+  else
+    checks+=("error"$'\t'"ai"$'\t'"ai auth header enabled is invalid: ${ai_auth_header_enabled}")
+    (( errors++ ))
+  fi
+  if [[ $ai_configured_enabled == 1 ]]; then
+    if [[ $ai_api_key_present == 1 && $ai_auth_header_enabled == 1 ]]; then
+      checks+=("ok"$'\t'"ai"$'\t'"ai token is present and auth header is enabled")
+    elif [[ $ai_api_key_present == 0 ]]; then
+      checks+=("error"$'\t'"ai"$'\t'"ai is enabled but api key is missing")
+      (( errors++ ))
+    else
+      checks+=("error"$'\t'"ai"$'\t'"ai api key exists but auth header is disabled")
+      (( errors++ ))
+    fi
+  fi
+
+  if [[ $ai_configured_enabled == 1 ]]; then
+    if [[ $ai_enabled == 1 ]]; then
+      checks+=("ok"$'\t'"ai"$'\t'"ai runtime is enabled")
+    else
+      checks+=("warn"$'\t'"ai"$'\t'"ai is configured but currently inactive")
+      (( warnings++ ))
+    fi
+  else
+    checks+=("ok"$'\t'"ai"$'\t'"ai lane is disabled")
+  fi
+
+  if [[ -n $ai_last_reject ]]; then
+    case $ai_last_reject in
+      finish|reset|disabled|manual_mode|empty_buffer|below_min_input|debounce_wait|inflight|cooldown|retrying_strict|low_quality|numeric_tail|prefix_mismatch|no_delta|multiline|control_chars|invalid_head|unknown_command)
+        checks+=("ok"$'\t'"ai"$'\t'"ai last reject reason is expected: ${ai_last_reject}")
+        ;;
+      *)
+        checks+=("warn"$'\t'"ai"$'\t'"ai last reject reason: ${ai_last_reject}")
+        (( warnings++ ))
+        ;;
+    esac
+  fi
 
   local -i code=0
   if (( errors )); then

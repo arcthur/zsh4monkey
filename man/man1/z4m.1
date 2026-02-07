@@ -123,6 +123,7 @@ Inspect and control the autosuggestions subsystem.
 .Bl -tag -width "events --tail N" -compact
 .It Cm status Op Fl -json Op Fl -init
 Show configured state, runtime state, strategy, and vendor metadata.
+Also includes AI lane model configuration and token budget counters.
 .It Cm doctor Op Fl -json Op Fl -no-init
 Run autosuggest consistency checks.
 Exit codes: 0 (healthy), 1 (warnings/degraded), 2 (errors).

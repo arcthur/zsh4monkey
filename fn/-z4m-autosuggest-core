@@ -18,6 +18,7 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 : ${_z4m_autosuggest_state[configured_case_insensitive]:=0}
 : ${_z4m_autosuggest_state[configured_pwd_scan_limit]:=500}
 : ${_z4m_autosuggest_state[active_strategy]:=history}
+: ${_z4m_autosuggest_state[active_provider]:=none}
 
 function -z4m-autosuggest-core-ensure() {
   (( ${+_z4m_autosuggest_state} )) || typeset -gA _z4m_autosuggest_state
@@ -33,6 +34,7 @@ function -z4m-autosuggest-core-ensure() {
   : ${_z4m_autosuggest_state[configured_case_insensitive]:=0}
   : ${_z4m_autosuggest_state[configured_pwd_scan_limit]:=500}
   : ${_z4m_autosuggest_state[active_strategy]:=history}
+  : ${_z4m_autosuggest_state[active_provider]:=none}
 }
 
 function -z4m-autosuggest-core-log() {
@@ -66,6 +68,45 @@ function -z4m-autosuggest-core-warn-once() {
   [[ -n ${_z4m_autosuggest_warned[$key]-} ]] && return 0
   _z4m_autosuggest_warned[$key]=1
   [[ -z $message ]] || print -Pru2 -- "$message"
+}
+
+function -z4m-autosuggest-core-suggestion-valid-p() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  local buffer=${1-}
+  local suggestion=${2-}
+  local provider=${3:-none}
+  REPLY=ok
+
+  [[ -n $suggestion ]] || { REPLY=empty; return 1; }
+  [[ $suggestion == "$buffer"* ]] || { REPLY=prefix_mismatch; return 1; }
+  [[ $suggestion != "$buffer" ]] || { REPLY=no_delta; return 1; }
+  [[ $suggestion != *$'\n'* && $suggestion != *$'\r'* ]] || { REPLY=multiline; return 1; }
+  [[ $suggestion != *[[:cntrl:]]* ]] || { REPLY=control_chars; return 1; }
+
+  local added=${suggestion:${#buffer}}
+  [[ -n $added ]] || { REPLY=no_delta; return 1; }
+
+  if [[ $buffer != *[[:space:]]* ]]; then
+    local head=${suggestion%%[[:space:]]*}
+    local delta=${head:${#buffer}}
+
+    if [[ $provider == ai ]]; then
+      if [[ -n $delta && $delta == [[:digit:].:_/-]## ]]; then
+        local digits=${delta//[^[:digit:]]/}
+        local punct=${delta//[[:digit:]]/}
+        if (( ${#digits} >= 6 )) || (( ${#punct} >= 2 )) || [[ $buffer == _* ]]; then
+          REPLY=numeric_tail
+          return 1
+        fi
+      fi
+      if [[ $head != [./~]* ]]; then
+        [[ $head == *[[:alpha:]_]* ]] || { REPLY=invalid_head; return 1; }
+      fi
+    fi
+  fi
+
+  return 0
 }
 
 function -z4m-autosuggest-core-degrade() {
@@ -179,6 +220,9 @@ function -z4m-autosuggest-core-read-config() {
   _z4m_autosuggest_state[configured_match_prev_cmd_count]=$match_prev_cmd_count
   _z4m_autosuggest_state[configured_case_insensitive]=$case_insensitive
   _z4m_autosuggest_state[configured_pwd_scan_limit]=$pwd_scan_limit
+
+  -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-read-config || true
+
   REPLY="$enabled"$'\t'"$strategy"$'\t'"$buffer_min_size"$'\t'"$match_prev_max_cmds"$'\t'"$match_prev_cmd_count"$'\t'"$case_insensitive"$'\t'"$pwd_scan_limit"
 }
 
@@ -188,6 +232,26 @@ function -z4m-autosuggest-core-configure-style() {
   else
     ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=black,bold'
   fi
+}
+
+function -z4m-autosuggest-core-load-ai() {
+  (( ${+functions[-z4m-autosuggest-ai-ensure]} )) && return 0
+
+  if (( ${+functions[-z4m-autosuggest-ai]} )); then
+    -z4m-autosuggest-ai || return 1
+    (( ${+functions[-z4m-autosuggest-ai-ensure]} )) && return 0
+  fi
+
+  local src_file=${functions_source[-z4m-autosuggest-core-load-ai]-}
+  local src_dir=${src_file:h}
+  local ai_file=
+  [[ -n $src_dir && -r $src_dir/-z4m-autosuggest-ai ]] && ai_file=$src_dir/-z4m-autosuggest-ai
+  [[ -z $ai_file && -n ${Z4M-} && -r $Z4M/zsh4monkey/fn/-z4m-autosuggest-ai ]] && ai_file=$Z4M/zsh4monkey/fn/-z4m-autosuggest-ai
+  [[ -z $ai_file && -r ./fn/-z4m-autosuggest-ai ]] && ai_file=./fn/-z4m-autosuggest-ai
+  [[ -n $ai_file ]] || return 1
+
+  builtin source "$ai_file" || return 1
+  (( ${+functions[-z4m-autosuggest-ai-ensure]} ))
 }
 
 function -z4m-autosuggest-core-configure-widgets() {
@@ -404,12 +468,14 @@ function -z4m-autosuggest-core-init() {
 
   if (( ! enabled )); then
     -z4m-autosuggest-core-reset disabled
+    -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-reset disabled || true
     if (( ${+functions[_zsh_autosuggest_widget_disable]} )); then
       _zsh_autosuggest_widget_disable || true
     fi
     _z4m_autosuggest_state[state]=disabled
     _z4m_autosuggest_state[runtime_enabled]=0
     _z4m_autosuggest_state[active_strategy]=none
+    _z4m_autosuggest_state[active_provider]=none
     -z4m-autosuggest-core-log info activate "state=disabled"
     return 0
   fi
@@ -418,7 +484,8 @@ function -z4m-autosuggest-core-init() {
   local vendor_file=$vendor_dir/zsh-autosuggestions.zsh
   if [[ ! -r $vendor_file ]]; then
     _z4m_autosuggest_state[last_error]="missing vendor autosuggestions file"
-    return -z4m-autosuggest-core-degrade "${_z4m_autosuggest_state[last_error]}"
+    -z4m-autosuggest-core-degrade "${_z4m_autosuggest_state[last_error]}"
+    return $?
   fi
 
   -z4m-autosuggest-core-configure-style
@@ -429,7 +496,8 @@ function -z4m-autosuggest-core-init() {
   if (( ! ${+_z4m_autosuggest_vendor_loaded} )); then
     builtin source "$vendor_file" || {
       _z4m_autosuggest_state[last_error]="failed to source vendor autosuggestions"
-      return -z4m-autosuggest-core-degrade "${_z4m_autosuggest_state[last_error]}"
+      -z4m-autosuggest-core-degrade "${_z4m_autosuggest_state[last_error]}"
+      return $?
     }
     typeset -gi _z4m_autosuggest_vendor_loaded=1
     -z4m-autosuggest-core-log info vendor "loaded=${vendor_file}"
@@ -478,12 +546,14 @@ function -z4m-autosuggest-core-init() {
     _zsh_autosuggest_start || true
   else
     _z4m_autosuggest_state[last_error]="missing _zsh_autosuggest_start"
-    return -z4m-autosuggest-core-degrade "${_z4m_autosuggest_state[last_error]}"
+    -z4m-autosuggest-core-degrade "${_z4m_autosuggest_state[last_error]}"
+    return $?
   fi
 
   _z4m_autosuggest_state[state]=ready
   _z4m_autosuggest_state[runtime_enabled]=1
   _z4m_autosuggest_state[active_strategy]=$strategy
+  _z4m_autosuggest_state[active_provider]=none
   -z4m-autosuggest-core-log info activate "state=ready strategy=${strategy}"
   return 0
 }
@@ -498,33 +568,43 @@ function -z4m-autosuggest-core-fetch() {
 
   if [[ ${_z4m_autosuggest_state[state]-uninitialized} != ready ]]; then
     unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
+    _z4m_autosuggest_state[active_provider]=none
     return 0
   fi
 
-  if [[ -z $BUFFER || $CONTEXT != start ]]; then
+  -z4m-autosuggest-core-load-ai || true
+  local -i ai_allow_empty=0
+  if (( ${+functions[-z4m-autosuggest-ai-allow-empty-p]} )) && -z4m-autosuggest-ai-allow-empty-p; then
+    ai_allow_empty=1
+  fi
+
+  if [[ $CONTEXT != start ]]; then
     unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
+    _z4m_autosuggest_state[active_provider]=none
+    return 0
+  fi
+  if [[ -z $BUFFER ]] && (( ! ai_allow_empty )); then
+    unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
+    _z4m_autosuggest_state[active_provider]=none
     return 0
   fi
 
-  if [[ "$BUFFER" == "${_z4m_autosuggest_buffer-}"* ]]; then
-    if (( ${#BUFFER} == ${#_z4m_autosuggest_buffer} )); then
-      return 0
-    elif [[ -v _z4m_autosuggestion ]]; then
-      if [[ -z "$_z4m_autosuggestion" ]]; then
-        unset _z4m_autosuggestion
-      elif [[ $POSTDISPLAY == ${BUFFER:${#_z4m_autosuggest_buffer}}* ]]; then
-        POSTDISPLAY="${POSTDISPLAY:$((${#BUFFER} - ${#_z4m_autosuggest_buffer}))}"
-        typeset -g _z4m_autosuggest_buffer="$BUFFER"
-        return 0
-      fi
-    fi
+  if [[ "$BUFFER" == "${_z4m_autosuggest_buffer-}"* ]] &&
+     [[ -v _z4m_autosuggestion ]] && [[ -n ${_z4m_autosuggestion-} ]] &&
+     [[ $POSTDISPLAY == ${BUFFER:${#_z4m_autosuggest_buffer}}* ]]; then
+    POSTDISPLAY="${POSTDISPLAY:$((${#BUFFER} - ${#_z4m_autosuggest_buffer}))}"
+    typeset -g _z4m_autosuggest_buffer="$BUFFER"
+    _z4m_autosuggest_state[active_provider]=local
+    return 0
   fi
 
-  local suggestion
+  local suggestion provider=none
   unset _z4m_autosuggest_ci_original
   local -i do_fetch=1
-  if [[ ${ZSH_AUTOSUGGEST_BUFFER_MIN_SIZE-} == <-> ]] &&
-     (( ${#BUFFER} < ZSH_AUTOSUGGEST_BUFFER_MIN_SIZE )); then
+  if [[ -z $BUFFER ]]; then
+    do_fetch=0
+  elif [[ ${ZSH_AUTOSUGGEST_BUFFER_MIN_SIZE-} == <-> ]] &&
+       (( ${#BUFFER} < ZSH_AUTOSUGGEST_BUFFER_MIN_SIZE )); then
     do_fetch=0
   fi
   if [[ ${ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE-} == <-> ]] &&
@@ -535,6 +615,9 @@ function -z4m-autosuggest-core-fetch() {
   if [[ ${+_ZSH_AUTOSUGGEST_DISABLED} == 0 ]] && (( do_fetch )); then
     if (( ${+functions[_zsh_autosuggest_fetch_suggestion]} )); then
       _zsh_autosuggest_fetch_suggestion "$BUFFER"
+      if [[ -n ${suggestion-} ]]; then
+        provider=local
+      fi
     else
       _z4m_autosuggest_state[last_error]="missing _zsh_autosuggest_fetch_suggestion"
       -z4m-autosuggest-core-degrade "${_z4m_autosuggest_state[last_error]}" || true
@@ -542,16 +625,40 @@ function -z4m-autosuggest-core-fetch() {
     fi
   fi
 
-  if (( do_fetch )); then
-    POSTDISPLAY=${suggestion:${#BUFFER}}
-  else
-    unset POSTDISPLAY
+  if [[ -z ${suggestion-} ]] && (( ${+functions[-z4m-autosuggest-ai-maybe-suggest]} )); then
+    -z4m-autosuggest-ai-maybe-suggest "$BUFFER" fetch
+    if [[ -n ${REPLY-} ]]; then
+      suggestion=$REPLY
+      provider=ai
+    fi
   fi
+
+  if [[ -n ${suggestion-} ]]; then
+    if ! -z4m-autosuggest-core-suggestion-valid-p "$BUFFER" "$suggestion" "$provider"; then
+      local reason=${REPLY:-invalid_suggestion}
+      -z4m-autosuggest-core-log info filter "drop invalid suggestion provider=${provider} reason=${reason}"
+      if [[ $provider == ai ]] && (( ${+_z4m_autosuggest_ai_state} )); then
+        _z4m_autosuggest_ai_state[last_reject]=$reason
+        _z4m_autosuggest_ai_state[last_error]="invalid suggestion from provider (${reason})"
+      fi
+      unset suggestion
+      provider=none
+    fi
+  fi
+
   typeset -g _z4m_autosuggest_buffer="$BUFFER"
   if [[ -n ${suggestion-} ]]; then
-    typeset -g _z4m_autosuggestion="$suggestion"
+    POSTDISPLAY=${suggestion:${#BUFFER}}
+    if [[ -n ${POSTDISPLAY-} ]]; then
+      typeset -g _z4m_autosuggestion="$suggestion"
+      _z4m_autosuggest_state[active_provider]=$provider
+    else
+      unset POSTDISPLAY _z4m_autosuggestion
+      _z4m_autosuggest_state[active_provider]=none
+    fi
   else
-    unset _z4m_autosuggestion
+    unset POSTDISPLAY _z4m_autosuggestion
+    _z4m_autosuggest_state[active_provider]=none
   fi
   return 0
 }
@@ -592,7 +699,10 @@ function -z4m-autosuggest-core-reset() {
     _zsh_autosuggest_highlight_reset || true
   fi
 
+  -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-reset "$reason" || true
+
   unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion _z4m_autosuggest_ci_original
+  _z4m_autosuggest_state[active_provider]=none
   -z4m-autosuggest-core-log info reset "$reason"
   return 0
 }
@@ -607,6 +717,7 @@ function -z4m-autosuggest-core-status() {
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
   -z4m-autosuggest-core-ensure
+  -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-read-config || true
 
   local vendor_meta=$Z4M/zsh4monkey/vendor/zsh-autosuggestions/.z4m-vendor-meta
   local zas_version=unknown zas_commit=unknown key value
@@ -632,6 +743,7 @@ function -z4m-autosuggest-core-status() {
   print -r -- "configured_case_insensitive=${_z4m_autosuggest_state[configured_case_insensitive]-0}"
   print -r -- "configured_pwd_scan_limit=${_z4m_autosuggest_state[configured_pwd_scan_limit]-500}"
   print -r -- "active_strategy=${_z4m_autosuggest_state[active_strategy]-none}"
+  print -r -- "active_provider=${_z4m_autosuggest_state[active_provider]-none}"
   print -r -- "state=${_z4m_autosuggest_state[state]-uninitialized}"
   print -r -- "initialized=${initialized}"
   print -r -- "runtime_enabled=${runtime_enabled}"
@@ -639,4 +751,6 @@ function -z4m-autosuggest-core-status() {
   print -r -- "last_error=${_z4m_autosuggest_state[last_error]-}"
   print -r -- "zas_version=${zas_version}"
   print -r -- "zas_commit=${zas_commit}"
+
+  -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-status
 }
