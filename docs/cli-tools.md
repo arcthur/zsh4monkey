@@ -36,10 +36,11 @@ When enabled, z4m creates these aliases:
 
 | Alias | Command | Description |
 |-------|---------|-------------|
-| `ls` | `eza` | Basic listing |
-| `ll` | `eza -la` | Long format with hidden files |
-| `la` | `eza -a` | All files |
-| `lt` | `eza --tree` | Tree view |
+| `ls` | `eza --group-directories-first` | Basic listing (directories first) |
+| `ll` | `eza -la --group-directories-first` | Long format with hidden files |
+| `la` | `eza -a --group-directories-first` | All files |
+| `lt` | `eza --tree --level=2` | Tree view (depth 2) |
+| `tree` | `eza --tree` | Full tree view |
 
 ### Configuration
 
@@ -56,7 +57,20 @@ Syntax-highlighted file viewer.
 
 | Alias | Command | Description |
 |-------|---------|-------------|
-| `cat` | `bat` | View files with highlighting |
+| `cat` | `bat --paging=never --style=plain` | View files with highlighting (no pager) |
+
+When enabled and `BAT_THEME` is unset, z4m sets a default theme:
+
+```zsh
+export BAT_THEME=TwoDark
+```
+
+If `MANPAGER` is unset, z4m also sets:
+
+```zsh
+export MANPAGER="sh -c 'col -bx | bat -l man -p'"
+export MANROFFOPT="-c"
+```
 
 ### Usage
 

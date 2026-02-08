@@ -46,21 +46,24 @@ See [ssh.md](ssh.md) for details.
 
 | Command | Description |
 |---------|-------------|
-| `z4m docker [image]` | Run zsh in Docker container |
-| `z4m sudo <cmd>` | Run command as root preserving z4m |
+| `z4m docker [docker-args...]` | Run `docker` with z4m TERM compatibility wrapper |
+| `z4m sudo [sudo-args...]` | Run `sudo` with z4m TERM compatibility wrapper |
 | `z4m pack` | Create offline installation package |
+
+See [design-pack.md](design-pack.md) for how `z4m pack` works and what it includes.
 
 ### Docker Usage
 
 ```bash
-z4m docker              # Run in default container
-z4m docker ubuntu:22.04 # Run in specific image
+z4m docker ps
+z4m docker run --rm -it ubuntu:22.04 bash
 ```
 
 ### Sudo Usage
 
 ```bash
-z4m sudo vim /etc/hosts  # Edit as root with z4m environment
+z4m sudo -v
+z4m sudo vim /etc/hosts
 ```
 
 ## Key Bindings

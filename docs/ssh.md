@@ -32,12 +32,12 @@ z4m ssh myserver
 Use patterns to control which hosts receive teleportation:
 
 ```zsh
-# Blacklist approach (default off, enable specific hosts)
+# Default-off mode (opt-in hosts)
 zstyle ':z4m:ssh:*' enable 'no'
 zstyle ':z4m:ssh:myserver' enable 'yes'
 zstyle ':z4m:ssh:dev-*' enable 'yes'
 
-# Whitelist approach (default on, disable specific hosts)
+# Default-on mode (opt-out hosts)
 zstyle ':z4m:ssh:*' enable 'yes'
 zstyle ':z4m:ssh:production-*' enable 'no'
 zstyle ':z4m:ssh:*.prod.company.com' enable 'no'
@@ -155,8 +155,8 @@ For complex setups, define a custom configuration function:
 
 ```zsh
 my-ssh-configure() {
-  # Add files to send
-  z4m_ssh_send_files+=('~/.special-config')
+  # Add files to send (associative array: local -> remote)
+  z4m_ssh_send_files[$HOME/.special-config]=$HOME/.special-config
 
   # Add setup commands (run on remote before shell starts)
   z4m_ssh_setup+=('mkdir -p ~/.local/bin')
@@ -170,8 +170,8 @@ my-ssh-configure() {
   # Add teardown commands (run after zsh exits)
   z4m_ssh_teardown+=('rm -f ~/.temp-file')
 
-  # Add files to retrieve
-  z4m_ssh_retrieve_files+=('~/.remote-notes')
+  # Add files to retrieve (associative array: remote -> local)
+  z4m_ssh_retrieve_files[$HOME/.remote-notes]=$HOME/.remote-notes
 }
 
 zstyle ':z4m:ssh:specialhost' configure 'my-ssh-configure'
@@ -182,11 +182,11 @@ Available arrays:
 | Array | When | Purpose |
 |-------|------|---------|
 | `z4m_ssh_prelude` | Before ssh | Shell setup before connection |
-| `z4m_ssh_send_files` | During transfer | Files to send |
+| `z4m_ssh_send_files` | During transfer | Files to send (associative map: local -> remote) |
 | `z4m_ssh_setup` | After transfer | Setup commands on remote |
 | `z4m_ssh_run` | In zsh | Commands to run in shell |
 | `z4m_ssh_teardown` | After exit | Cleanup commands |
-| `z4m_ssh_retrieve_files` | After exit | Files to retrieve |
+| `z4m_ssh_retrieve_files` | After exit | Files to retrieve (associative map: remote -> local) |
 
 ### ProxyJump Support
 
@@ -240,7 +240,7 @@ zstyle ':z4m:ssh-agent:' extra-args -t 20h  # Key lifetime
 2. Reduce files being sent:
    ```bash
    # Check what's being sent
-   z4m ssh --verbose slowhost
+   z4m ssh -v slowhost
    ```
 
 ### Environment not propagating
@@ -257,7 +257,7 @@ zstyle ':z4m:ssh-agent:' extra-args -t 20h  # Key lifetime
 
 3. Enable debug:
    ```zsh
-   Z4M_DEBUG=1 z4m ssh host
+   Z4M_ENV_PROPAGATION_DEBUG=1 z4m ssh host
    ```
 
 ### Remote shell issues
@@ -293,10 +293,10 @@ zstyle ':z4m:ssh-agent:' extra-args -t 20h  # Key lifetime
 
 | File | Purpose |
 |------|---------|
-| `fn/z4m-ssh` | Main ssh wrapper |
-| `fn/-z4m-ssh-pack` | Bundle creation |
-| `fn/-z4m-ssh-unpack` | Remote extraction |
-| `fn/-z4m-env-propagation-*` | Environment variable handling |
+| `fn/-z4m-cmd-ssh` | Main ssh command wrapper and transfer orchestration |
+| `sc/ssh-bootstrap` | Remote bootstrap script template |
+| `fn/-z4m-init` | Remote-side env propagation restore |
+| `fn/-z4m-env-propagation-*` | Env propagation parser/limits/diagnostics |
 
 ### Environment Variable
 

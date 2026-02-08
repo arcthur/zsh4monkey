@@ -38,7 +38,7 @@ zstyle ':z4m:ssh:*' propagate-env-exclude 'MY_INTERNAL_*'
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                     LOCAL: z4m ssh command                      │
-│                    fn/-z4m-cmd-ssh:181-286                      │
+│                    fn/-z4m-cmd-ssh:181-337                      │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │  1. Parse zstyle configuration                                  │
@@ -90,7 +90,7 @@ zstyle ':z4m:ssh:*' propagate-env-exclude 'MY_INTERNAL_*'
 
 ## 3. Implementation
 
-### 3.1 Local Collection (fn/-z4m-cmd-ssh:181-286)
+### 3.1 Local Collection (fn/-z4m-cmd-ssh:181-337)
 
 ```zsh
 # Collect variables according to zstyle rules, apply exclusions, deduplicate.
@@ -227,6 +227,6 @@ export GITHUB_TOKEN='ghp_xxx'
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `fn/-z4m-cmd-ssh` | 181-286 | Variable collection and Base64 encoding |
-| `fn/-z4m-init` | 5-17 | Remote restoration logic |
-| `config.md` | 298-323 | User-facing configuration documentation |
+| `fn/-z4m-cmd-ssh` | 181-337 | Variable collection and Base64 encoding |
+| `fn/-z4m-init` | 9-57 | Remote restoration logic |
+| `docs/config.md` | Autosuggestions/SSH section | User-facing configuration documentation |

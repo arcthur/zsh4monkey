@@ -102,7 +102,10 @@ Enabled by default. Shows context-aware preview for completions:
 zstyle ':z4m:fzf-complete' fzf-preview no
 
 # Custom preview command
-zstyle ':z4m:fzf-complete' fzf-preview 'bat --color=always {}'
+# Note: z4m uses NUL-delimited records in fzf.
+# - {1} is the internal key field
+# - {2} is the displayed text field
+zstyle ':z4m:fzf-complete' fzf-preview 'bat --color=always -- {2}'
 ```
 
 ## Configuration

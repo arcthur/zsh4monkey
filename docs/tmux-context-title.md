@@ -4,20 +4,20 @@
 
 Dynamic tmux window naming that reflects your current context:
 - **Project name**: Detected from directory structure
-- **Git branch**: With dirty indicator (`*`) for uncommitted changes
-- **Running command**: With Nerd Font icon during execution
+- **Git branch (optional)**: With dirty indicator (`*`) for uncommitted changes
+- **Running command (optional icons)**: Shows the active command during execution; can add Nerd Font icons
 
 ## How It Works
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Tmux Window Name (status bar)                              │
-│  Format: project:branch* or  command                       │
-│  Example:  backend:main* →  nvim → backend:main           │
+│  Format: project[:branch*] or command                       │
+│  Example:  backend:main* → nvim → backend:main              │
 ├─────────────────────────────────────────────────────────────┤
 │  Lifecycle:                                                 │
 │    1. chpwd   → Update to project:branch context            │
-│    2. preexec → Show running command with icon              │
+│    2. preexec → Show running command (optional icon)        │
 │    3. precmd  → Restore to project:branch context           │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -26,11 +26,12 @@ Dynamic tmux window naming that reflects your current context:
 
 | Context | Window Name |
 |---------|-------------|
-| In `~/work/backend` on `main` branch, clean | `backend:main` |
-| In `~/work/backend` on `main` branch, dirty | `backend:main*` |
-| Running `nvim` | ` nvim` |
-| Running `docker compose up` | ` docker` |
-| Running `npm install` | ` npm` |
+| In `~/work/backend` on `main` branch, clean (default) | `backend` |
+| In `~/work/backend` on `main` branch, clean (`git-branch` enabled) | `backend:main` |
+| In `~/work/backend` on `main` branch, dirty (`git-branch` enabled) | `backend:main*` |
+| Running `nvim` | `nvim` |
+| Running `docker compose up` | `docker` |
+| Running `kubectl get pods` (`command-icons` enabled) | `󱃾 kubectl` |
 | In `~/Downloads` (no project) | `Downloads` |
 
 ## Configuration
@@ -41,10 +42,10 @@ All settings use zstyle. Add to your `.zshrc`:
 # Enable/disable (default: yes when in tmux)
 zstyle ':z4m:tmux-title' enable yes
 
-# Show git branch (default: yes)
+# Show git branch (default: no)
 zstyle ':z4m:tmux-title' git-branch yes
 
-# Show command icons (default: yes)
+# Show command icons (default: no)
 zstyle ':z4m:tmux-title' command-icons yes
 
 # Maximum title length (default: 24)
@@ -68,7 +69,7 @@ zstyle ':z4m:tmux-title' git-branch no
 
 ```zsh
 zstyle ':z4m:tmux-title' command-icons no
-# Result: Shows "nvim" instead of " nvim"
+# Result: Shows "kubectl" instead of "󱃾 kubectl"
 ```
 
 ## Project Detection
@@ -117,21 +118,15 @@ Icons are displayed when running commands. Requires a [Nerd Font](https://www.ne
 
 ### Supported Commands
 
-| Command | Icon | Command | Icon |
-|---------|------|---------|------|
-| nvim/vim |  | python |  |
-| node/npm |  | docker |  |
-| ssh |  | git |  |
-| cargo |  | go |  |
-| make |  | kubectl | 󱃾 |
-| lazygit |  | tmux |  |
-| curl |  | brew |  |
+The shipped icon map is intentionally minimal. Currently:
 
-Full list in `fn/-z4m-init-tmux-title`.
+| Command | Icon |
+|---------|------|
+| `kubectl` | `󱃾` |
 
-### Fallback
+Other commands show no icon (command name only).
 
-Unknown commands show no icon (command name only).
+Full map is in `fn/-z4m-init-tmux-title` (empty values mean "no icon").
 
 ## Requirements
 
@@ -162,7 +157,7 @@ Unknown commands show no icon (command name only).
 
 Ensure your terminal uses a Nerd Font. Test with:
 ```bash
-echo ""  # Should show a folder icon
+printf '󱃾\n'  # Should render the kubectl icon
 ```
 
 ### Git branch not showing

@@ -79,7 +79,7 @@ Emergency shell when z4m initialization fails completely.
 |--------|-------------|
 | Command | `z4m recovery` |
 | Keyboard | Bind `z4m-recovery-shell` to a key |
-| Automatic | main.zsh fails to load |
+| Environment | `_Z4M_RECOVERY_MODE=1 zsh` (used internally by `z4m-recovery-shell`) |
 
 ### Available Commands
 
@@ -181,7 +181,11 @@ rm -f ~/.cache/zsh4monkey/cache/last-init-failed.log
 
 2. Clear z4m state:
    ```bash
-   rm -rf ~/.cache/zsh4monkey
+   # Recommended: keep a backup for postmortem
+   mv ~/.cache/zsh4monkey ~/.cache/zsh4monkey.bak.$(date +%s)
+
+   # Last resort (destructive): delete everything
+   # rm -rf ~/.cache/zsh4monkey
    ```
 
 3. Restart zsh
@@ -273,10 +277,10 @@ When adding new plugins or configurations:
 ### How Safe Mode Works
 
 Safe mode:
-1. Sets `Z4M_SAFE_MODE=1`
-2. Skips plugin loading
-3. Provides minimal prompt
-4. Registers recovery commands
+1. Detects safe mode triggers (`Z4M_SAFE_MODE=1`, `$Z4M/.safe-mode`, or `$Z4M/.last-init-failed`)
+2. Unsets `Z4M_SAFE_MODE` to avoid sticky env state
+3. Skips plugin loading (clears install queue, disables z4m hooks/widgets)
+4. Provides a minimal prompt and helper commands (`z4m-safe-*`)
 
 ### How Failure Detection Works
 

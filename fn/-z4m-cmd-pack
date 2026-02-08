@@ -108,7 +108,7 @@ fi
 set -e
 
 ZDOTDIR="${1:-$HOME}"
-Z4M="${Z4M:-$HOME/.cache/z4m}"
+Z4M="${Z4M:-${XDG_CACHE_HOME:-$HOME/.cache}/zsh4monkey}"
 
 echo "Installing z4m to: $Z4M"
 echo "ZDOTDIR: $ZDOTDIR"
@@ -133,7 +133,11 @@ DATA_OFFSET=$((DATA_OFFSET + 1))
 TMPDIR=$(mktemp -d)
 trap "rm -rf '$TMPDIR'" EXIT
 
-tail -n +$DATA_OFFSET "$SCRIPT_PATH" | base64 -d | tar -xzf - -C "$TMPDIR"
+b64decode() {
+  base64 -d 2>/dev/null || base64 -D 2>/dev/null
+}
+
+tail -n +$DATA_OFFSET "$SCRIPT_PATH" | b64decode | tar -xzf - -C "$TMPDIR"
 
 # Install z4m core
 if [ -f "$TMPDIR/z4m.tar.gz" ]; then

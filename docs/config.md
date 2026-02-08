@@ -55,10 +55,12 @@ See [keybindings.md](keybindings.md) for key binding reference.
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m:autosuggestions enabled` | bool | `yes` | Enable built-in autosuggestions |
-| `:z4m:autosuggestions strategy` | string | `history` | Suggestion strategy: `history` or `match_prev_cmd` |
+| `:z4m:autosuggestions strategy` | string | `history` | Suggestion strategy list: `history`, `history_pwd`, `match_prev_cmd` |
 | `:z4m:autosuggestions buffer-min-size` | int | unset | Skip suggestions when `BUFFER` length is below this threshold |
 | `:z4m:autosuggestions match-prev-max-cmds` | int | `200` | Max matching history commands to inspect for `match_prev_cmd` (`-1` means all) |
 | `:z4m:autosuggestions match-prev-cmd-count` | int | `1` | Number of preceding commands that must match for `match_prev_cmd` |
+| `:z4m:autosuggestions case-insensitive` | bool | `no` | Case-insensitive matching for local history strategies |
+| `:z4m:autosuggestions pwd-scan-limit` | int | `500` | Max history entries scanned for `history_pwd` strategy |
 | `:z4m:autosuggestions forward-char` | string | `accept` | Cursor right behavior: `accept` or `partial-accept` |
 | `:z4m:autosuggestions end-of-line` | string | `accept` | End-of-line behavior: `accept` or `partial-accept` |
 | `:z4m:autosuggestions:ai enabled` | bool | `no` | Enable AI sidecar suggestions |
@@ -160,8 +162,8 @@ See [tmux-unified-nav.md](tmux-unified-nav.md) for details.
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m:tmux-title enable` | bool | `yes` | Enable context-aware window naming |
-| `:z4m:tmux-title git-branch` | bool | `yes` | Show git branch in title |
-| `:z4m:tmux-title command-icons` | bool | `yes` | Show command icons (requires Nerd Font) |
+| `:z4m:tmux-title git-branch` | bool | `no` | Show git branch in title |
+| `:z4m:tmux-title command-icons` | bool | `no` | Show command icons (requires Nerd Font) |
 | `:z4m:tmux-title max-length` | int | `24` | Maximum title length |
 
 See [tmux-context-title.md](tmux-context-title.md) for details.
@@ -292,7 +294,7 @@ See [shell-integration.md](shell-integration.md) for details.
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m:dir-history: cwd` | string | `%~` | CWD display format |
-| `:z4m:dir-history: max-size` | int | `1000` | Maximum entries |
+| `:z4m:dir-history: max-size` | int | `10000` | Maximum entries |
 
 ---
 
@@ -300,6 +302,8 @@ See [shell-integration.md](shell-integration.md) for details.
 
 | Document | Description |
 |----------|-------------|
+| [design-core.md](design-core.md) | Core framework design (init, safety, performance) |
+| [design-pack.md](design-pack.md) | Offline packaging design (`z4m pack`) |
 | [keybindings.md](keybindings.md) | Key binding reference |
 | [commands.md](commands.md) | Command reference |
 | [ssh.md](ssh.md) | SSH teleportation guide |

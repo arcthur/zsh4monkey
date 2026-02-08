@@ -31,10 +31,12 @@ Lifecycle states:
 ## Public Configuration
 
 - `:z4m:autosuggestions enabled` -> `yes|no`
-- `:z4m:autosuggestions strategy` -> `history|match_prev_cmd`
+- `:z4m:autosuggestions strategy` -> space-separated list of `history|history_pwd|match_prev_cmd`
 - `:z4m:autosuggestions buffer-min-size` -> non-negative integer (optional)
 - `:z4m:autosuggestions match-prev-max-cmds` -> positive integer or `-1`
 - `:z4m:autosuggestions match-prev-cmd-count` -> positive integer
+- `:z4m:autosuggestions case-insensitive` -> `yes|no`
+- `:z4m:autosuggestions pwd-scan-limit` -> positive integer
 - `:z4m:autosuggestions forward-char` -> `accept|partial-accept`
 - `:z4m:autosuggestions end-of-line` -> `accept|partial-accept`
 - `:z4m:autosuggestions:ai enabled` -> `yes|no`

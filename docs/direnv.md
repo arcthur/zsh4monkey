@@ -227,7 +227,8 @@ z4m hooks into direnv using:
 
 | File | Purpose |
 |------|---------|
-| `fn/-z4m-init-direnv` | Direnv initialization |
+| `fn/-z4m-direnv-init` | Direnv initialization/caching |
+| `fn/-z4m-direnv-hook` | Hook execution with timeout/interrupt handling |
 
 ### Environment Variables
 

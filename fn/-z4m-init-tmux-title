@@ -229,8 +229,12 @@ function -z4m-tmux-title-preexec() {
   [[ $cmd == (sudo|env|time|nohup|nice|ionice|strace|ltrace) ]] && cmd=${1[(w)2]:t}
 
   if (( show_icons )); then
-    icon=${_z4m_cmd_icons[$cmd]:-''}
-    title="${icon} ${cmd}"
+    icon=${_z4m_cmd_icons[$cmd]:-}
+    if [[ -n $icon ]]; then
+      title="${icon} ${cmd}"
+    else
+      title=$cmd
+    fi
   else
     title=$cmd
   fi

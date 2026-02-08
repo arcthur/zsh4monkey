@@ -58,12 +58,14 @@ See [tmux-unified-nav.md](tmux-unified-nav.md) for details.
 | `Alt+D` | Delete word forward |
 | `Ctrl+/` | Undo |
 
+When running inside tmux with `:z4m:tmux-nav` enabled, `Ctrl+H/J/K/L` follow unified pane-navigation behavior instead of default editing actions.
+
 ## Completion
 
 | Key | Action |
 |-----|--------|
 | `Tab` | Complete / open fzf selector |
-| `Shift+Tab` | Previous completion |
+| `Shift+Tab` | Undo |
 
 ### In fzf Completion
 
@@ -99,7 +101,8 @@ These operate on complete shell arguments (respecting quotes).
 |-----|--------|
 | `Escape` | Enter normal mode |
 | `Ctrl+[` | Enter normal mode |
-| `jk` | Enter normal mode (if configured) |
+
+No `jk`-style insert-mode escape sequence is configured by default.
 
 ### Normal Mode
 
