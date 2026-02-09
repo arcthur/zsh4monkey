@@ -6,8 +6,7 @@ if (( ${+_z4m_redraw_fd} )); then
   unset _z4m_redraw_fd
 fi
 
-if [[ -v region_highlight &&
-      ( ${LASTWIDGET-} != accept-line || ${WIDGET-} != zle-line-pre-redraw ) ]]; then
+if [[ ${LASTWIDGET-} != accept-line || ${WIDGET-} != zle-line-pre-redraw ]]; then
   (( ${+_z4m_skip_autosuggest_fetch} )) || -z4m-autosuggest-fetch
   -z4m-highlight-render
 fi

@@ -68,7 +68,7 @@ See [keybindings.md](keybindings.md) for key binding reference.
 | `:z4m:autosuggestions:ai model` | string | `deepseek-chat` | Model ID used for AI suggestions |
 | `:z4m:autosuggestions:ai api-key-env` | string | `DEEPSEEK_API_KEY` | Environment variable name containing API key (required when AI is enabled) |
 | `:z4m:autosuggestions:ai mode` | string | `passive` | Trigger mode: `manual`, `passive`, `auto` |
-| `:z4m:autosuggestions:ai timeout-ms` | int | `700` | HTTP timeout in milliseconds |
+| `:z4m:autosuggestions:ai timeout-ms` | int | `3000` | HTTP timeout in milliseconds |
 | `:z4m:autosuggestions:ai debounce-ms` | int | `160` | Buffer-stable debounce window |
 | `:z4m:autosuggestions:ai cooldown-ms` | int | `800` | Minimum time between AI requests |
 | `:z4m:autosuggestions:ai min-input` | int | `2` | Minimum buffer length before querying AI (`0` allows empty buffer in `auto` mode) |
@@ -77,9 +77,28 @@ See [keybindings.md](keybindings.md) for key binding reference.
 | `:z4m:autosuggestions:ai history-lines` | int | `6` | Number of recent history lines sent as context |
 | `:z4m:autosuggestions:ai token-budget-per-minute` | int | `12000` | Approximate per-minute token budget |
 | `:z4m:autosuggestions:ai token-budget-per-day` | int | `300000` | Approximate per-day token budget |
+| `:z4m:autosuggestions:ai rewrite-enabled` | bool | `yes` | Enable manual AI rewrite lane (`Ctrl+O`, no input prefix required) |
+| `:z4m:autosuggestions:ai rewrite-key` | string | `^O` | ZLE key sequence used to trigger manual AI rewrite |
+| `:z4m:autosuggestions:ai intent-command-enabled` | bool | `yes` | Enable `z4m ai \"...\"` intent command lane |
+| `:z4m:autosuggestions:ai prompt-extend` | string | empty | Extra instruction appended to AI system prompt |
+| `:z4m:autosuggestions:ai context-output-lines` | int | `40` | Max lines captured from terminal output context |
+| `:z4m:autosuggestions:ai context-output-max-chars` | int | `2000` | Max chars kept from terminal output context |
+| `:z4m:autosuggestions:ai proxy-enabled` | bool | `no` | Enable tmux pane proxy fallback for output context |
 
 Autosuggestions are built into z4m. No installation is required.
 If `:z4m:autosuggestions:ai enabled` is `yes`, the API key environment variable must be set.
+
+Context policy is fixed in code:
+
+- project context is always enabled;
+- output context is only used for manual rewrite and intent command lanes;
+- output source is fixed to `tmux capture-pane -> proxy tail` (no kitty branch).
+
+The following legacy styles are now ignored (safe no-op):
+
+- `:z4m:autosuggestions:ai context-project-enabled`
+- `:z4m:autosuggestions:ai context-output-enabled`
+- `:z4m:autosuggestions:ai context-output-source`
 
 Example:
 
@@ -99,7 +118,19 @@ zstyle ':z4m:autosuggestions:ai' max-input-tokens 384
 zstyle ':z4m:autosuggestions:ai' max-output-tokens 96
 zstyle ':z4m:autosuggestions:ai' token-budget-per-minute 12000
 zstyle ':z4m:autosuggestions:ai' token-budget-per-day 300000
+
+# Manual rewrite lane (Ctrl+O by default)
+zstyle ':z4m:autosuggestions:ai' rewrite-enabled yes
+zstyle ':z4m:autosuggestions:ai' rewrite-key '^O'
+
+# Intent command lane
+zstyle ':z4m:autosuggestions:ai' intent-command-enabled yes
+
+# Optional output-context proxy (tmux-only, default off)
+zstyle ':z4m:autosuggestions:ai' proxy-enabled no
 ```
+
+See [autosuggest.md](autosuggest.md) for runtime flow, lane design, and diagnostics details.
 
 ## Highlighting
 
@@ -308,6 +339,7 @@ See [shell-integration.md](shell-integration.md) for details.
 | [commands.md](commands.md) | Command reference |
 | [ssh.md](ssh.md) | SSH teleportation guide |
 | [cli-tools.md](cli-tools.md) | CLI tools integration |
+| [autosuggest.md](autosuggest.md) | Autosuggestions runtime and AI lanes |
 | [fzf-completion.md](fzf-completion.md) | FZF completion details |
 | [history-search.md](history-search.md) | History search and Atuin |
 | [shell-integration.md](shell-integration.md) | OSC 133 and notifications |

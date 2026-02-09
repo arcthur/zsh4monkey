@@ -1,0 +1,152 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+function -z4m-cmd-ai-usage() {
+  print -Pru2 -- 'Usage: %F{2}z4m%f %Bai%b <query>'
+  print -Pru2 -- '       %F{2}z4m%f %Bai%b proxy [status|on|off]'
+  print -Pru2 -- ''
+  print -Pru2 -- 'Examples:'
+  print -Pru2 -- '  z4m ai "find largest files under current dir"'
+  print -Pru2 -- '  z4m ai proxy status'
+}
+
+function -z4m-cmd-ai-load-runtime() {
+  (( ${+functions[-z4m-autosuggest-core-load-ai]} )) || -z4m-autosuggest-core || return 1
+  -z4m-autosuggest-core-load-ai || return 1
+  (( ${+functions[-z4m-autosuggest-ai-read-config]} )) || return 1
+  -z4m-autosuggest-ai-read-config || true
+  return 0
+}
+
+function -z4m-cmd-ai-load-map() {
+  typeset -gA _z4m_ai_proxy_status
+  _z4m_ai_proxy_status=()
+  local -a lines
+  lines=("${(@f)$(-z4m-autosuggest-ai-proxy-status-lines)}")
+
+  local line key value
+  for line in "${lines[@]}"; do
+    key=${line%%=*}
+    value=${line#*=}
+    _z4m_ai_proxy_status[$key]=$value
+  done
+}
+
+function -z4m-cmd-ai-proxy-status() {
+  -z4m-cmd-ai-load-map
+  local tmux_available=${_z4m_ai_proxy_status[proxy_tmux_available]-0}
+  local configured_enabled=${_z4m_ai_proxy_status[proxy_configured_enabled]-0}
+  local runtime_enabled=${_z4m_ai_proxy_status[proxy_runtime_enabled]-0}
+  local effective_enabled=${_z4m_ai_proxy_status[proxy_effective_enabled]-0}
+  local pane=${_z4m_ai_proxy_status[proxy_pane]-}
+  local log_path=${_z4m_ai_proxy_status[proxy_log_path]-}
+  local last_updated=${_z4m_ai_proxy_status[proxy_last_updated]:-0}
+
+  local updated_display='never'
+  if [[ $last_updated == <-> ]] && (( last_updated > 0 )); then
+    updated_display=$(strftime '%Y-%m-%d %H:%M:%S' "$last_updated" 2>/dev/null)
+    [[ -n $updated_display ]] || updated_display=$last_updated
+  fi
+
+  print -Pr -- '%F{3}z4m%f: ai proxy status'
+  print -Pr -- "  tmux available:     ${tmux_available}"
+  print -Pr -- "  configured enabled: ${configured_enabled}"
+  print -Pr -- "  runtime enabled:    ${runtime_enabled}"
+  print -Pr -- "  effective enabled:  ${effective_enabled}"
+  print -Pr -- "  pane:               ${pane:-none}"
+  print -Pr -- "  log path:           ${log_path:-none}"
+  print -Pr -- "  last updated:       ${updated_display}"
+
+  if (( ! tmux_available )); then
+    print -Pr -- '  note: tmux is unavailable; output context will safely degrade to no output-context.'
+  fi
+}
+
+function -z4m-cmd-ai-proxy-control() {
+  local action=${1-}
+  case $action in
+    status|'')
+      -z4m-cmd-ai-proxy-status
+      return 0
+      ;;
+    on|off)
+      if ! -z4m-autosuggest-ai-proxy-control "$action"; then
+        local err=${_z4m_autosuggest_ai_state[last_error]-unknown error}
+        print -Pru2 -- "%F{3}z4m%f: %Bai proxy ${action}%b failed: %F{1}${err//\%/%%}%f"
+        return 1
+      fi
+      print -Pr -- "%F{3}z4m%f: ${REPLY}"
+      -z4m-cmd-ai-proxy-status
+      return 0
+      ;;
+    *)
+      print -Pru2 -- "%F{3}z4m%f: %Bai proxy%b: unknown subcommand: %F{1}${action//\%/%%}%f"
+      return 1
+      ;;
+  esac
+}
+
+-z4m-cmd-ai-load-runtime || {
+  print -Pru2 -- '%F{3}z4m%f: failed to load ai runtime'
+  return 1
+}
+
+if (( ARGC == 0 )); then
+  -z4m-cmd-ai-usage
+  return 1
+fi
+
+if [[ $1 == (--help|-h|help) ]]; then
+  -z4m-cmd-ai-usage
+  return 0
+fi
+
+if [[ $1 == proxy ]]; then
+  shift
+  local proxy_subcmd=${1-status}
+  [[ $# -gt 0 ]] && shift
+  if (( $# > 0 )); then
+    print -Pru2 -- '%F{3}z4m%f: %Bai proxy%b: too many arguments'
+    return 1
+  fi
+  -z4m-cmd-ai-proxy-control "$proxy_subcmd"
+  return $?
+fi
+
+local query="$*"
+if [[ -z $query ]]; then
+  print -Pru2 -- '%F{3}z4m%f: %Bai%b: missing query'
+  -z4m-cmd-ai-usage
+  return 1
+fi
+
+if ! -z4m-autosuggest-ai-intent-command "$query"; then
+  local reject=${_z4m_autosuggest_ai_state[last_reject]-failed}
+  local err=${_z4m_autosuggest_ai_state[last_error]-'unknown error'}
+  case $reject in
+    missing_api_key)
+      print -Pru2 -- "%F{3}z4m%f: %Bai%b failed: missing API key (${_z4m_autosuggest_ai_state[configured_api_key_env]-DEEPSEEK_API_KEY})"
+      ;;
+    curl_failed|http_error|timeout)
+      print -Pru2 -- "%F{3}z4m%f: %Bai%b failed: network/provider error (${err//\%/%%})"
+      ;;
+    invalid_protocol|empty_suggestion|low_quality)
+      print -Pru2 -- "%F{3}z4m%f: %Bai%b failed: response parse/quality rejected (${reject//\%/%%})"
+      ;;
+    *)
+      print -Pru2 -- "%F{3}z4m%f: %Bai%b failed: ${err//\%/%%}"
+      ;;
+  esac
+  return 1
+fi
+
+local command_line=$REPLY
+if [[ -z $command_line ]]; then
+  print -Pru2 -- '%F{3}z4m%f: %Bai%b failed: empty command result'
+  return 1
+fi
+
+print -z -- "$command_line"
+print -Pr -- '%F{3}z4m%f: AI command queued to ZLE buffer (not executed)'

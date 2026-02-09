@@ -223,12 +223,19 @@ function -z4m-autosuggest-core-read-config() {
 
   -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-read-config || true
 
-  REPLY="$enabled"$'\t'"$strategy"$'\t'"$buffer_min_size"$'\t'"$match_prev_max_cmds"$'\t'"$match_prev_cmd_count"$'\t'"$case_insensitive"$'\t'"$pwd_scan_limit"
+  # Unit Separator (ASCII 0x1F) avoids collision with tab in strategy names.
+  local sep=$'\x1f'
+  REPLY="${enabled}${sep}${strategy}${sep}${buffer_min_size}${sep}${match_prev_max_cmds}${sep}${match_prev_cmd_count}${sep}${case_insensitive}${sep}${pwd_scan_limit}"
 }
 
 function -z4m-autosuggest-core-configure-style() {
-  if (( terminfo[colors] >= 256 )); then
-    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=244'
+  local style=
+  if zstyle -s :z4m:autosuggestions highlight-style style && [[ -n $style ]]; then
+    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=$style
+    return 0
+  fi
+  if (( ${+terminfo[colors]} && terminfo[colors] >= 256 )); then
+    ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=244,bold'
   else
     ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=black,bold'
   fi
@@ -461,7 +468,7 @@ function -z4m-autosuggest-core-init() {
   config=$REPLY
 
   local enabled strategy buffer_min_size match_prev_max_cmds match_prev_cmd_count case_insensitive pwd_scan_limit
-  IFS=$'\t' read -r enabled strategy buffer_min_size match_prev_max_cmds match_prev_cmd_count case_insensitive pwd_scan_limit <<< "$config"
+  IFS=$'\x1f' read -r enabled strategy buffer_min_size match_prev_max_cmds match_prev_cmd_count case_insensitive pwd_scan_limit <<< "$config"
   _z4m_autosuggest_state[state]=initializing
   _z4m_autosuggest_state[last_error]=
   -z4m-autosuggest-core-log info init "enabled=${enabled} strategy=${strategy} buffer_min=${buffer_min_size:-none} match_prev_max=${match_prev_max_cmds} match_prev_count=${match_prev_cmd_count} ci=${case_insensitive} pwd_scan=${pwd_scan_limit}"
@@ -572,16 +579,20 @@ function -z4m-autosuggest-core-fetch() {
     return 0
   fi
 
-  -z4m-autosuggest-core-load-ai || true
   local -i ai_allow_empty=0
-  if (( ${+functions[-z4m-autosuggest-ai-allow-empty-p]} )) && -z4m-autosuggest-ai-allow-empty-p; then
-    ai_allow_empty=1
-  fi
 
   if [[ $CONTEXT != start ]]; then
     unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
     _z4m_autosuggest_state[active_provider]=none
     return 0
+  fi
+
+  -z4m-autosuggest-core-load-ai || true
+  if (( ${+functions[-z4m-autosuggest-ai-pre-redraw]} )); then
+    -z4m-autosuggest-ai-pre-redraw "$BUFFER" || true
+  fi
+  if (( ${+functions[-z4m-autosuggest-ai-allow-empty-p]} )) && -z4m-autosuggest-ai-allow-empty-p; then
+    ai_allow_empty=1
   fi
   if [[ -z $BUFFER ]] && (( ! ai_allow_empty )); then
     unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
@@ -625,9 +636,19 @@ function -z4m-autosuggest-core-fetch() {
     fi
   fi
 
+  # If local provider returned a non-usable value (for example no_delta),
+  # clear it early so AI fallback can still run in the same fetch cycle.
+  if [[ -n ${suggestion-} && $provider == local ]]; then
+    if ! -z4m-autosuggest-core-suggestion-valid-p "$BUFFER" "$suggestion" "$provider"; then
+      local reason=${REPLY:-invalid_suggestion}
+      -z4m-autosuggest-core-log info filter "drop invalid suggestion provider=${provider} reason=${reason}"
+      unset suggestion
+      provider=none
+    fi
+  fi
+
   if [[ -z ${suggestion-} ]] && (( ${+functions[-z4m-autosuggest-ai-maybe-suggest]} )); then
-    -z4m-autosuggest-ai-maybe-suggest "$BUFFER" fetch
-    if [[ -n ${REPLY-} ]]; then
+    if -z4m-autosuggest-ai-maybe-suggest "$BUFFER" fetch && [[ -n ${REPLY-} ]]; then
       suggestion=$REPLY
       provider=ai
     fi
@@ -652,6 +673,10 @@ function -z4m-autosuggest-core-fetch() {
     if [[ -n ${POSTDISPLAY-} ]]; then
       typeset -g _z4m_autosuggestion="$suggestion"
       _z4m_autosuggest_state[active_provider]=$provider
+      if [[ $provider == ai ]] && (( ${+functions[-z4m-autosuggest-ai-suffix-preview]} )); then
+        -z4m-autosuggest-ai-suffix-preview "$POSTDISPLAY"
+        -z4m-autosuggest-core-log info ai_apply "mode=autosuggest_fallback suffix_len=${#POSTDISPLAY} suffix_q=${(q)REPLY}"
+      fi
     else
       unset POSTDISPLAY _z4m_autosuggestion
       _z4m_autosuggest_state[active_provider]=none
@@ -668,6 +693,11 @@ function -z4m-autosuggest-core-pre-redraw() {
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
   [[ ${_z4m_autosuggest_state[state]-uninitialized} == ready ]] || return 0
+
+  -z4m-autosuggest-core-load-ai || true
+  if (( ${+functions[-z4m-autosuggest-ai-pre-redraw]} )); then
+    -z4m-autosuggest-ai-pre-redraw "$BUFFER" || true
+  fi
 
   if [[ -n ${POSTDISPLAY-} ]]; then
     local prior_buffer=${_z4m_autosuggest_buffer-}
@@ -742,6 +772,7 @@ function -z4m-autosuggest-core-status() {
   print -r -- "configured_match_prev_cmd_count=${_z4m_autosuggest_state[configured_match_prev_cmd_count]-1}"
   print -r -- "configured_case_insensitive=${_z4m_autosuggest_state[configured_case_insensitive]-0}"
   print -r -- "configured_pwd_scan_limit=${_z4m_autosuggest_state[configured_pwd_scan_limit]-500}"
+  print -r -- "highlight_style=${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE-}"
   print -r -- "active_strategy=${_z4m_autosuggest_state[active_strategy]-none}"
   print -r -- "active_provider=${_z4m_autosuggest_state[active_provider]-none}"
   print -r -- "state=${_z4m_autosuggest_state[state]-uninitialized}"

@@ -1,0 +1,26 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+  -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+(( ${+functions[-z4m-autosuggest-core-load-ai]} )) || -z4m-autosuggest-core || return 1
+-z4m-autosuggest-core-load-ai || return 1
+(( ${+functions[-z4m-autosuggest-ai-read-config]} )) && -z4m-autosuggest-ai-read-config || true
+
+if (( ${+functions[-z4m-autosuggest-ai-trigger-manual]} )); then
+  -z4m-autosuggest-ai-trigger-manual "$BUFFER"
+  local -i rc=$?
+  if (( ${+functions[-z4m-autosuggest-ai-apply-manual-pending]} )); then
+    -z4m-autosuggest-ai-apply-manual-pending "$BUFFER" || true
+  fi
+
+  if (( rc )) && (( ${+_z4m_autosuggest_ai_state} )) && [[ -n ${_z4m_autosuggest_ai_state[last_error]-} ]]; then
+    zle -M -- "z4m ai: ${_z4m_autosuggest_ai_state[last_error]}"
+  fi
+
+  zle -R
+  return rc
+fi
+
+zle -M -- 'z4m ai: manual trigger unavailable'
+return 1

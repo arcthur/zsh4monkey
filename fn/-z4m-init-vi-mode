@@ -138,6 +138,10 @@ function -z4m-setup-viins-bindings() {
   # Autosuggestion accept
   bindkey -M viins '^[m'     z4m-autosuggest-accept         # alt+m
   bindkey -M viins '^[M'     z4m-autosuggest-accept         # alt+M
+  local _z4m_ai_rewrite_key='^O'
+  zstyle -s :z4m:autosuggestions:ai rewrite-key _z4m_ai_rewrite_key || _z4m_ai_rewrite_key='^O'
+  [[ -n $_z4m_ai_rewrite_key ]] || _z4m_ai_rewrite_key='^O'
+  bindkey -M viins -- "$_z4m_ai_rewrite_key" z4m-autosuggest-ai-trigger
 
   # Expand
   bindkey -M viins '^ '      z4m-expand                     # ctrl+space

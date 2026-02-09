@@ -20,6 +20,7 @@ _z4m_commands() {
     'vi-mode:Toggle Vi editing mode'
     'debug:Toggle debug mode'
     'bench:Benchmark startup time'
+    'ai:Natural-language AI command helper'
     'autosuggest:Autosuggestions diagnostics'
     'highlight:Highlight backend diagnostics'
     'env:Show environment info'
@@ -183,6 +184,31 @@ _z4m() {
           ;;
         bench)
           _arguments '1: :_message "iteration count (default: 10)"'
+          ;;
+        ai)
+          if (( CURRENT == 3 )); then
+            local -a ai_cmds
+            ai_cmds=(
+              'proxy:Manage tmux output context proxy (status/on/off)'
+            )
+            _describe -t ai_cmds 'ai subcommand' ai_cmds
+          else
+            if [[ $words[3] == proxy ]]; then
+              if (( CURRENT == 4 )); then
+                local -a proxy_cmds
+                proxy_cmds=(
+                  'status:Show proxy status'
+                  'on:Enable proxy for current tmux pane'
+                  'off:Disable proxy for current tmux pane'
+                )
+                _describe -t proxy_cmds 'proxy subcommand' proxy_cmds
+              else
+                _message 'proxy subcommand'
+              fi
+            else
+              _message 'natural language query'
+            fi
+          fi
           ;;
         autosuggest)
           if (( CURRENT == 3 )); then

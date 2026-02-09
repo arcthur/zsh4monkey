@@ -103,6 +103,14 @@ See [keybindings.md](keybindings.md) for available widgets.
 | `z4m history-debug` | Show effective history-search wiring (widgets, flags, key bindings) |
 | `z4m env-propagation-diagnose [<base64>]` | Validate/inspect SSH env propagation payload (reads stdin if omitted) |
 
+## AI & Suggestion Diagnostics
+
+| Command | Description |
+|---------|-------------|
+| `z4m ai "<query>"` | Generate one command from natural language and queue it for review (`print -z`) |
+| `z4m ai proxy [status\|on\|off]` | Manage tmux-only output-context proxy (optional) |
+| `z4m autosuggest [status\|doctor\|events\|reset]` | Inspect autosuggest/AI lane status, checks, and events |
+
 ### Benchmark Example
 
 ```bash

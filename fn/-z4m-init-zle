@@ -185,6 +185,7 @@ zle -N z4m-cd-down
 zle -N z4m-fzf-history
 zle -N z4m-fzf-dir-history
 zle -N z4m-autosuggest-accept
+zle -N z4m-autosuggest-ai-trigger
 zle -N z4m-do-nothing
 zle -N z4m-clear-screen-soft-top
 zle -N z4m-clear-screen-soft-bottom
@@ -334,6 +335,11 @@ bindkey   '^[O'     z4m-stash-buffer               # alt+O
 # Accept autosuggestion.
 bindkey   '^[m'     z4m-autosuggest-accept         # alt+m
 bindkey   '^[M'     z4m-autosuggest-accept         # alt+M
+# Manual AI rewrite trigger (default: Ctrl+O, configurable via rewrite-key).
+local _z4m_ai_rewrite_key='^O'
+zstyle -s :z4m:autosuggestions:ai rewrite-key _z4m_ai_rewrite_key || _z4m_ai_rewrite_key='^O'
+[[ -n $_z4m_ai_rewrite_key ]] || _z4m_ai_rewrite_key='^O'
+bindkey -- "$_z4m_ai_rewrite_key" z4m-autosuggest-ai-trigger
 # Undo and redo.
 bindkey   '^[[Z'    undo                           # shift+tab
 bindkey   '^[/'     redo                           # alt+/

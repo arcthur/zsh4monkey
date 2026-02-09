@@ -22,6 +22,13 @@
 
 See [history-search.md](history-search.md) for details.
 
+## Autosuggest & AI
+
+| Key | Action | Widget |
+|-----|--------|--------|
+| `Alt+M` | Accept current autosuggestion | `z4m-autosuggest-accept` |
+| `Ctrl+O` | Trigger manual AI rewrite for current line | `z4m-autosuggest-ai-trigger` |
+
 ## Tmux Navigation
 
 When unified navigation is enabled (default):
