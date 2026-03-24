@@ -142,6 +142,35 @@ if '[' '-n' "${ZSH_VERSION-}" ']'; then
   fi
 fi
 
+if '[' '-z' "${Z4M_UPDATING-}" '-a' '-n' "${Z4M-}" '-a' '-z' "${Z4M##/*}" '-a' '-e' "$Z4M"/.updating ']'; then
+  'unset' '_z4m_update_pid'
+  if '[' '-r' "$Z4M"/.updating ']'; then
+    while 'IFS'='=' 'read' '-r' '_z4m_update_key' '_z4m_update_value'; do
+      case "$_z4m_update_key" in
+        'pid')
+          case "$_z4m_update_value" in
+            (''|*[!0-9]*) ;;
+            (*) _z4m_update_pid="$_z4m_update_value" ;;
+          esac
+        ;;
+      esac
+    done <"$Z4M"/.updating
+    'unset' '_z4m_update_key' '_z4m_update_value'
+  fi
+  _z4m_wait='0'
+  while '[' "$_z4m_wait" '-lt' '400' '-a' '-e' "$Z4M"/.updating ']'; do
+    if '[' '-n' "${_z4m_update_pid-}" ']'; then
+      if ! 'command' 'kill' '-0' "$_z4m_update_pid" 2>'/dev/null'; then
+        'command' 'rm' '-f' '--' "$Z4M"/.updating 2>'/dev/null'
+        'break'
+      fi
+    fi
+    'command' 'sleep' '0.05' 2>'/dev/null' || 'break'
+    _z4m_wait="$((_z4m_wait + 1))"
+  done
+  'unset' '_z4m_wait' '_z4m_update_pid'
+fi
+
 if '[' '-n' "${Z4M-}" ']' &&
    '[' "${Z4M_URL-}" '=' 'https://raw.githubusercontent.com/arcthur/zsh4monkey/main' ']' &&
    '[' '-z' "${Z4M##/*}" '-a' '-r' "$Z4M"/zsh4monkey/main.zsh ']'; then

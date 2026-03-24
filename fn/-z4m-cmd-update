@@ -16,10 +16,94 @@ fi
 
 local old=$Z4M.old.$$
 local new=$Z4M.new.$$
+local guard=$Z4M/.updating
+local -i sync_started=0
+
+function -z4m-cmd-update-write-bootstrap() {
+  print -r -- "#!/usr/bin/env zsh
+# Temporary bootstrap while z4m update syncs files in place.
+emulate -L zsh -o extended_glob -o no_aliases
+[[ -n \${_Z4M_UPDATE_BOOTSTRAP_ACTIVE-} ]] && return 1
+typeset -g _Z4M_UPDATE_BOOTSTRAP_ACTIVE=1
+typeset -g _z4m_update_root=${(q)Z4M}
+typeset -g _z4m_update_guard=${(q)guard}
+typeset -g _z4m_update_backup=${(q)old}
+typeset -i _z4m_update_pid=0
+typeset -i _z4m_update_tries=0
+function _z4m_update_restore() {
+  local entry
+  for entry in \$_z4m_update_root/*(N) \$_z4m_update_root/.[^.](N) \$_z4m_update_root/..?*(N); do
+    [[ \$entry == \$_z4m_update_guard || \$entry == \$_z4m_update_backup ]] && continue
+    command rm -rf -- \"\$entry\" 2>/dev/null || return 1
+  done
+  if [[ -d \$_z4m_update_backup ]]; then
+    for entry in \$_z4m_update_backup/*(N) \$_z4m_update_backup/.[^.](N) \$_z4m_update_backup/..?*(N); do
+      command mv -f -- \"\$entry\" \"\$_z4m_update_root/\${entry:t}\" 2>/dev/null || return 1
+    done
+  fi
+  command rm -f -- \$_z4m_update_guard 2>/dev/null || return 1
+  command rm -rf -- \$_z4m_update_backup 2>/dev/null || true
+}
+if [[ -r \$_z4m_update_guard ]]; then
+  while IFS='=' read -r key value; do
+    case \$key in
+      pid)
+        [[ \$value == <-> ]] && _z4m_update_pid=\$value
+      ;;
+    esac
+  done <\$_z4m_update_guard
+fi
+while [[ -e \$_z4m_update_guard && _z4m_update_tries -lt 1200 ]]; do
+  if (( _z4m_update_pid )) && ! command kill -0 \$_z4m_update_pid 2>/dev/null; then
+    break
+  fi
+  command sleep 0.05 2>/dev/null || break
+  (( ++_z4m_update_tries ))
+done
+if [[ -e \$_z4m_update_guard ]]; then
+  if (( _z4m_update_pid )) &&
+     ! command kill -0 \$_z4m_update_pid 2>/dev/null; then
+    if [[ ! -e \$_z4m_update_backup/zsh4monkey &&
+          -r \$_z4m_update_root/zsh4monkey/main.zsh &&
+          -r \$_z4m_update_backup/z4m.zsh ]]; then
+      command cp -p -- \$_z4m_update_backup/z4m.zsh \$_z4m_update_root/z4m.zsh 2>/dev/null || return 1
+      command rm -f -- \$_z4m_update_guard 2>/dev/null || return 1
+      command rm -rf -- \$_z4m_update_backup 2>/dev/null || true
+    elif ! _z4m_update_restore || [[ ! -r \$_z4m_update_root/z4m.zsh ]]; then
+      builtin unfunction _z4m_update_restore 2>/dev/null || true
+      unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
+        _z4m_update_pid _z4m_update_tries
+      return 1
+    fi
+    builtin unfunction _z4m_update_restore 2>/dev/null || true
+    unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
+      _z4m_update_pid _z4m_update_tries
+    builtin source -- \$_z4m_update_root/z4m.zsh || return
+    return
+  fi
+  builtin unfunction _z4m_update_restore 2>/dev/null || true
+  unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
+    _z4m_update_pid _z4m_update_tries
+  return 1
+fi
+if [[ -r \$_z4m_update_root/z4m.zsh ]]; then
+  builtin unfunction _z4m_update_restore 2>/dev/null || true
+  unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
+    _z4m_update_pid _z4m_update_tries
+  builtin source -- \$_z4m_update_root/z4m.zsh || return
+  return
+fi
+builtin unfunction _z4m_update_restore 2>/dev/null || true
+unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
+  _z4m_update_pid _z4m_update_tries
+return 1" >$Z4M/z4m.zsh || return
+}
 
 {
   zf_rm -rf -- $old $new   || return
-  zf_mkdir -p -- $new      || return
+  zf_rm -f -- $guard       || return
+  zf_mkdir -p -- $old $new || return
+  command cp -p -- $Z4M/z4m.zsh $new/z4m.zsh || return
   print -n >$new/.updating || return
 
   Z4M_UPDATING=$Z4M Z4M=$new </dev/null >/dev/null $_z4m_exe -ic '
@@ -48,31 +132,46 @@ local new=$Z4M.new.$$
   zf_rm -- $new/.updating                            || return
   zf_rm -f -- $new/.last-init-failed                 # Clear transient init failures from temp shell
   zf_rm -f -- $new/.safe-mode                        # Clear any safe-mode marker
-  -z4m-mv $Z4M $old 2>/dev/null || zf_rm -rf -- $Z4M || return
-  if [[ -e $Z4M ]]; then
-    local home=~
-    local z4m=${${${(q)Z4M}/#${(q)home}/'~'}//\%/%%}
-    print -Pru2 -- '%F{3}z4m%f: %F{1}cannot delete %U'$z4m'%u%f'
-    print -Pru2 -- ''
-    print -Pru2 -- 'This might help:'
-    print -Pru2 -- ''
-    print -Pru2 -- '  %F{2}%Ucommand%u %Usudo%u rm%f -rf -- %U'$z4m'%u && %U%F{2}exec%u zsh%f'
-    print -Pru2 -- ''
-    print -Pru2 -- '%F{3}z4m%f: attempting to recover'
-    if [[ ! -e $Z4M/stickycache ]]; then
-      command cp -r -- $new/stickycache $Z4M/stickycache || true
-    fi
-    if [[ -o zle ]]; then
-      exec -- $_z4m_exe -i || return
-    else
-      exec -- $_z4m_exe -i --no-zle || return
-    fi
+  print -l -- \
+    "pid=$sysparams[pid]" \
+    "epoch=$EPOCHSECONDS" \
+    "backup=$old" >$guard || return
+  command cp -p -- $Z4M/z4m.zsh $old/z4m.zsh || return
+  -z4m-cmd-update-write-bootstrap || return
+  if [[ -e $Z4M/zsh4monkey ]]; then
+    sync_started=1
+    -z4m-mv $Z4M/zsh4monkey $old/zsh4monkey || return
   fi
-  -z4m-mv $new $Z4M || return
+
+  local entry
+  for entry in $Z4M/*(N) $Z4M/.[^.](N) $Z4M/..?*(N); do
+    [[ $entry == $guard || $entry == $Z4M/z4m.zsh || $entry == $Z4M/zsh4monkey || $entry == $old ]] && continue
+    -z4m-mv $entry $old/${entry:t} || return
+  done
+  for entry in $new/*(N) $new/.[^.](N) $new/..?*(N); do
+    [[ $entry == $new/z4m.zsh ]] && continue
+    -z4m-mv $entry $Z4M/${entry:t} || return
+  done
+  -z4m-mv $new/z4m.zsh $Z4M/z4m.zsh || return
+  zf_rm -f -- $guard || return
+  sync_started=0
 } always {
-  if (( $? )); then
+  local -i rc=$?
+  if (( rc )) && (( sync_started )); then
+    local entry
+    for entry in $Z4M/*(N) $Z4M/.[^.](N) $Z4M/..?*(N); do
+      [[ $entry == $guard || $entry == $old ]] && continue
+      zf_rm -rf -- $entry 2>/dev/null || true
+    done
+    for entry in $old/*(N) $old/.[^.](N) $old/..?*(N); do
+      -z4m-mv $entry $Z4M/${entry:t} 2>/dev/null || true
+    done
+  fi
+  zf_rm -f -- $guard 2>/dev/null || true
+  if (( rc )); then
     -z4m-error-command update
   fi
+  unset "functions[-z4m-cmd-update-write-bootstrap]"
   zf_rm -rf -- $old $new || return
 }
 
