@@ -94,6 +94,7 @@ These patterns are **always** excluded from propagation:
 | Git providers | `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN` |
 | Package managers | `NPM_TOKEN`, `NPM_AUTH_TOKEN` |
 | Docker | `DOCKER_PASSWORD`, `DOCKER_AUTH_*` |
+| SSH agent | `SSH_AUTH_SOCK`, `SSH_AGENT_PID` |
 
 ### Sync Mode
 
@@ -105,9 +106,9 @@ zstyle ':z4m:ssh:*' sync-mode 'smart'
 
 | Mode | Description |
 |------|-------------|
-| `smart` | Full sync on first connection, incremental after (default) |
+| `smart` | Full sync on first connection for a connection spec, incremental after (default) |
 | `full` | Always perform full sync |
-| `incremental` | Compare with previous state, sync only changes |
+| `incremental` | Compare stored fingerprints, sync changed paths, and delete remote paths removed locally |
 
 Force full sync for a single connection:
 
@@ -123,7 +124,7 @@ For air-gapped hosts without internet:
 zstyle ':z4m:ssh:airgapped-host' offline-mode yes
 ```
 
-This bundles the complete z4m installation in the transfer.
+This bundles the complete z4m installation in the transfer and unpacks it into the same default `Z4M` path used by the shipped `.zshenv` bootstrap.
 
 ### Terminal Override
 

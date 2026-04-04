@@ -114,11 +114,11 @@ zstyle ':z4m:ssh:*' sync-mode 'smart'
 Available values:
 .Bl -tag -width "incremental" -compact
 .It Cm smart
-Incremental if state file exists, full otherwise (default)
+Incremental if state exists for the current connection spec, full otherwise (default)
 .It Cm full
 Always sync all files
 .It Cm incremental
-Only sync changed files based on hash
+Sync changed paths based on stored fingerprints and delete remote paths removed locally
 .El
 .Ss Offline Mode
 For hosts without internet access:
@@ -134,7 +134,7 @@ but allowing z4m to work in air-gapped environments.
 zstyle ':z4m:ssh:oldserver' term 'screen-256color'
 
 # Custom ssh command
-zstyle ':z4m:ssh:*' ssh-command 'command ssh'
+zstyle ':z4m:ssh:*' ssh-command command ssh
 .Ed
 .Ss Custom Configuration Function
 .Bd -literal -offset indent
@@ -215,7 +215,7 @@ SSH client configuration, ProxyJump directives are honored.
 Known host keys.
 .It Pa ~/.ssh/s/
 ControlMaster socket directory for connection sharing.
-.It Pa $Z4M/ssh-state/
+.It Pa $Z4M/cache/ssh-sync-state/
 Cached sync state for incremental updates.
 .El
 .Sh SEE ALSO

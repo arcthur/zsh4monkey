@@ -131,7 +131,7 @@ _z4m() {
       case $line[1] in
         install)
           _arguments \
-            '(-f --force)'{-f,--force}'[Force reinstall even if already installed]' \
+            '(-r --resolve)'{-r,--resolve}'[Resolve the install queue immediately]' \
             '*: :_z4m_github_repos'
           ;;
         source)

@@ -61,7 +61,7 @@ Recovery shell (`fn/-z4m-recovery-shell`) is a last-resort minimal environment t
 - appends them to the global install queue (`_z4m_install_queue`)
 - does not necessarily perform network I/O immediately
 
-You can force immediate install with `z4m install -f ...` (flush).
+Use `z4m install --resolve ...` when you want to resolve the queue immediately.
 
 Design intent:
 

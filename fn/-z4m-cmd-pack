@@ -21,7 +21,9 @@ zparseopts -D -F -- o:=output t:=tag || return '_z4m_err()'
 output=${output[2]:-z4m-offline-install.sh}
 tag=${tag[2]:-default}
 
-# Get extra files from zstyle
+local -r local_zdotdir=${ZDOTDIR:-$HOME}
+
+# Get extra paths from zstyle
 zstyle -a ":z4m:pack:$tag" extra-files extra_files || extra_files=()
 
 print -Pr -- "%F{3}z4m%f: creating offline package: %F{2}${output//\%/%%}%f"
@@ -34,65 +36,102 @@ else
   zf_mkdir -p -- $tmpdir || return
 fi
 
+function -z4m-pack-stage-path() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+  local src=$1
+  local root_kind=$2
+  local rel=$3
+  local payload_root=$4
+  local manifest=$5
+
+  [[ -e $src ]] || return 0
+  [[ -n $rel && $rel != /* ]] || {
+    print -Pru2 -- "%F{3}z4m%f: %Bpack%b: invalid relative path: %F{1}${rel//\%/%%}%f"
+    return 1
+  }
+  [[ $rel != *$'\n'* && $rel != *$'\t'* ]] || {
+    print -Pru2 -- "%F{3}z4m%f: %Bpack%b: unsupported path characters: %F{1}${rel//\%/%%}%f"
+    return 1
+  }
+
+  local stage_root
+  case $root_kind in
+    HOME) stage_root=$payload_root/home ;;
+    ZDOTDIR) stage_root=$payload_root/zdotdir ;;
+    *)
+      print -Pru2 -- "%F{3}z4m%f: %Bpack%b: invalid root kind: %F{1}${root_kind//\%/%%}%f"
+      return 1
+      ;;
+  esac
+
+  local stage=$stage_root/$rel
+  zf_mkdir -p -- "${stage:h}" || return
+  zf_rm -rf -- "$stage" || return
+  command cp -RLp -- "$src" "$stage" || return
+  print -r -- "${root_kind}"$'\t'"${rel}" >>"$manifest" || return
+}
+
 {
-  # Files to include
-  local -a pack_files=(
-    $ZDOTDIR/.zshenv
-    $ZDOTDIR/.zprofile
-    $ZDOTDIR/.zshrc
-    $ZDOTDIR/.zlogin
-    $ZDOTDIR/.zlogout
-    $ZDOTDIR/.p10k{,-ascii}{,-8color}.zsh(N)
-  )
+  local payload_root=$tmpdir/payload
+  local manifest=$tmpdir/install.manifest
 
-  # Add extra files
-  local f
-  for f in $extra_files; do
-    eval "f=$f"
-    [[ -e $f ]] && pack_files+=($f)
+  zf_mkdir -p -- "$payload_root/home" "$payload_root/zdotdir" || return
+  : >"$manifest" || return
+
+  local rel
+  for rel in .zshenv .zprofile .zshrc .zlogin .zlogout; do
+    -z4m-pack-stage-path "$local_zdotdir/$rel" ZDOTDIR "$rel" "$payload_root" "$manifest" || return
+  done
+  local p10k_file
+  for p10k_file in $local_zdotdir/.p10k{,-ascii}{,-8color}.zsh(N); do
+    -z4m-pack-stage-path "$p10k_file" ZDOTDIR "${p10k_file#$local_zdotdir/}" "$payload_root" "$manifest" || return
   done
 
-  # Essential z4m directories
-  local -a z4m_dirs=(
-    $Z4M/zsh4monkey
-    $Z4M/fzf
-    $Z4M/powerlevel10k
-    $Z4M/zsh-users
-    $Z4M/terminfo
-  )
+  local extra src root_kind rel_path
+  for extra in $extra_files; do
+    eval "src=$extra"
+    [[ -e $src ]] || continue
 
-  local -i i=0
-  local indices=() file_map=()
-
-  # Create symlinks for dotfiles
-  for f in $pack_files; do
-    [[ -e $f ]] || continue
-    (( ++i ))
-    zf_ln -s -- ${f:P} $tmpdir/f$i || return
-    # Use basename for files outside ZDOTDIR
-    local dst_name
-    if [[ $f == $ZDOTDIR/* ]]; then
-      dst_name=${f#$ZDOTDIR/}
+    if [[ $src == $local_zdotdir/* ]]; then
+      root_kind=ZDOTDIR
+      rel_path=${src#$local_zdotdir/}
+    elif [[ $src == $HOME/* ]]; then
+      root_kind=HOME
+      rel_path=${src#$HOME/}
     else
-      dst_name=${f:t}
+      print -Pru2 -- "%F{3}z4m%f: %Bpack%b: extra path must be under %B\$HOME%b or %B\$ZDOTDIR%b: %F{1}${src//\%/%%}%f"
+      return 1
     fi
-    file_map+=($i $dst_name)
+
+    -z4m-pack-stage-path "$src" "$root_kind" "$rel_path" "$payload_root" "$manifest" || return
   done
 
-  # Create tarball of z4m installation
+  # Create tarball of z4m installation.
   local z4m_tar=$tmpdir/z4m.tar.gz
   {
-    local -a tar_args=()
+    local -a z4m_entries=()
+    [[ -f $Z4M/z4m.zsh ]] && z4m_entries+=(z4m.zsh)
+    local -a z4m_dirs=(
+      $Z4M/zsh4monkey
+      $Z4M/fzf
+      $Z4M/powerlevel10k
+      $Z4M/zsh-users
+      $Z4M/terminfo
+    )
+    local d
     for d in $z4m_dirs; do
-      [[ -d $d ]] && tar_args+=(${d#$Z4M/})
+      [[ -d $d ]] && z4m_entries+=(${d#$Z4M/})
     done
-    if (( $#tar_args )); then
-      COPYFILE_DISABLE=1 command tar -C $Z4M -czf $z4m_tar -- $tar_args
+    if (( $#z4m_entries )); then
+      COPYFILE_DISABLE=1 command tar -C "$Z4M" -czf "$z4m_tar" -- $z4m_entries
     fi
   } 2>/dev/null
 
-  # Generate the self-extracting script
   {
+    local -a archive_entries=(install.manifest payload)
+    [[ -f $z4m_tar ]] && archive_entries+=(z4m.tar.gz)
     cat <<'HEADER'
 #!/bin/sh
 #
@@ -113,15 +152,13 @@ Z4M="${Z4M:-${XDG_CACHE_HOME:-$HOME/.cache}/zsh4monkey}"
 echo "Installing z4m to: $Z4M"
 echo "ZDOTDIR: $ZDOTDIR"
 
-# Create directories
+mkdir -p "$HOME"
 mkdir -p "$Z4M"
 mkdir -p "$ZDOTDIR"
 
-# Extract embedded data
 SCRIPT_PATH="$0"
 MARKER='___Z4M_DATA_MARKER___'
 
-# Find data offset
 DATA_OFFSET=$(grep -n "^$MARKER\$" "$SCRIPT_PATH" | tail -1 | cut -d: -f1)
 if [ -z "$DATA_OFFSET" ]; then
   echo "Error: Data marker not found" >&2
@@ -129,7 +166,6 @@ if [ -z "$DATA_OFFSET" ]; then
 fi
 DATA_OFFSET=$((DATA_OFFSET + 1))
 
-# Extract to temp directory
 TMPDIR=$(mktemp -d)
 trap "rm -rf '$TMPDIR'" EXIT
 
@@ -137,24 +173,46 @@ b64decode() {
   base64 -d 2>/dev/null || base64 -D 2>/dev/null
 }
 
-tail -n +$DATA_OFFSET "$SCRIPT_PATH" | b64decode | tar -xzf - -C "$TMPDIR"
+tail -n +$DATA_OFFSET "$SCRIPT_PATH" | b64decode | tar -xzmf - -C "$TMPDIR"
 
-# Install z4m core
 if [ -f "$TMPDIR/z4m.tar.gz" ]; then
-  tar -xzf "$TMPDIR/z4m.tar.gz" -C "$Z4M"
+  tar -xzmf "$TMPDIR/z4m.tar.gz" -C "$Z4M"
   echo "Installed z4m core"
 fi
 
-# Install dotfiles
-HEADER
+MANIFEST="$TMPDIR/install.manifest"
+TAB="$(printf '\t')"
+if [ -f "$MANIFEST" ]; then
+  while IFS="$TAB" read -r root rel; do
+    [ -n "$root" ] || continue
+    case "$root" in
+      HOME)
+        base="$HOME"
+        stage_root="$TMPDIR/payload/home"
+        ;;
+      ZDOTDIR)
+        base="$ZDOTDIR"
+        stage_root="$TMPDIR/payload/zdotdir"
+        ;;
+      *)
+        echo "Error: invalid manifest root: $root" >&2
+        exit 1
+        ;;
+    esac
 
-    # Output file installation commands
-    local idx name
-    for idx name in $file_map; do
-      print -r -- "[ -f \"\$TMPDIR/f$idx\" ] && cp \"\$TMPDIR/f$idx\" \"\$ZDOTDIR/$name\" && echo \"Installed $name\""
-    done
+    src="$stage_root/$rel"
+    dst="$base/$rel"
+    dst_dir=${dst%/*}
+    if [ "$dst_dir" = "$dst" ]; then
+      dst_dir="$base"
+    fi
 
-    cat <<'FOOTER'
+    mkdir -p "$dst_dir"
+    rm -rf "$dst"
+    cp -Rp "$src" "$dst"
+    echo "Installed $dst"
+  done < "$MANIFEST"
+fi
 
 echo ""
 echo "Installation complete!"
@@ -166,16 +224,15 @@ echo ""
 exit 0
 
 ___Z4M_DATA_MARKER___
-FOOTER
+HEADER
 
-    # Append the data payload (base64 encoded tar)
     {
-      COPYFILE_DISABLE=1 command tar -C $tmpdir -czf - .
+      COPYFILE_DISABLE=1 command tar -C "$tmpdir" -czf - -- $archive_entries
     } | base64
 
-  } > $output || return
+  } >"$output" || return
 
-  chmod +x $output
+  chmod +x "$output"
 
   print -Pr -- "%F{3}z4m%f: created %F{2}${output//\%/%%}%f ($(command du -h $output | cut -f1))"
   print -Pr -- ""
@@ -184,5 +241,6 @@ FOOTER
   print -Pr -- "  2. Run: %Bsh ${output//\%/%%}%b"
 
 } always {
+  builtin unfunction -z4m-pack-stage-path 2>/dev/null || true
   zf_rm -rf -- $tmpdir
 }

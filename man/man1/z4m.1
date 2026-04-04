@@ -42,13 +42,11 @@ Update
 .Nm zsh4monkey
 and all installed dependencies including fzf, powerlevel10k,
 built-in zsh-autosuggestions, and built-in fast-syntax-highlighting.
-.It Cm install Oo Fl f | Fl -force Oc Ar user/project Ns Op @ Ns Ar branch
-Clone or update GitHub project(s) to
-.Ev Z4M
-directory.
+.It Cm install Oo Fl r | Fl -resolve Oc Ar user/project Ns Op @ Ns Ar branch
+Register GitHub project(s) or built-in packages in the install queue.
 Use
-.Fl f
-to force reinstall even if already installed.
+.Fl r
+to resolve the queue immediately.
 .El
 .Ss Plugin Management
 .Bl -tag -width Ds

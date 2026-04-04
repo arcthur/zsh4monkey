@@ -68,6 +68,7 @@ fi
 local -r z4m_min_version
 
 local -r z4m_ssh_client=${${(%):-%m}:-unknown}
+local -r z4m_local_zdotdir=${ZDOTDIR:-$HOME}
 
 # Parse ~/.ssh/config for ProxyJump (used for informational purposes)
 -z4m-ssh-get-proxy-jump() {
@@ -125,6 +126,127 @@ if ! zstyle -a :z4m:ssh:$z4m_ssh_host ssh-command z4m_ssh_command; then
   z4m_ssh_command=($default_ssh_command)
 fi
 
+-z4m-ssh-sync-state-key() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local ssh_config=${SSH_CONFIG:-$HOME/.ssh/config}
+  local config_sig=missing
+  if [[ -r $ssh_config ]]; then
+    local cfg_stat
+    if cfg_stat=$(-z4m-ssh-stat-triplet "$ssh_config" 2>/dev/null); then
+      config_sig="${ssh_config}:${cfg_stat}"
+    else
+      config_sig="${ssh_config}:present"
+    fi
+  fi
+
+  local spec=${(pj:\0:)z4m_ssh_command}$'\0'${(pj:\0:)@}$'\0'"${config_sig}"
+  REPLY=$(-z4m-ssh-hash-string "$spec" 2>/dev/null) || REPLY=
+  [[ -n $REPLY ]] || REPLY=${${z4m_ssh_host:-unknown}//[^A-Za-z0-9_.-]/_}
+
+  [[ -n $REPLY ]]
+}
+
+-z4m-ssh-stat-triplet() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local target=$1 out
+  if out=$(command stat -f '%p:%z:%m' -- "$target" 2>/dev/null); then
+    print -r -- "$out"
+  elif out=$(command stat -c '%f:%s:%Y' -- "$target" 2>/dev/null); then
+    print -r -- "$out"
+  else
+    return 1
+  fi
+}
+
+-z4m-ssh-hash-string() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local payload=$1 digest=
+  if digest=$(print -rn -- "$payload" | command md5 -q 2>/dev/null); then
+    :
+  elif digest=$(print -rn -- "$payload" | command md5sum 2>/dev/null); then
+    digest=${digest%% *}
+  elif digest=$(print -rn -- "$payload" | command sha256sum 2>/dev/null); then
+    digest=${digest%% *}
+  elif digest=$(print -rn -- "$payload" | command shasum -a 256 2>/dev/null); then
+    digest=${digest%% *}
+  elif digest=$(print -rn -- "$payload" | command cksum 2>/dev/null); then
+    digest=${digest%% *}
+  fi
+
+  [[ -n $digest ]] || return 1
+  print -r -- "$digest"
+}
+
+-z4m-ssh-hash-file() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local target=$1 digest=
+  if digest=$(command md5 -q -- "$target" 2>/dev/null); then
+    :
+  elif digest=$(command md5sum -- "$target" 2>/dev/null); then
+    digest=${digest%% *}
+  elif digest=$(command sha256sum -- "$target" 2>/dev/null); then
+    digest=${digest%% *}
+  elif digest=$(command shasum -a 256 -- "$target" 2>/dev/null); then
+    digest=${digest%% *}
+  fi
+
+  [[ -n $digest ]] || return 1
+  print -r -- "$digest"
+}
+
+-z4m-ssh-fingerprint-path() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local target=$1
+  [[ -e $target ]] || return 1
+
+  local fingerprint=
+  if [[ -d $target ]]; then
+    local -a entries rows
+    entries=("$target" "$target"/**/*(DN))
+    entries=("${(@on)entries}")
+    local entry rel meta digest kind
+    for entry in "${entries[@]}"; do
+      [[ -n $entry ]] || continue
+      rel=${entry#$target/}
+      [[ $entry == $target ]] && rel=.
+
+      if [[ -d $entry ]]; then
+        kind=dir
+        meta=$(-z4m-ssh-stat-triplet "$entry" 2>/dev/null) || meta=missing
+        rows+=("$rel"$'\t'"$kind"$'\t'"$meta")
+      elif [[ -f $entry ]]; then
+        kind=file
+        meta=$(-z4m-ssh-stat-triplet "$entry" 2>/dev/null) || meta=missing
+        digest=$(-z4m-ssh-hash-file "$entry" 2>/dev/null) || digest=
+        [[ -n $digest ]] || digest=$meta
+        rows+=("$rel"$'\t'"$kind"$'\t'"$meta"$'\t'"$digest")
+      else
+        kind=other
+        meta=$(-z4m-ssh-stat-triplet "$entry" 2>/dev/null) || meta=missing
+        rows+=("$rel"$'\t'"$kind"$'\t'"$meta")
+      fi
+    done
+
+    local payload=${(F)rows}
+    fingerprint=$(-z4m-ssh-hash-string "$payload") || return 1
+  elif [[ -f $target ]]; then
+    fingerprint=$(-z4m-ssh-hash-file "$target") || fingerprint=
+    if [[ -z $fingerprint ]]; then
+      fingerprint=$(-z4m-ssh-stat-triplet "$target" 2>/dev/null) || return 1
+    fi
+  else
+    fingerprint=$(-z4m-ssh-stat-triplet "$target" 2>/dev/null) || return 1
+  fi
+
+  [[ -n $fingerprint ]] || return 1
+  print -r -- "$fingerprint"
+}
+
 local term
 zstyle -s :z4m:ssh:$z4m_ssh_host term term || term=${TERM:/tmux-256color/screen-256color}
 
@@ -140,14 +262,15 @@ if (( !must_passthrough )); then
     fi')
 
   z4m_ssh_send_files=(
-    $ZDOTDIR/.zshenv   '"$ZDOTDIR"/.zshenv'
-    $ZDOTDIR/.zprofile '"$ZDOTDIR"/.zprofile'
-    $ZDOTDIR/.zshrc    '"$ZDOTDIR"/.zshrc'
-    $ZDOTDIR/.zlogin   '"$ZDOTDIR"/.zlogin'
-    $ZDOTDIR/.zlogout  '"$ZDOTDIR"/.zlogout')
+    $z4m_local_zdotdir/.zshenv   '"$ZDOTDIR"/.zshenv'
+    $z4m_local_zdotdir/.zprofile '"$ZDOTDIR"/.zprofile'
+    $z4m_local_zdotdir/.zshrc    '"$ZDOTDIR"/.zshrc'
+    $z4m_local_zdotdir/.zlogin   '"$ZDOTDIR"/.zlogin'
+    $z4m_local_zdotdir/.zlogout  '"$ZDOTDIR"/.zlogout')
 
   local file
-  for file in $ZDOTDIR/.p10k{,-ascii}{,-8color}.zsh(N) $ZDOTDIR/.zsh_history.*:$z4m_ssh_host(N); do
+  for file in $z4m_local_zdotdir/.p10k{,-ascii}{,-8color}.zsh(N) \
+              $z4m_local_zdotdir/.zsh_history.*:$z4m_ssh_host(N); do
     z4m_ssh_send_files[$file]='"$ZDOTDIR"/'${(q)file:t}
   done
 
@@ -196,6 +319,7 @@ if (( !must_passthrough )); then
       'GITHUB_TOKEN' 'GH_TOKEN' 'GITLAB_TOKEN'
       'NPM_TOKEN' 'NPM_AUTH_TOKEN'
       'DOCKER_PASSWORD' 'DOCKER_AUTH_*'
+      'SSH_AUTH_SOCK' 'SSH_AGENT_PID'
     )
     propagate_exclude+=($default_exclude)
 
@@ -392,8 +516,14 @@ esac
 # Offline mode configuration
 local -i offline_mode=0
 zstyle -t :z4m:ssh:$z4m_ssh_host offline-mode && offline_mode=1
-local sync_state_dir=$Z4M/ssh-sync-state
-local sync_state_file=$sync_state_dir/${z4m_ssh_host//\//_}.state
+local sync_state_dir=$Z4M/cache/ssh-sync-state
+local sync_state_key
+if -z4m-ssh-sync-state-key "$@"; then
+  sync_state_key=$REPLY
+else
+  sync_state_key=${${z4m_ssh_host:-unknown}//[^A-Za-z0-9_.-]/_}
+fi
+local sync_state_file=$sync_state_dir/${sync_state_key}.state
 
 if (( $#z4m_retrieve_history )); then
   local local_hist_tmp=$Z4M/tmp/ssh-history.tmp.$sysparams[pid]
@@ -458,10 +588,10 @@ local -A prev_sync_state
 local -i has_prev_state=0
 if [[ -f $sync_state_file ]]; then
   has_prev_state=1
-  local line
-  while IFS= read -r line; do
-    [[ -n $line && $line != '#'* ]] || continue
-    prev_sync_state[${line%%=*}]=${line#*=}
+  local key value
+  while IFS=$'\t' read -r key value; do
+    [[ -n $key && $key != '#'* ]] || continue
+    prev_sync_state[$key]=$value
   done < $sync_state_file
 fi
 
@@ -477,27 +607,23 @@ elif [[ $sync_mode == 'smart' ]]; then
   fi
 fi
 
-# Compute current file hashes and determine which files need syncing
-local -A current_sync_state files_need_sync
-local src dst hash
-for src dst in ${(kv)z4m_ssh_send_files}; do
-  [[ -e $src ]] || continue
-  # Compute file hash: md5 (macOS) or md5sum (Linux), fallback to size:mtime
-  if (( $+commands[md5] )); then
-    hash=$(command md5 -q -- $src 2>/dev/null)
-  elif (( $+commands[md5sum] )); then
-    hash=$(command md5sum -- $src 2>/dev/null | cut -d' ' -f1)
-  else
-    local -A fstat
-    zstat -H fstat -- $src 2>/dev/null && hash="${fstat[size]}:${fstat[mtime]}" || hash=
-  fi
-  current_sync_state[$src]=$hash
-  if [[ $effective_sync_mode == 'full' ]]; then
-    files_need_sync[$src]=1
-  elif [[ $effective_sync_mode == 'incremental' ]]; then
-    if [[ ${prev_sync_state[$src]:-} != $hash ]]; then
+# Compute current file fingerprints and determine which files need syncing.
+local -A current_sync_state files_need_sync files_need_delete
+local src dst fingerprint
+for src in ${(k)z4m_ssh_send_files}; do
+  dst=${z4m_ssh_send_files[$src]}
+  if [[ -e $src ]]; then
+    fingerprint=$(-z4m-ssh-fingerprint-path "$src") || fingerprint=
+    current_sync_state[$src]=$fingerprint
+    if [[ $effective_sync_mode == 'full' ]]; then
       files_need_sync[$src]=1
+    elif [[ $effective_sync_mode == 'incremental' ]]; then
+      if [[ ${prev_sync_state[$src]:-} != $fingerprint ]]; then
+        files_need_sync[$src]=1
+      fi
     fi
+  elif [[ $effective_sync_mode == 'full' || -n ${prev_sync_state[$src]-} ]]; then
+    files_need_delete[$src]=1
   fi
 done
 
@@ -516,6 +642,8 @@ fi
   if (( offline_mode )); then
     z4m_bundle=$tmpdir/z4m-bundle.tar.gz
     print -Pru2 -- "%F{3}z4m%f: offline mode - bundling z4m installation..."
+    local -a bundle_entries=()
+    [[ -f $Z4M/z4m.zsh ]] && bundle_entries+=(z4m.zsh)
     local -a z4m_dirs=(
       zsh4monkey
       fzf/bin
@@ -524,13 +652,12 @@ fi
       zsh-users
       terminfo
     )
-    local -a bundle_dirs=()
     local d
     for d in $z4m_dirs; do
-      [[ -d $Z4M/$d ]] && bundle_dirs+=($d)
+      [[ -d $Z4M/$d ]] && bundle_entries+=($d)
     done
-    if (( $#bundle_dirs )); then
-      COPYFILE_DISABLE=1 command tar -C $Z4M -czf $z4m_bundle -- $bundle_dirs 2>/dev/null || {
+    if (( $#bundle_entries )); then
+      COPYFILE_DISABLE=1 command tar -C $Z4M -czf $z4m_bundle -- $bundle_entries 2>/dev/null || {
         print -Pru2 -- "%F{3}z4m%f: %F{1}warning%f: failed to create z4m bundle"
         z4m_bundle=
       }
@@ -538,11 +665,15 @@ fi
   fi
 
   local -i i=0 files_synced=0 files_skipped=0
-  local indices=() send_to=()
-  for src dst in ${(kv)z4m_ssh_send_files}; do
+  local indices=() send_to=() delete_to=()
+  for src in ${(k)z4m_ssh_send_files}; do
+    dst=${z4m_ssh_send_files[$src]}
     (( ++i ))
     send_to+=($dst)
-    [[ -e $src ]] || continue
+    if [[ ! -e $src ]]; then
+      (( ${+files_need_delete[$src]} )) && delete_to+=($dst)
+      continue
+    fi
     local target=${src:P}
     if [[ -z $target(#qN.) && -z $target(#qN/) ]]; then
       print -Pru2 -- "%F{3}z4m%f: unsupported file type: %F{1}${src//\%/%%}%f"
@@ -569,7 +700,8 @@ fi
 
   local -a retrieve_from retrieve_to
   local from to
-  for from to in ${(kv)z4m_ssh_retrieve_files}; do
+  for from in ${(k)z4m_ssh_retrieve_files}; do
+    to=${z4m_ssh_retrieve_files[$from]}
     retrieve_from+=($from)
     retrieve_to+=($to)
   done
@@ -594,8 +726,14 @@ fi
     script=${script//'^EMPTY_RETRIEVE_FROM^'/"'true'"}
   fi
   script=${script//'^RETRIEVE_FROM^'/${(j: :)retrieve_from}}
+  if (( $#delete_to )); then
+    script=${script//'^EMPTY_DELETE_TO^'/"'false'"}
+  else
+    script=${script//'^EMPTY_DELETE_TO^'/"'true'"}
+  fi
+  script=${script//'^DELETE_TO^'/${(j: :)delete_to}}
   script=${script//'^DUMP_MARKER^'/${(q)dump_marker}}
-  script=${script//'^CAN_SAVE_RESTORE_SCREEN^'/${_z4m_can_save_restore_screen}}
+  script=${script//'^CAN_SAVE_RESTORE_SCREEN^'/${_z4m_can_save_restore_screen:-0}}
 
   script=${script//'^DUMP_POS^'/${(r:8:: :)${#script}}}
 
@@ -648,23 +786,6 @@ case ${loc//[[:space:]]} in
   ;;
 esac
 
-# Save sync state after successful upload
-if (( $#current_sync_state )); then
-  if [[ ! -d $sync_state_dir ]]; then
-    zf_mkdir -p -- $sync_state_dir || true  # Non-fatal: sync still works without state
-  fi
-  if [[ -d $sync_state_dir ]]; then
-    {
-      print -r -- "# z4m ssh sync state for $z4m_ssh_host"
-      print -r -- "# Last sync: $(strftime '%Y-%m-%d %H:%M:%S' $EPOCHSECONDS)"
-      local k v
-      for k v in ${(kv)current_sync_state}; do
-        print -r -- "${k}=${v}"
-      done
-    } >$sync_state_file 2>/dev/null || true  # Non-fatal
-  fi
-fi
-
 args[pos[-1]]='-t'
 
 local stty
@@ -672,9 +793,9 @@ if [[ -v commands[stty] && -v _z4m_tty_fd ]]; then
   stty=$(command stty -g <&$_z4m_tty_fd 2>/dev/null) || stty=
 fi
 
-{ (  # subshell to avoid TTOU
-
 local -i bypass=0
+local -i ssh_ret=0
+{ (  # subshell to avoid TTOU
 
 local -i pid=$sysparams[pid]
 
@@ -834,3 +955,23 @@ fi
  ) } always {
   [[ -n $stty ]] && command stty $stty <&$_z4m_tty_fd 2>/dev/null
 }
+ssh_ret=$?
+
+if (( ssh_ret == 0 && !bypass && $#current_sync_state )); then
+  if [[ ! -d $sync_state_dir ]]; then
+    zf_mkdir -p -- $sync_state_dir || true
+  fi
+  if [[ -d $sync_state_dir ]]; then
+    {
+      print -r -- "# z4m ssh sync state for $z4m_ssh_host"
+      print -r -- "# Connection key: $sync_state_key"
+      print -r -- "# Last sync: $(strftime '%Y-%m-%d %H:%M:%S' $EPOCHSECONDS)"
+      local k
+      for k in ${(k)current_sync_state}; do
+        print -r -- "${k}"$'\t'"${current_sync_state[$k]}"
+      done
+    } >$sync_state_file 2>/dev/null || true
+  fi
+fi
+
+return ssh_ret

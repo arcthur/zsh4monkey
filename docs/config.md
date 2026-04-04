@@ -25,6 +25,9 @@ zstyle ':z4m:ssh-agent:' start 'yes'
 # Note: for these “CLI tool” packages, `z4m install` registers integrations and runs
 # a post-install check. Install the actual binaries via your package manager.
 z4m install eza bat fd rg zoxide fzf carapace atuin || return
+
+# Resolve immediately when you need the queue applied before z4m init.
+# z4m install --resolve fzf powerlevel10k
 ```
 
 ---
@@ -251,7 +254,7 @@ See [fzf-completion.md](fzf-completion.md) for details.
 | `:z4m:ssh:* propagate-env` | array | — | Environment variables to propagate |
 | `:z4m:ssh:* propagate-env-patterns` | array | — | Glob patterns for env propagation |
 | `:z4m:ssh:* propagate-env-exclude` | array | — | Patterns to exclude from propagation |
-| `:z4m:ssh:* sync-mode` | string | `smart` | `smart`, `full`, `incremental` |
+| `:z4m:ssh:* sync-mode` | string | `smart` | `smart`, `full`, `incremental` (tracked per connection spec; removed local paths are deleted remotely in incremental mode) |
 | `:z4m:ssh:* offline-mode` | bool | `no` | Bundle z4m for air-gapped hosts |
 | `:z4m:ssh:* term` | string | — | Override TERM for specific hosts |
 | `:z4m:ssh:* ssh-command` | array | `command ssh` | Custom ssh command (command + args; do not quote multi-word values as a single string) |

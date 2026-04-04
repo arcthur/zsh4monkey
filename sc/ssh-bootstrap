@@ -134,7 +134,8 @@ _z4m_ssh_mktemp
 
 # Handle offline mode bundle
 if '[' '-f' "$1"/z4m-bundle.tar.gz ']'; then
-  : "${Z4M:=$HOME/.cache/z4m}"
+  : "${Z4M:=${XDG_CACHE_HOME:-$HOME/.cache}/zsh4monkey}"
+  'export' Z4M
   if '[' '!' '-d' "$Z4M" ']'; then
     'command' 'mkdir' '-p' '--' "$Z4M" || 'exit'
   fi
@@ -162,10 +163,10 @@ for _z4m_ssh_dst in ^SEND_TO^; do
       'exit' '1'
     ;;
   esac
-  if '[' '-e' "$_z4m_ssh_dst" ']'; then
-    'command' 'rm' '-rf' '--' "$_z4m_ssh_dst" || 'exit'
-  fi
   if '[' '-e' "$1"/"$_z4m_ssh_src" ']'; then
+    if '[' '-e' "$_z4m_ssh_dst" ']'; then
+      'command' 'rm' '-rf' '--' "$_z4m_ssh_dst" || 'exit'
+    fi
     _z4m_ssh_dir="${_z4m_ssh_dst%/*}"
     if '[' '!' '-e' "$_z4m_ssh_dir" ]; then
       'command' 'mkdir' '-p' '--' "$_z4m_ssh_dir" || 'exit'
@@ -175,6 +176,29 @@ for _z4m_ssh_dst in ^SEND_TO^; do
     fi
   fi
 done
+
+if ! ^EMPTY_DELETE_TO^; then
+  for _z4m_ssh_dst in ^DELETE_TO^; do
+    case "$_z4m_ssh_dst" in
+      '')
+        >&2 'printf' '\033[33mz4m\033[0m: empty delete target after expansion\n'
+        'exit' '1'
+      ;;
+      */)
+        >&2 'printf' '\033[33mz4m\033[0m: delete target ends with \033[1m/\033[0m after expansion: \033[31m%s\033[0m\n' "$_z4m_ssh_dst"
+        'exit' '1'
+      ;;
+      /*);;
+      *)
+        >&2 'printf' '\033[33mz4m\033[0m: delete target is not absolute: \033[31m%s\033[0m\n' "$_z4m_ssh_dst"
+        'exit' '1'
+      ;;
+    esac
+    if '[' '-e' "$_z4m_ssh_dst" ']'; then
+      'command' 'rm' '-rf' '--' "$_z4m_ssh_dst" || 'exit'
+    fi
+  done
+fi
 
 'rm' '-rf' '--' "$_z4m_ssh_tmp" || 'exit'
 

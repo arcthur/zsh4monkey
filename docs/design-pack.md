@@ -19,28 +19,30 @@ z4m pack [-o output] [-t tag]
 - `-o <output>`: output filename (default: `z4m-offline-install.sh`)
 - `-t <tag>`: selects a `zstyle` namespace for extra files (default: `default`)
 
-### Extra Files (Tag-Scoped)
+### Extra Paths (Tag-Scoped)
 
-Include additional local files by configuring:
+Include additional local paths by configuring:
 
 ```zsh
 zstyle ":z4m:pack:<tag>" extra-files '~/.config/nvim/init.lua' '~/.env.zsh'
 ```
 
 Values are evaluated the same way as other z4m file lists (so `~` and `$HOME` expand).
+Paths must live under `$HOME` or `$ZDOTDIR`; the installer preserves that relative location on the target machine.
 
 ## Package Contents
 
 `z4m pack` embeds:
 
-1. **Dotfiles** from `ZDOTDIR` (when present): `.zshenv`, `.zprofile`, `.zshrc`, `.zlogin`, `.zlogout`, and `.p10k*.zsh`
-2. **Selected z4m directories** under `$Z4M/` (when present):
+1. **Dotfiles** from `${ZDOTDIR:-$HOME}` (when present): `.zshenv`, `.zprofile`, `.zshrc`, `.zlogin`, `.zlogout`, and `.p10k*.zsh`
+2. **Core z4m payload** under `$Z4M/` (when present):
+   - `z4m.zsh`
    - `zsh4monkey/`
    - `fzf/`
    - `powerlevel10k/`
    - `zsh-users/`
    - `terminfo/`
-3. Any configured `extra-files`
+3. Any configured `extra-files` under `$HOME` or `$ZDOTDIR`
 
 ## Data Model
 
@@ -48,7 +50,10 @@ The output script is:
 
 - a POSIX `sh` header that implements extraction and installation
 - a marker line: `___Z4M_DATA_MARKER___`
-- a Base64-encoded `tar.gz` archive of the payload
+- a Base64-encoded `tar.gz` archive containing:
+  - `z4m.tar.gz` for the z4m installation tree
+  - `payload/` with staged dotfiles and extra paths
+  - `install.manifest` describing whether each staged path belongs under `$HOME` or `$ZDOTDIR`
 
 On the target machine, the script:
 
@@ -61,7 +66,7 @@ On the target machine, the script:
 
 3. Extracts the embedded archive into a temporary directory.
 4. Extracts `z4m.tar.gz` into `$Z4M/` (core framework + bundled deps).
-5. Copies dotfiles into `$ZDOTDIR/`.
+5. Replays `install.manifest`, copying staged content into either `$HOME/` or `$ZDOTDIR/`.
 
 ## Requirements and Limitations
 
@@ -70,7 +75,7 @@ The target machine needs:
 - POSIX `sh`
 - `tar`
 - `base64` (decode via `base64 -d` or `base64 -D`)
-- `mktemp`, `grep`, `tail`, `cut`, `cp`
+- `mktemp`, `grep`, `tail`, `cut`, `cp`, `rm`, `mkdir`
 
 Notes:
 

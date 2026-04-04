@@ -14,16 +14,17 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 if (( ARGC == 1 )); then
   case $1 in
     install)
-      print -Pr -- "Usage: %F{2}z4m%f %Binstall%b [-f|--force] [%Uuser/project[@branch]%u]..."
+      print -Pr -- "Usage: %F{2}z4m%f %Binstall%b [-r|--resolve] [%Uuser/project[@branch]%u]..."
       print -Pr -- ""
-      print -Pr -- "Clone or update GitHub project(s) to \$Z4M directory."
+      print -Pr -- "Register GitHub project(s) or built-in packages in the install queue."
       print -Pr -- ""
       print -Pr -- "Options:"
-      print -Pr -- "  %B-f, --force%b  Force reinstall even if already installed"
+      print -Pr -- "  %B-r, --resolve%b  Resolve the install queue immediately"
       print -Pr -- ""
       print -Pr -- "Examples:"
       print -Pr -- "  z4m install romkatv/powerlevel10k"
       print -Pr -- "  z4m install ohmyzsh/ohmyzsh@master"
+      print -Pr -- "  z4m install --resolve fzf powerlevel10k"
     ;;
     update)
       print -Pr -- "Usage: %F{2}z4m%f %Bupdate%b"
@@ -270,7 +271,9 @@ if (( ARGC == 1 )); then
       print -Pr -- "  sh z4m-offline-install.sh"
       print -Pr -- ""
       print -Pr -- "Configuration:"
-      print -Pr -- "  zstyle ':z4m:pack:default' extra-files ~/myfile"
+      print -Pr -- "  zstyle ':z4m:pack:default' extra-files ~/.config/nvim/init.lua ~/.env.zsh"
+      print -Pr -- ""
+      print -Pr -- "extra-files entries must live under %B\$HOME%b or %B\$ZDOTDIR%b."
     ;;
     help)
       print -Pr -- "Usage: %F{2}z4m%f %Bhelp%b [%Ucommand%u]"

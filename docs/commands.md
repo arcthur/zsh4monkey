@@ -13,7 +13,7 @@
 
 | Command | Description |
 |---------|-------------|
-| `z4m install <plugin>` | Install a plugin, or register a CLI tool integration |
+| `z4m install <package>` | Register a plugin or built-in package in the install queue |
 | `z4m load <dir>` | Load a plugin directory |
 | `z4m source <file>` | Source a script file |
 
@@ -25,6 +25,12 @@ z4m install eza bat fd rg zoxide fzf carapace atuin || return
 
 Note: for CLI tools, `z4m install` does not install the binaries; it registers integrations and runs post-install checks.
 See [cli-tools.md](cli-tools.md) for details.
+
+Resolve the queue immediately when needed:
+
+```bash
+z4m install --resolve fzf powerlevel10k
+```
 
 ### Loading Plugins
 

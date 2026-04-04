@@ -58,7 +58,7 @@ The installer backs up existing files, guides you through configuration, and set
 |---------|-------------|
 | `z4m init` | Initialize zsh |
 | `z4m update` | Update z4m and plugins |
-| `z4m install <plugin>` | Install plugin |
+| `z4m install <pkg>` | Register dependency in install queue |
 | `z4m ssh <host>` | SSH with teleportation |
 | `z4m env-propagation-diagnose [<base64>]` | Diagnose SSH env propagation payload |
 | `z4m bindkey <widget> <key>` | Bind key |
@@ -137,7 +137,7 @@ Your shell environment transfers to remote hosts automatically:
 z4m ssh user@host
 ```
 
-- First connection installs zsh4monkey on remote
+- First connection synchronizes your local z4m bootstrap onto the remote
 - Subsequent connections are instant
 - No git, zsh, or sudo required on remote
 - Supports ProxyJump (`-J`) for bastion hosts

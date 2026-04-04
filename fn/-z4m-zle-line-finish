@@ -18,9 +18,18 @@ if [[ $BUFFER == *' ' ]] &&
   BUFFER=${BUFFER%% #}
 fi
 
-# Record PWD→HISTCMD mapping for history_pwd strategy
-(( ${+_z4m_dir_cmd_map} && HISTCMD > 0 )) && \
-  _z4m_dir_cmd_map[$HISTCMD]=${(%):-%~}
+# Record directory-local history indices for history_pwd strategy.
+if (( HISTCMD > 0 )) && (( ${+_z4m_dir_cmd_map} || ${+_z4m_dir_history_ids} )); then
+  local dir=${(%):-%~}
+  (( ${+_z4m_dir_cmd_map} )) && _z4m_dir_cmd_map[$HISTCMD]=$dir
+
+  if (( ${+_z4m_dir_history_ids} )); then
+    local -i cap=${_z4m_autosuggest_state[history_pwd_capture_cap]:-1024}
+    local -a ids=($HISTCMD ${=_z4m_dir_history_ids[$dir]-})
+    (( $#ids > cap )) && ids=("${ids[1,$cap]}")
+    _z4m_dir_history_ids[$dir]="${(j: :)ids}"
+  fi
+fi
 
 -z4m-autosuggest-reset finish
 if [[ -v region_highlight ]]; then

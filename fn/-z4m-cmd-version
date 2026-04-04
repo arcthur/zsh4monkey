@@ -86,10 +86,10 @@ if (( verbose )); then
   fi
 
   # powerlevel10k
-  if [[ -d $Z4M/romkatv/powerlevel10k ]]; then
+  if [[ -d $Z4M/powerlevel10k ]]; then
     local p10k_version
-    if [[ -r $Z4M/romkatv/powerlevel10k/internal/version ]]; then
-      p10k_version=$(<$Z4M/romkatv/powerlevel10k/internal/version)
+    if [[ -r $Z4M/powerlevel10k/internal/version ]]; then
+      p10k_version=$(<$Z4M/powerlevel10k/internal/version)
     else
       p10k_version="installed"
     fi

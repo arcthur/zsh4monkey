@@ -8,8 +8,10 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 (( ${+_z4m_autosuggest_state} )) || typeset -gA _z4m_autosuggest_state
 (( ${+_z4m_autosuggest_events} )) || typeset -ga _z4m_autosuggest_events
 (( ${+_z4m_dir_cmd_map} )) || typeset -gA _z4m_dir_cmd_map
+(( ${+_z4m_dir_history_ids} )) || typeset -gA _z4m_dir_history_ids
 : ${_z4m_autosuggest_state[state]:=uninitialized}
 : ${_z4m_autosuggest_state[event_capacity]:=200}
+: ${_z4m_autosuggest_state[history_pwd_capture_cap]:=1024}
 : ${_z4m_autosuggest_state[configured_enabled]:=1}
 : ${_z4m_autosuggest_state[configured_strategy]:=history}
 : ${_z4m_autosuggest_state[configured_buffer_min_size]:=}
@@ -24,8 +26,10 @@ function -z4m-autosuggest-core-ensure() {
   (( ${+_z4m_autosuggest_state} )) || typeset -gA _z4m_autosuggest_state
   (( ${+_z4m_autosuggest_events} )) || typeset -ga _z4m_autosuggest_events
   (( ${+_z4m_dir_cmd_map} )) || typeset -gA _z4m_dir_cmd_map
+  (( ${+_z4m_dir_history_ids} )) || typeset -gA _z4m_dir_history_ids
   : ${_z4m_autosuggest_state[state]:=uninitialized}
   : ${_z4m_autosuggest_state[event_capacity]:=200}
+  : ${_z4m_autosuggest_state[history_pwd_capture_cap]:=1024}
   : ${_z4m_autosuggest_state[configured_enabled]:=1}
   : ${_z4m_autosuggest_state[configured_strategy]:=history}
   : ${_z4m_autosuggest_state[configured_buffer_min_size]:=}
@@ -531,19 +535,25 @@ function -z4m-autosuggest-core-init() {
     (( ${+Z4M_ZAS_CASE_INSENSITIVE} )) && ci=1
     local pattern="${prefix}*"
     (( ci )) && pattern="(#i)${pattern}"
-    local -i i
-    for (( i = HISTCMD - 1; i > HISTCMD - scan_limit && i > 0; --i )); do
-      [[ -n ${history[$i]-} ]] || continue
-      [[ "${history[$i]}" == ${~pattern} ]] || continue
-      if [[ ${_z4m_dir_cmd_map[$i]-} == $current_dir ]]; then
-        typeset -g suggestion="${history[$i]}"
-        # Case-insensitive: rewrite prefix to user's case
-        if (( ci )) && [[ $suggestion != "$1"* ]]; then
-          typeset -g _z4m_autosuggest_ci_original="$suggestion"
-          suggestion="${1}${suggestion:${#1}}"
-        fi
-        return
+    local history_ids=${_z4m_dir_history_ids[$current_dir]-}
+    [[ -n $history_ids ]] || return
+
+    local -a ids=(${=history_ids})
+    local -i idx limit
+    limit=$(( $#ids < scan_limit ? $#ids : scan_limit ))
+    for (( idx = 1; idx <= limit; ++idx )); do
+      local -i hist_id=${ids[idx]}
+      local hist_line=${history[$hist_id]-}
+      [[ -n $hist_line ]] || continue
+      [[ $hist_line == ${~pattern} ]] || continue
+
+      typeset -g suggestion="$hist_line"
+      # Case-insensitive: rewrite prefix to user's case
+      if (( ci )) && [[ $suggestion != "$1"* ]]; then
+        typeset -g _z4m_autosuggest_ci_original="$suggestion"
+        suggestion="${1}${suggestion:${#1}}"
       fi
+      return
     done
   }
 
