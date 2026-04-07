@@ -335,6 +335,26 @@ if '[' '-n' "${_z4m_bootstrap-}" ']'; then
         'command' 'tar' '-C' "$tmpdir" '-xzf' "$tmpdir"/snapshot.tar.gz || 'exit'
       fi
 
+      package_dir="$tmpdir"/zsh4monkey-"$v"
+      if '[' '!' '-e' "$package_dir"/version ']' &&
+         '[' '-d' "$package_dir" ']' &&
+         '[' '-r' "$Z4M"/zsh4monkey/version ']'; then
+        if '[' '-r' "$Z4M"/z4m.zsh ']'; then
+          'command' 'cp' '-p' -- "$Z4M"/z4m.zsh "$package_dir"/z4m.zsh || 'exit'
+          'command' 'rm' '-f' -- "$package_dir"/z4m.zsh.zwc || 'exit'
+        fi
+        for overlay in \
+          'version' \
+          'fn/-z4m-read-version' \
+          'fn/-z4m-cmd-ssh' \
+          'fn/-z4m-cmd-version' \
+          'fn/-z4m-ssh-maybe-update'; do
+          '[' '-r' "$Z4M"/zsh4monkey/"$overlay" ']' || continue
+          'command' 'cp' '-p' -- "$Z4M"/zsh4monkey/"$overlay" "$package_dir"/"$overlay" || 'exit'
+          'command' 'rm' '-f' -- "$package_dir"/"$overlay".zwc || 'exit'
+        done
+      fi
+
       if '[' '-e' "$Z4M"/.updating ']'; then
         if '[' '-z' "${Z4M_UPDATING-}" ']'; then
           >&2 'printf' '\033[33mz4m\033[0m: \033[1mZ4M_UPDATING\033[0m does not propagate through \033[32mzsh\033[0m\n'

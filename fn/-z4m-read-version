@@ -1,0 +1,19 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+local version_file=${1:-$Z4M/zsh4monkey/version}
+local version
+
+if [[ -r $version_file ]]; then
+  version=${$(<$version_file)%$'\r'}
+  if [[ $version == <-> ]]; then
+    REPLY=$version
+    return 0
+  fi
+fi
+
+# Older installs may not have the version file yet. Fall back to the first
+# repository-embedded version so version-gated features keep working.
+REPLY=100000001
+return 0

@@ -441,6 +441,7 @@ function -z4m-cmd-init() {
     fi
     # Failure: create marker for next startup
     local -i rc=$?
+    (( rc )) || return 0
     local -a lines=(
       "type=init"
       "epoch=$EPOCHSECONDS"

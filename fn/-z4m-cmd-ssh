@@ -60,11 +60,8 @@ for i in ${(On)args_to_remove}; do
 done
 
 local z4m_min_version
-z4m_min_version=${$(<$Z4M/zsh4monkey/version)%$'\r'} || return
-if [[ $z4m_min_version != <1-> ]]; then
-  print -Pru2 -- '%F{3}z4m%f: invalid file content: %F{1}%U$Z4M/zsh4monkey/version%f%u'
-  return 1
-fi
+-z4m-read-version "$Z4M/zsh4monkey/version" || return
+z4m_min_version=$REPLY
 local -r z4m_min_version
 
 local -r z4m_ssh_client=${${(%):-%m}:-unknown}

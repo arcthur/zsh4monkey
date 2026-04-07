@@ -8,10 +8,9 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 local min_version=${Z4M_SSH%%:*}
 
 local got_version
-got_version=${$(<$Z4M/zsh4monkey/version)%$'\r'} &&
-  [[ $got_version == <-> ]]                      &&
-  (( got_version >= min_version ))               &&
-  return
+-z4m-read-version "$Z4M/zsh4monkey/version" || return
+got_version=$REPLY
+(( got_version >= min_version )) && return
 
 print -Pru2 -- "%F{3}z4m%f: %Binitiating update%b (cached version too old)"
 
