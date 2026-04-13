@@ -1,14 +1,19 @@
 # SSH Teleportation
 
-Transfer your shell configuration to remote hosts automatically.
+Transfer your zsh4monkey runtime to remote hosts and enter an interactive shell.
 
 ## Overview
 
 When you run `z4m ssh host`, z4m:
-1. Bundles your zsh configuration
-2. Transfers it to the remote host
-3. Starts zsh with your familiar environment
-4. Optionally retrieves files (history, notes) when you disconnect
+
+1. Resolves host-scoped SSH styles
+2. Bundles the current z4m runtime, installed z4m-managed packages, and shell dotfiles
+3. Uploads that bundle to the remote host in one shot
+4. Starts an interactive remote `zsh` using the uploaded runtime
+
+`z4m ssh` no longer uses incremental sync, file retrieval, or output-stream control markers. Once bootstrap finishes, the session is handed directly to the remote shell.
+
+Non-interactive SSH usages are passed through unchanged to the configured `ssh` command.
 
 ## Quick Start
 
@@ -29,7 +34,7 @@ z4m ssh myserver
 
 ### Host Matching
 
-Use patterns to control which hosts receive teleportation:
+Styles are matched against the SSH target you pass to `z4m ssh` and, if it resolves to a different `HostName`, against that resolved host as a fallback.
 
 ```zsh
 # Default-off mode (opt-in hosts)
@@ -45,90 +50,80 @@ zstyle ':z4m:ssh:*.prod.company.com' enable 'no'
 
 ### Extra Files
 
-Send additional files to remote hosts:
+Send extra files with kitty-style copy specs. Each `zstyle` element is one copy spec:
 
 ```zsh
-zstyle ':z4m:ssh:*' send-extra-files '~/.nanorc' '~/.env.zsh' '~/.config/nvim/init.lua'
+zstyle ':z4m:ssh:*' send-extra-files \
+  '~/.nanorc' \
+  '--dest my-conf/zsh/.zshrc ~/.zshrc' \
+  '--glob .config/nvim/**/*.lua'
 ```
 
-Retrieve files after session ends:
+Supported options:
+
+- Plain source path: copy one file or directory and keep its path relative to the local `$HOME` on the remote side
+- `--dest <remote-path>`: override the remote destination for a single resolved source
+- `--glob`: expand the local source as a glob before copying
+- `--exclude <pattern>`: exclude files or directories inside a copied directory
+
+Behavior notes:
+
+- Relative local source paths are resolved from the local `$HOME`
+- Relative local source paths must not contain `.` or `..` path segments
+- If a local source is outside `$HOME` but inside `$ZDOTDIR`, the default remote path is relative to `$ZDOTDIR`
+- Relative remote destinations live under the remote `$HOME`; absolute destinations are preserved as-is
+- Remote destinations must not contain `.` or `..` path segments
+- `--dest` cannot be used with a spec that resolves to multiple local paths
+- `--exclude` applies to directory contents; patterns without `/` match basenames, patterns with `/` match relative paths inside the copied tree
+
+When a spec contains spaces, quote it as a single `zstyle` array element.
+
+### Environment Configuration
+
+Set, clear, unset, or copy explicit environment variables during bootstrap:
 
 ```zsh
-zstyle ':z4m:ssh:*' retrieve-extra-files '~/.local/notes'
-zstyle ':z4m:ssh:*' retrieve-history '$ZDOTDIR/.zsh_history.remote'
+zstyle ':z4m:ssh:*' env \
+  'EDITOR=_z4m_copy_env_var_' \
+  'VISUAL=_z4m_copy_env_var_' \
+  'COLORTERM=truecolor' \
+  'GIT_DIR'
 ```
 
-### Environment Propagation
+Directive rules:
 
-Propagate local environment variables to remote sessions:
+- `NAME=value`: set a literal remote value
+- `NAME=`: set an empty remote value
+- `NAME`: unset on the remote side
+- `NAME=_z4m_copy_env_var_`: copy the local scalar value if it exists
+
+`_kitty_copy_env_var_` is also accepted for easier migration from kitty configs.
+
+### Startup Directory
+
+Start the remote shell from a specific directory:
 
 ```zsh
-# Explicit variable list
-zstyle ':z4m:ssh:*' propagate-env 'EDITOR' 'VISUAL' 'FZF_DEFAULT_OPTS'
-
-# Glob patterns for bulk matching
-zstyle ':z4m:ssh:*' propagate-env-patterns 'FZF_*' 'ATUIN_*' 'MY_*'
-
-# Exclude specific patterns
-zstyle ':z4m:ssh:*' propagate-env-exclude 'MY_INTERNAL_*'
+zstyle ':z4m:ssh:*' cwd 'src/project'
+zstyle ':z4m:ssh:infra' cwd '/srv/app'
 ```
 
-**Supported types**: scalars, indexed arrays, associative arrays (base64-encoded for transport).
+Relative values are resolved from the remote `HOME`. `~`, `$HOME`, `${HOME}`, `$ZDOTDIR`, and `${ZDOTDIR}` are also accepted. If the directory cannot be entered, `z4m ssh` prints a warning and continues with the remote shell's default directory.
 
-**Size limits**:
-- Per-variable: 4KB
-- Total payload: 64KB
+### Bootstrap Interpreter
 
-### Security Exclusions
-
-These patterns are **always** excluded from propagation:
-
-| Category | Patterns |
-|----------|----------|
-| Secrets | `*_SECRET`, `*_SECRET_*`, `*SECRET_*` |
-| Tokens | `*_TOKEN`, `*_TOKEN_*`, `*TOKEN_*` |
-| Keys | `*_KEY`, `*_API_KEY`, `*API_KEY*` |
-| Passwords | `*_PASSWORD`, `*PASSWORD*` |
-| Credentials | `*_CREDENTIAL*`, `*CREDENTIAL*` |
-| AWS | `AWS_SECRET_*`, `AWS_SESSION_TOKEN` |
-| Git providers | `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN` |
-| Package managers | `NPM_TOKEN`, `NPM_AUTH_TOKEN` |
-| Docker | `DOCKER_PASSWORD`, `DOCKER_AUTH_*` |
-| SSH agent | `SSH_AUTH_SOCK`, `SSH_AGENT_PID` |
-
-### Sync Mode
-
-Control how z4m syncs configuration:
+Use a different POSIX shell to start the bootstrap script:
 
 ```zsh
-zstyle ':z4m:ssh:*' sync-mode 'smart'
+zstyle ':z4m:ssh:*' interpreter 'sh'
+zstyle ':z4m:ssh:legacy' interpreter '/bin/bash'
 ```
 
-| Mode | Description |
-|------|-------------|
-| `smart` | Full sync on first connection for a connection spec, incremental after (default) |
-| `full` | Always perform full sync |
-| `incremental` | Compare stored fingerprints, sync changed paths, and delete remote paths removed locally |
-
-Force full sync for a single connection:
-
-```bash
-z4m ssh --force-sync host
-```
-
-### Offline Mode
-
-For air-gapped hosts without internet:
-
-```zsh
-zstyle ':z4m:ssh:airgapped-host' offline-mode yes
-```
-
-This bundles the complete z4m installation in the transfer and unpacks it into the same default `Z4M` path used by the shipped `.zshenv` bootstrap.
+`interpreter` must be a single executable name or absolute path that can run POSIX `sh` syntax. It only affects bootstrap startup; the interactive shell still comes from the remote `exec-zsh-i` flow.
 
 ### Terminal Override
 
-For hosts with limited terminfo:
+Override the terminal type for specific hosts:
 
 ```zsh
 zstyle ':z4m:ssh:oldserver' term 'screen-256color'
@@ -136,60 +131,16 @@ zstyle ':z4m:ssh:oldserver' term 'screen-256color'
 
 ### Custom SSH Command
 
-Use a different ssh binary or wrapper:
+Use a different `ssh` binary or wrapper:
 
 ```zsh
-# Note: `ssh-command` is parsed as an argv array (command + args).
-# Do not quote multi-word values like 'command ssh' as a single string.
 zstyle ':z4m:ssh:*' ssh-command command ssh
 zstyle ':z4m:ssh:bastion' ssh-command /usr/local/bin/ssh-wrapper
-
-# Example with extra default args
-zstyle ':z4m:ssh:legacy' ssh-command ssh -o ControlMaster=no
 ```
 
-## Advanced Configuration
+`ssh-command` is parsed as an argv array.
 
-### Configure Hook
-
-For complex setups, define a custom configuration function:
-
-```zsh
-my-ssh-configure() {
-  # Add files to send (associative array: local -> remote)
-  z4m_ssh_send_files[$HOME/.special-config]=$HOME/.special-config
-
-  # Add setup commands (run on remote before shell starts)
-  z4m_ssh_setup+=('mkdir -p ~/.local/bin')
-
-  # Add prelude commands (run before zsh)
-  z4m_ssh_prelude+=('export SPECIAL_VAR=value')
-
-  # Add run commands (run inside zsh)
-  z4m_ssh_run+=('source ~/.special-init')
-
-  # Add teardown commands (run after zsh exits)
-  z4m_ssh_teardown+=('rm -f ~/.temp-file')
-
-  # Add files to retrieve (associative array: remote -> local)
-  z4m_ssh_retrieve_files[$HOME/.remote-notes]=$HOME/.remote-notes
-}
-
-zstyle ':z4m:ssh:specialhost' configure 'my-ssh-configure'
-```
-
-Available arrays:
-
-| Array | When | Purpose |
-|-------|------|---------|
-| `z4m_ssh_prelude` | Before ssh | Shell setup before connection |
-| `z4m_ssh_send_files` | During transfer | Files to send (associative map: local -> remote) |
-| `z4m_ssh_setup` | After transfer | Setup commands on remote |
-| `z4m_ssh_run` | In zsh | Commands to run in shell |
-| `z4m_ssh_teardown` | After exit | Cleanup commands |
-| `z4m_ssh_retrieve_files` | After exit | Files to retrieve (associative map: remote -> local) |
-
-### ProxyJump Support
+## Jump Hosts
 
 Jump hosts work transparently:
 
@@ -197,110 +148,22 @@ Jump hosts work transparently:
 z4m ssh -J jumphost user@target
 ```
 
-Only the final target receives the teleported configuration.
+Only the final interactive target receives the teleported runtime.
 
 ## SSH Agent
 
-Automatically start ssh-agent:
+Automatically start `ssh-agent`:
 
 ```zsh
 zstyle ':z4m:ssh-agent:' start 'yes'
-zstyle ':z4m:ssh-agent:' extra-args -t 20h  # Key lifetime
+zstyle ':z4m:ssh-agent:' extra-args -t 20h
 ```
 
-## Commands
+## Behavior Notes
 
-| Command | Description |
-|---------|-------------|
-| `z4m ssh <host>` | Connect with teleportation |
-| `z4m ssh --force-sync <host>` | Force full sync |
-| `z4m ssh -J <jump> <host>` | Connect via jump host |
-
-## Troubleshooting
-
-### Teleportation not working
-
-1. Check if enabled for host:
-   ```bash
-   zstyle -L ':z4m:ssh:myhost'
-   ```
-
-2. Verify z4m ssh is being used (not system ssh):
-   ```bash
-   which z4m
-   type z4m
-   ```
-
-### Slow connection
-
-1. Try incremental sync:
-   ```zsh
-   zstyle ':z4m:ssh:slowhost' sync-mode 'incremental'
-   ```
-
-2. Reduce files being sent:
-   ```bash
-   # Check what's being sent
-   z4m ssh -v slowhost
-   ```
-
-### Environment not propagating
-
-1. Check variable size (must be < 4KB):
-   ```bash
-   echo ${#MY_VAR}
-   ```
-
-2. Check if excluded by security patterns:
-   ```bash
-   # Variables matching *_TOKEN, *_SECRET, etc. are never propagated
-   ```
-
-3. Enable debug:
-   ```zsh
-   Z4M_ENV_PROPAGATION_DEBUG=1 z4m ssh host
-   ```
-
-### Remote shell issues
-
-1. Check TERM compatibility:
-   ```zsh
-   zstyle ':z4m:ssh:problematic-host' term 'xterm-256color'
-   ```
-
-2. Try offline mode for hosts without internet:
-   ```zsh
-   zstyle ':z4m:ssh:isolated-host' offline-mode yes
-   ```
-
-## How It Works
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  z4m ssh host                                               │
-├─────────────────────────────────────────────────────────────┤
-│  1. Bundle: Pack ~/.zshrc, p10k, plugins into tarball       │
-│  2. Transfer: Send via ssh stdin/stdout                     │
-│  3. Unpack: Extract to ~/.cache/zsh4monkey on remote        │
-│  4. Start: Launch zsh with ZDOTDIR pointing to bundle       │
-│  5. Cleanup: Remove bundle on disconnect (optional)         │
-│  6. Retrieve: Fetch history/files back to local             │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Technical Details
-
-### Implementation Files
-
-| File | Purpose |
-|------|---------|
-| `fn/-z4m-cmd-ssh` | Main ssh command wrapper and transfer orchestration |
-| `sc/ssh-bootstrap` | Remote bootstrap script template |
-| `fn/-z4m-init` | Remote-side env propagation restore |
-| `fn/-z4m-env-propagation-*` | Env propagation parser/limits/diagnostics |
-
-### Environment Variable
-
-| Variable | Description |
-|----------|-------------|
-| `Z4M_SSH` | Set on remote: `local-host:remote-host` format |
+- `z4m ssh` is optimized for interactive remote shells.
+- Forwarding-only or command-execution SSH invocations fall back to the underlying `ssh`.
+- Inline autosuggestions are disabled in SSH sessions to avoid remote TTY redraw corruption.
+- Syntax highlighting is disabled in SSH sessions to avoid remote TTY redraw corruption.
+- Simplified prompt is used in SSH sessions to avoid remote prompt redraw corruption.
+- Remote rendering issues caused by the old file-retrieval and marker protocol are intentionally avoided by keeping bootstrap one-way.

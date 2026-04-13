@@ -402,7 +402,7 @@ function -z4m-cmd-init() {
       fi
     fi
 
-    if [[ -v _z4m_tty_fd && (-n $Z4M_SSH && -n $_Z4M_SSH_MARKER || -n $_Z4M_TMUX) ]]; then
+    if [[ -v _z4m_tty_fd && -n $_Z4M_TMUX ]]; then
       typeset -gri _z4m_can_save_restore_screen=1  # this parameter is read by p10k
     else
       typeset -gri _z4m_can_save_restore_screen=0  # this parameter is read by p10k

@@ -165,7 +165,7 @@ function _history-substring-search-up-history() {
 function _history-substring-search-down-history() {
   [[ -z $_history_substring_search_query ]] || return 1
 
-  if (( HISTNO == 1 && -z $BUFFER )); then
+  if (( HISTNO == 1 )) && [[ -z $BUFFER ]]; then
     BUFFER=${history[1]}
     _history_substring_search_refresh_display=1
   else

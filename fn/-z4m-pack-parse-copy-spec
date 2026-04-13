@@ -1,0 +1,211 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+autoload -Uz -- -z4m-expand-user-path || return 1
+
+local spec=$1
+local local_zdotdir=${2:-${ZDOTDIR:-$HOME}}
+local reply_local_name=$3
+local reply_root_name=$4
+local reply_rel_name=$5
+local reply_exclude_name=$6
+
+[[ -n $reply_local_name && -n $reply_root_name && -n $reply_rel_name ]] || return 1
+
+eval "$reply_local_name=()"
+eval "$reply_root_name=()"
+eval "$reply_rel_name=()"
+[[ -n $reply_exclude_name ]] && eval "$reply_exclude_name=()"
+
+-z4m-pack-copy-spec-error() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  print -Pru2 -- "%F{3}z4m%f: %Bpack%b: ${1//\%/%%}"
+  return 1
+}
+
+-z4m-pack-copy-spec-validate-rel() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local rel=$1
+  [[ -n $rel && $rel != /* ]] || return 1
+  [[ $rel != *$'\n'* && $rel != *$'\t'* ]] || return 1
+  [[ $rel != */ ]] || return 1
+  local part
+  local -a parts=(${(s:/:)rel})
+  for part in $parts; do
+    case $part in
+      .|..) return 1 ;;
+    esac
+  done
+  case $rel in
+    .|..) return 1 ;;
+  esac
+  return 0
+}
+
+-z4m-pack-copy-spec-source-root() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local local_path=$1
+  local local_zdotdir=$2
+
+  if [[ $local_path == $local_zdotdir/* ]]; then
+    REPLY=$'ZDOTDIR\t'${local_path#$local_zdotdir/}
+    return 0
+  fi
+  if [[ $local_path == $HOME/* ]]; then
+    REPLY=$'HOME\t'${local_path#$HOME/}
+    return 0
+  fi
+  -z4m-pack-copy-spec-error "extra path must be under \$HOME or \$ZDOTDIR: $local_path"
+}
+
+-z4m-pack-copy-spec-dest-root() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local dest=$1
+  local default_root=$2
+
+  if [[ -z $dest ]]; then
+    return 1
+  fi
+
+  if [[ $dest == '~/'* ]]; then
+    REPLY=$'HOME\t'${dest:2}
+  elif [[ $dest == '$HOME/'* ]]; then
+    REPLY=$'HOME\t'${dest#\$HOME/}
+  elif [[ $dest == '${HOME}/'* ]]; then
+    REPLY=$'HOME\t'${dest#\$\{HOME\}/}
+  elif [[ $dest == '$ZDOTDIR/'* ]]; then
+    REPLY=$'ZDOTDIR\t'${dest#\$ZDOTDIR/}
+  elif [[ $dest == '${ZDOTDIR}/'* ]]; then
+    REPLY=$'ZDOTDIR\t'${dest#\$\{ZDOTDIR\}/}
+  elif [[ $dest == /* || $dest == '~' || $dest == '$HOME' || $dest == '${HOME}' || \
+          $dest == '$ZDOTDIR' || $dest == '${ZDOTDIR}' ]]; then
+    -z4m-pack-copy-spec-error "invalid destination path: ${dest:-<empty>}"
+    return 1
+  else
+    REPLY=$default_root$'\t'$dest
+  fi
+}
+
+-z4m-pack-copy-spec-expand-source() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob -o no_aliases
+
+  local source_spec=$1
+  local local_zdotdir=$2
+  local -i is_glob=$3
+
+  local resolved
+  -z4m-expand-user-path "$source_spec" "$local_zdotdir" || return 1
+  resolved=$REPLY
+
+  if (( is_glob )); then
+    local -a matches=(${~resolved}(N))
+    (( $#matches )) || -z4m-pack-copy-spec-error "glob matches no files: $source_spec"
+    print -lr -- $matches
+    return 0
+  fi
+
+  [[ -e $resolved ]] || -z4m-pack-copy-spec-error "local source does not exist: $source_spec"
+  print -r -- "$resolved"
+}
+
+local -a words source_specs expanded_sources
+local -i is_glob=0
+local dest=
+local -a exclude_patterns
+local exclude_blob
+
+words=("${(z)spec}")
+(( $#words )) || -z4m-pack-copy-spec-error 'empty copy spec'
+
+while (( $#words )); do
+  case $words[1] in
+    --glob)
+      is_glob=1
+      words=("${words[@]:1}")
+      ;;
+    --dest)
+      if (( $#words < 2 )); then
+        -z4m-pack-copy-spec-error '--dest requires a path'
+        return 1
+      fi
+      dest=${(Q)words[2]}
+      words=("${words[@]:2}")
+      ;;
+    --dest=*)
+      dest=${(Q)${words[1]#--dest=}}
+      words=("${words[@]:1}")
+      ;;
+    --exclude)
+      if (( $#words < 2 )); then
+        -z4m-pack-copy-spec-error '--exclude requires a pattern'
+        return 1
+      fi
+      exclude_patterns+=(${(Q)words[2]})
+      words=("${words[@]:2}")
+      ;;
+    --exclude=*)
+      exclude_patterns+=(${(Q)${words[1]#--exclude=}})
+      words=("${words[@]:1}")
+      ;;
+    --)
+      words=("${words[@]:1}")
+      source_specs+=("${words[@]}")
+      break
+      ;;
+    -*)
+      -z4m-pack-copy-spec-error "unsupported copy option: ${(Q)words[1]}"
+      return 1
+      ;;
+    *)
+      source_specs+=(${(Q)words[1]})
+      words=("${words[@]:1}")
+      ;;
+  esac
+done
+
+exclude_blob=${(F)exclude_patterns}
+
+(( $#source_specs )) || -z4m-pack-copy-spec-error 'copy spec has no local source'
+
+local source_spec
+for source_spec in $source_specs; do
+  expanded_sources+=("${(@f)$(-z4m-pack-copy-spec-expand-source "$source_spec" "$local_zdotdir" $is_glob)}") || return
+done
+
+if [[ -n $dest && $#expanded_sources -ne 1 ]]; then
+  -z4m-pack-copy-spec-error '--dest requires exactly one resolved local source'
+  return 1
+fi
+
+local local_path source_root_rel source_root source_rel dest_root_rel root_kind rel_path
+for local_path in $expanded_sources; do
+  -z4m-pack-copy-spec-source-root "$local_path" "$local_zdotdir" || return
+  source_root_rel=$REPLY
+  source_root=${source_root_rel%%$'\t'*}
+  source_rel=${source_root_rel#*$'\t'}
+
+  if [[ -n $dest ]]; then
+    -z4m-pack-copy-spec-dest-root "$dest" "$source_root" || return
+    dest_root_rel=$REPLY
+    root_kind=${dest_root_rel%%$'\t'*}
+    rel_path=${dest_root_rel#*$'\t'}
+  else
+    root_kind=$source_root
+    rel_path=$source_rel
+  fi
+
+  if ! -z4m-pack-copy-spec-validate-rel "$rel_path"; then
+    -z4m-pack-copy-spec-error "invalid relative path: ${rel_path:-<empty>}"
+    return 1
+  fi
+
+  eval "$reply_local_name+=(${(q)local_path})"
+  eval "$reply_root_name+=(${(q)root_kind})"
+  eval "$reply_rel_name+=(${(q)rel_path})"
+  [[ -n $reply_exclude_name ]] && eval "$reply_exclude_name+=(\"\${exclude_blob}\")"
+done

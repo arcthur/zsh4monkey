@@ -247,18 +247,13 @@ See [fzf-completion.md](fzf-completion.md) for details.
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m:ssh:* enable` | bool | `no` | Enable for all hosts |
-| `:z4m:ssh:<host> enable` | bool | — | Enable for specific host |
-| `:z4m:ssh:* send-extra-files` | array | — | Extra files to send |
-| `:z4m:ssh:* retrieve-extra-files` | array | — | Files to retrieve after session |
-| `:z4m:ssh:* retrieve-history` | array | — | Remote history files to retrieve |
-| `:z4m:ssh:* propagate-env` | array | — | Environment variables to propagate |
-| `:z4m:ssh:* propagate-env-patterns` | array | — | Glob patterns for env propagation |
-| `:z4m:ssh:* propagate-env-exclude` | array | — | Patterns to exclude from propagation |
-| `:z4m:ssh:* sync-mode` | string | `smart` | `smart`, `full`, `incremental` (tracked per connection spec; removed local paths are deleted remotely in incremental mode) |
-| `:z4m:ssh:* offline-mode` | bool | `no` | Bundle z4m for air-gapped hosts |
+| `:z4m:ssh:<host> enable` | bool | — | Enable for a specific SSH target or resolved `HostName` |
+| `:z4m:ssh:* send-extra-files` | array | — | Kitty-style copy specs for extra files (`--dest`, `--glob`, `--exclude`) |
+| `:z4m:ssh:* env` | array | — | Environment directives: `NAME=value`, `NAME=` (empty), `NAME` (unset), or `NAME=_z4m_copy_env_var_` |
+| `:z4m:ssh:* cwd` | string | — | Remote startup directory; relative values are placed under remote `HOME` |
+| `:z4m:ssh:* interpreter` | string | `sh` | POSIX shell interpreter used to start the bootstrap script |
 | `:z4m:ssh:* term` | string | — | Override TERM for specific hosts |
 | `:z4m:ssh:* ssh-command` | array | `command ssh` | Custom ssh command (command + args; do not quote multi-word values as a single string) |
-| `:z4m:ssh:* configure` | string | — | Custom configuration function |
 
 See [ssh.md](ssh.md) for details.
 

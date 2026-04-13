@@ -57,6 +57,11 @@ for pkg in fzf powerlevel10k \
 done
 typeset -grA _z4m_use
 
+local -i _z4m_has_fzf=0
+if (( _z4m_use[fzf] )) && -z4m-fzf-available-p; then
+  _z4m_has_fzf=1
+fi
+
 if (( _z4m_use[powerlevel10k] && ! $#POWERLEVEL9K_CONFIG_FILE )) ; then
   POWERLEVEL9K_CONFIG_FILE=$ZDOTDIR/.p10k
   if [[ $langinfo[CODESET] != (utf|UTF)(-|)8 || $TERM == (dumb|linux) ]]; then
@@ -116,6 +121,33 @@ function z4m-cd-forward() { -z4m-cd-rotate -0 }
 function z4m-cd-up() { builtin cd -q .. && -z4m-redraw-prompt }
 
 function z4m-do-nothing() {}
+
+function -z4m-ssh-delete-redraw() {
+  local -i fd=1
+  [[ -t 1 ]] || [[ -v _z4m_tty_fd ]] && fd=${_z4m_tty_fd:-1}
+
+  print -rnu $fd -- $'\r'
+  if (( $+terminfo[el] )); then
+    echoti el >&$fd || true
+  else
+    print -rnu $fd -- $'\e[K'
+  fi
+  zle redisplay
+}
+
+function z4m-ssh-backward-delete-char() {
+  local -i ret=0
+  zle .backward-delete-char "$@" || ret=$?
+  (( ret )) || -z4m-ssh-delete-redraw
+  return ret
+}
+
+function z4m-ssh-delete-char() {
+  local -i ret=0
+  zle .delete-char "$@" || ret=$?
+  (( ret )) || -z4m-ssh-delete-redraw
+  return ret
+}
 
 # Re-bind unified history keys.
 # This is intentionally callable after other initializers (e.g., atuin) to
@@ -187,6 +219,8 @@ zle -N z4m-fzf-dir-history
 zle -N z4m-autosuggest-accept
 zle -N z4m-autosuggest-ai-trigger
 zle -N z4m-do-nothing
+zle -N z4m-ssh-backward-delete-char
+zle -N z4m-ssh-delete-char
 zle -N z4m-clear-screen-soft-top
 zle -N z4m-clear-screen-soft-bottom
 zle -N z4m-clear-screen-hard-top
@@ -303,9 +337,25 @@ bindkey   '^[[1;3H' z4m-beginning-of-buffer        # alt+home
 # Move cursor to the end of buffer.
 bindkey   '^[[1;5F' z4m-end-of-buffer              # ctrl+end
 bindkey   '^[[1;3F' z4m-end-of-buffer              # alt+end
-# Delete the character under the cursor.
-bindkey   '^D'      delete-char                    # ctrl+d
-bindkey   '^[[3~'   delete-char                    # delete
+if [[ -n ${Z4M_SSH-} ]]; then
+  # Force redraw after delete widgets in SSH-safe mode. The buffer is correct
+  # but some terminals don't repaint cleanly without an explicit refresh.
+  bindkey '^?'       z4m-ssh-backward-delete-char  # backspace (DEL)
+  bindkey '^H'       z4m-ssh-backward-delete-char  # backspace (BS)
+  bindkey '^D'       z4m-ssh-delete-char           # ctrl+d
+  bindkey '^[[3~'    z4m-ssh-delete-char           # delete
+  bindkey $'\e[P'    z4m-ssh-delete-char           # delete (alternate)
+  bindkey $'\e[127~' z4m-ssh-delete-char           # delete (alternate)
+else
+  # Delete the character before the cursor.
+  bindkey '^?'       backward-delete-char          # backspace (DEL)
+  bindkey '^H'       backward-delete-char          # backspace (BS)
+  # Delete the character under the cursor.
+  bindkey '^D'       delete-char                   # ctrl+d
+  bindkey '^[[3~'    delete-char                   # delete
+  bindkey $'\e[P'    delete-char                   # delete (alternate)
+  bindkey $'\e[127~' delete-char                   # delete (alternate)
+fi
 # Delete next word.
 bindkey   '^[d'     z4m-kill-word                  # alt+d
 bindkey   '^[D'     z4m-kill-word                  # alt+D
@@ -346,13 +396,19 @@ bindkey   '^[/'     redo                           # alt+/
 # Expand alias/glob/parameter.
 bindkey   '^ '      z4m-expand                     # ctrl+space
 # Generic command completion.
-bindkey   '^I'      z4m-fzf-complete               # tab
+if (( _z4m_has_fzf )); then
+  bindkey '^I'      z4m-fzf-complete               # tab
+else
+  bindkey '^I'      expand-or-complete             # tab
+fi
 # Command history - prefer Atuin if available and handling Ctrl+R, fallback to fzf.
 if (( ${_z4m_atuin_ctrl_r:-0} )); then
   # Atuin handles Ctrl+R binding via init script
   :
-elif (( _z4m_use[fzf] )); then
+elif (( _z4m_has_fzf )); then
   bindkey '^R'      z4m-fzf-history                # ctrl+r
+else
+  bindkey '^R'      history-incremental-search-backward
 fi
 # Show help for the command at cursor.
 bindkey   '^[h'     run-help                       # alt+h
@@ -379,14 +435,16 @@ bindkey   '^[[1;2D' z4m-cd-back                    # shift+left
 bindkey   '^[[1;2C' z4m-cd-forward                 # shift+right
 # cd into the parent directory.
 bindkey   '^[[1;2A' z4m-cd-up                      # shift+up
-if (( _z4m_use[fzf] )); then
+if (( _z4m_has_fzf )); then
   # cd into a subdirectory (interactive).
   bindkey '^[[1;2B' z4m-cd-down                    # shift+down
 fi
 
 # Directory history.
-bindkey   '^[r'     z4m-fzf-dir-history            # alt+r
-bindkey   '^[R'     z4m-fzf-dir-history            # alt+R
+if (( _z4m_has_fzf )); then
+  bindkey '^[r'     z4m-fzf-dir-history            # alt+r
+  bindkey '^[R'     z4m-fzf-dir-history            # alt+R
+fi
 
 if (( _z4m_can_save_restore_screen )) &&
    zstyle -T :z4m: prompt-at-bottom; then
@@ -471,8 +529,10 @@ if zstyle -T :z4m:bindkey macos-option-as-alt; then
   bindkey 'Ó'            run-help                       # opt+H
   bindkey '∫'            z4m-backward-word              # opt+b
   bindkey 'ı'            z4m-backward-word              # opt+B
-  bindkey '®'            z4m-fzf-dir-history            # opt+r
-  bindkey '‰'            z4m-fzf-dir-history            # opt+R
+  if (( _z4m_has_fzf )); then
+    bindkey '®'            z4m-fzf-dir-history          # opt+r
+    bindkey '‰'            z4m-fzf-dir-history          # opt+R
+  fi
 else
   typeset -grA _z4m_macos_opt_key=()
 fi
@@ -699,7 +759,11 @@ zstyle ':completion:*:git-*:argument-rest:recent-branches' ignored-patterns '*'
 autoload -Uz bashcompinit
 bashcompinit
 
-if (( _z4m_use[powerlevel10k] )); then
+if [[ -n ${Z4M_SSH-} ]]; then
+  PROMPT='%~ %# '
+  RPROMPT=
+  unsetopt transient_rprompt 2>/dev/null || true
+elif (( _z4m_use[powerlevel10k] )); then
   # Initialize prompt. Type `p10k configure` or edit $POWERLEVEL9K_CONFIG_FILE to customize it.
   () {
     local XDG_CACHE_HOME=$Z4M/cache/powerlevel10k

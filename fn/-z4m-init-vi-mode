@@ -12,6 +12,11 @@
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
+local -i _z4m_vi_has_fzf=0
+if -z4m-fzf-available-p; then
+  _z4m_vi_has_fzf=1
+fi
+
 # === Cursor Shape Constants (ANSI DECSCUSR) ===
 typeset -gr _Z4M_CURSOR_BLOCK='\e[2 q'           # Steady block (normal mode)
 typeset -gr _Z4M_CURSOR_BLOCK_BLINK='\e[1 q'     # Blinking block
@@ -119,19 +124,25 @@ function -z4m-setup-viins-bindings() {
   bindkey -M viins '^K'      kill-line                      # ctrl+k
 
   # Tab completion
-  bindkey -M viins '^I'      z4m-fzf-complete               # tab
+  if (( _z4m_vi_has_fzf )); then
+    bindkey -M viins '^I'      z4m-fzf-complete             # tab
+  else
+    bindkey -M viins '^I'      expand-or-complete           # tab
+  fi
   bindkey -M viins '^[[Z'    undo                           # shift+tab
 
   # History search with fzf
-  if (( ${+widgets[z4m-fzf-history]} )); then
+  if (( _z4m_vi_has_fzf && ${+widgets[z4m-fzf-history]} )); then
     bindkey -M viins '^R'    z4m-fzf-history                # ctrl+r
+  else
+    bindkey -M viins '^R'    history-incremental-search-backward
   fi
 
   # Directory navigation
   bindkey -M viins '^[[1;2D' z4m-cd-back                    # shift+left
   bindkey -M viins '^[[1;2C' z4m-cd-forward                 # shift+right
   bindkey -M viins '^[[1;2A' z4m-cd-up                      # shift+up
-  if (( ${+widgets[z4m-cd-down]} )); then
+  if (( _z4m_vi_has_fzf && ${+widgets[z4m-cd-down]} )); then
     bindkey -M viins '^[[1;2B' z4m-cd-down                  # shift+down
   fi
 
@@ -175,23 +186,27 @@ function -z4m-setup-vicmd-bindings() {
   bindkey -M vicmd '^[[1;2D' z4m-cd-back                    # shift+left
   bindkey -M vicmd '^[[1;2C' z4m-cd-forward                 # shift+right
   bindkey -M vicmd '^[[1;2A' z4m-cd-up                      # shift+up
-  if (( ${+widgets[z4m-cd-down]} )); then
+  if (( _z4m_vi_has_fzf && ${+widgets[z4m-cd-down]} )); then
     bindkey -M vicmd '^[[1;2B' z4m-cd-down                  # shift+down
   fi
 
   # History search with fzf
-  if (( ${+widgets[z4m-fzf-history]} )); then
+  if (( _z4m_vi_has_fzf && ${+widgets[z4m-fzf-history]} )); then
     bindkey -M vicmd '/'     z4m-fzf-history                # / for search
     bindkey -M vicmd '^R'    z4m-fzf-history                # ctrl+r
   fi
 
   # Directory history
-  if (( ${+widgets[z4m-fzf-dir-history]} )); then
+  if (( _z4m_vi_has_fzf && ${+widgets[z4m-fzf-dir-history]} )); then
     bindkey -M vicmd '^[r'   z4m-fzf-dir-history            # alt+r
   fi
 
   # Tab completion
-  bindkey -M vicmd '^I'      z4m-fzf-complete               # tab
+  if (( _z4m_vi_has_fzf )); then
+    bindkey -M vicmd '^I'      z4m-fzf-complete             # tab
+  else
+    bindkey -M vicmd '^I'      expand-or-complete           # tab
+  fi
 
   # Clear screen
   bindkey -M vicmd '^L'      z4m-clear-screen-soft-top      # ctrl+l

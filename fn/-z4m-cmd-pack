@@ -11,6 +11,8 @@
 
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+autoload -Uz -- -z4m-copy-path-with-excludes || return 1
+autoload -Uz -- -z4m-pack-parse-copy-spec || return 1
 -z4m-check-core-params || return
 
 local output= tag=
@@ -45,6 +47,7 @@ function -z4m-pack-stage-path() {
   local rel=$3
   local payload_root=$4
   local manifest=$5
+  local exclude_blob=${6-}
 
   [[ -e $src ]] || return 0
   [[ -n $rel && $rel != /* ]] || {
@@ -69,7 +72,12 @@ function -z4m-pack-stage-path() {
   local stage=$stage_root/$rel
   zf_mkdir -p -- "${stage:h}" || return
   zf_rm -rf -- "$stage" || return
-  command cp -RLp -- "$src" "$stage" || return
+  if [[ -n $exclude_blob ]]; then
+    -z4m-copy-path-with-excludes "$src" "$stage" follow "$exclude_blob" || return
+  else
+    command cp -RLp -- "$src" "$stage" || return
+  fi
+  [[ -e $stage || -L $stage ]] || return 0
   print -r -- "${root_kind}"$'\t'"${rel}" >>"$manifest" || return
 }
 
@@ -89,23 +97,19 @@ function -z4m-pack-stage-path() {
     -z4m-pack-stage-path "$p10k_file" ZDOTDIR "${p10k_file#$local_zdotdir/}" "$payload_root" "$manifest" || return
   done
 
-  local extra src root_kind rel_path
+  local extra
+  local -a parsed_local parsed_root parsed_rel parsed_exclude
   for extra in $extra_files; do
-    eval "src=$extra"
-    [[ -e $src ]] || continue
+    parsed_local=()
+    parsed_root=()
+    parsed_rel=()
+    parsed_exclude=()
+    -z4m-pack-parse-copy-spec "$extra" "$local_zdotdir" parsed_local parsed_root parsed_rel parsed_exclude || return
 
-    if [[ $src == $local_zdotdir/* ]]; then
-      root_kind=ZDOTDIR
-      rel_path=${src#$local_zdotdir/}
-    elif [[ $src == $HOME/* ]]; then
-      root_kind=HOME
-      rel_path=${src#$HOME/}
-    else
-      print -Pru2 -- "%F{3}z4m%f: %Bpack%b: extra path must be under %B\$HOME%b or %B\$ZDOTDIR%b: %F{1}${src//\%/%%}%f"
-      return 1
-    fi
-
-    -z4m-pack-stage-path "$src" "$root_kind" "$rel_path" "$payload_root" "$manifest" || return
+    local -i idx
+    for idx in {1..$#parsed_local}; do
+      -z4m-pack-stage-path "$parsed_local[idx]" "$parsed_root[idx]" "$parsed_rel[idx]" "$payload_root" "$manifest" "$parsed_exclude[idx]" || return
+    done
   done
 
   # Create tarball of z4m installation.

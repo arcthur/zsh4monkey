@@ -2,7 +2,10 @@
 
 local -i ret
 
-if [[ ${CONTEXT-} != start || -v _z4m_transient_rprompt ]]; then
+if [[ -n ${Z4M_SSH-} ]]; then
+  unsetopt transient_rprompt 2>/dev/null || true
+  unset _z4m_transient_rprompt
+elif [[ ${CONTEXT-} != start || -v _z4m_transient_rprompt ]]; then
   if [[ ${CONTEXT} == start ]]; then
     unsetopt transient_rprompt
     unset _z4m_transient_rprompt

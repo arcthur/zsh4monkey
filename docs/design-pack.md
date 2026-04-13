@@ -21,14 +21,30 @@ z4m pack [-o output] [-t tag]
 
 ### Extra Paths (Tag-Scoped)
 
-Include additional local paths by configuring:
+Include additional local paths by configuring copy specs:
 
 ```zsh
-zstyle ":z4m:pack:<tag>" extra-files '~/.config/nvim/init.lua' '~/.env.zsh'
+zstyle ":z4m:pack:<tag>" extra-files \
+  '~/.config/nvim/init.lua' \
+  '--dest $ZDOTDIR/custom/init.zsh $ZDOTDIR/.env.zsh' \
+  '--glob .config/nvim/**/*.lua'
 ```
 
-Values are evaluated the same way as other z4m file lists (so `~` and `$HOME` expand).
-Paths must live under `$HOME` or `$ZDOTDIR`; the installer preserves that relative location on the target machine.
+Entries support `~`, `$HOME`, `$ZDOTDIR`, absolute paths, and plain relative paths (resolved from `$HOME`).
+Each `extra-files` element is one copy spec. Supported forms are:
+
+- Plain local source path
+- `--dest <path>` to override the installed path for one resolved source
+- `--glob` to expand the local source as a glob before staging
+- `--exclude <pattern>` to exclude files or directories inside a copied directory
+
+Pack keeps a stricter boundary than `z4m ssh`:
+
+- Local sources must resolve under `$HOME` or `$ZDOTDIR`
+- Relative destinations stay within the source root by default
+- `$HOME/...`, `~/...`, and `$ZDOTDIR/...` can be used in `--dest` to choose the install root explicitly
+- Absolute destinations are rejected
+- `--exclude` uses the same matching rules as `z4m ssh`: patterns without `/` match basenames, patterns with `/` match relative paths inside the copied tree
 
 ## Package Contents
 
@@ -81,6 +97,7 @@ Notes:
 
 - `z4m pack` packages z4m and its bundled dependencies. It does not install system packages for you.
 - You still need a working `zsh` compatible with z4m (see project requirements).
+- Relative source and destination paths in `extra-files` must not contain `.` or `..` path segments.
 
 ## Security Considerations
 
@@ -92,11 +109,11 @@ The offline package contains your dotfiles and a copy of your z4m installation s
 
 ## Relationship to SSH Offline Mode
 
-`z4m ssh` supports `offline-mode` for air-gapped hosts; it bundles z4m in the transfer path for that session.
+Historical note: `z4m ssh` no longer supports `offline-mode`. This document only describes the standalone `z4m pack` workflow.
 
 `z4m pack` is a general-purpose offline installer for non-SSH workflows.
 
 ## Implementation Anchors
 
 - `fn/-z4m-cmd-pack`: pack implementation and the generated installer template
-- `fn/-z4m-cmd-ssh`: SSH teleportation (including `offline-mode`)
+- `fn/-z4m-cmd-ssh`: SSH teleportation

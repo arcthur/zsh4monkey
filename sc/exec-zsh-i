@@ -107,8 +107,10 @@ if '[' '-n' "${ZSH_VERSION-}" ']'; then
   elif '[' "${+ZSH_SCRIPT}" '=' '1' ']'; then
     '_z4m_exec_zsh_i' '-i' "${_z4m_original_opts[@]}" '--' "$ZSH_SCRIPT" "${_z4m_script_argv[@]}"
   fi
+  '_z4m_exec_zsh_i' '-i' "${_z4m_original_opts[@]}"
+else
+  '_z4m_exec_zsh_i' '-i'
 fi
-'_z4m_exec_zsh_i' '-i' "${_z4m_original_opts[@]}"
 
 'unset' '-f' '_z4m_try_exec_zsh_i' '_z4m_exec_zsh_i'
 'return' '1'

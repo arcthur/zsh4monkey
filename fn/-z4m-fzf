@@ -2,6 +2,12 @@
 
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+autoload -Uz -- -z4m-fzf-available-p || return 1
+
+if ! -z4m-fzf-available-p; then
+  print -Pru2 -- '%F{3}z4m%f: %Bfzf%b is not available in this shell'
+  return 1
+fi
 
 local -a _z4m_env=()
 # Clear FZF_DEFAULT_OPTS for the fzf process only (avoid mutating current shell state).

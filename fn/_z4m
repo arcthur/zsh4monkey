@@ -157,7 +157,6 @@ _z4m() {
           ;;
         ssh)
           _arguments \
-            '--force-sync[Force full file sync]' \
             '*: :_z4m_ssh_hosts'
           ;;
         pack)

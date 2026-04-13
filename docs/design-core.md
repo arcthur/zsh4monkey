@@ -6,7 +6,7 @@ See also:
 - [config.md](config.md) for user-facing configuration
 - [commands.md](commands.md) for the CLI surface
 - [recovery.md](recovery.md) for safe mode and recovery usage
-- [design-env-propagation.md](design-env-propagation.md) for the SSH env propagation security model
+- `docs/ssh.md` for the current SSH bootstrap surface and configuration model
 
 ## Goals
 
@@ -84,7 +84,7 @@ Security-sensitive paths follow two rules:
 - **No eval of untrusted inputs**: propagated data must be treated as data, not code.
 - **Fail closed**: invalid payloads are rejected as a whole.
 
-The SSH env propagation design is data-only and Base64-based; see [design-env-propagation.md](design-env-propagation.md).
+SSH now uses one-shot bootstrap with explicit `env` directives instead of a separate env-payload protocol; see [ssh.md](ssh.md).
 
 ## Implementation Anchors
 

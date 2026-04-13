@@ -1,6 +1,8 @@
 #!/usr/bin/env zsh
 
 local url postinstall command
+local -i z4m_remote_install_soft_fail=0
+[[ -n ${Z4M_SSH-} || -n ${_Z4M_OFFLINE-} ]] && z4m_remote_install_soft_fail=1
 
 if [[ $1 == */* ]]; then
   if [[ $1 == zsh-users/zsh-autosuggestions ]]; then
@@ -114,13 +116,34 @@ local old new
       return 1
     fi
     if (( $? )); then
+      if (( z4m_remote_install_soft_fail )); then
+        [[ -n $err ]] && print -ru2 -- $err
+        print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: skipping %B${1//\%/%%}%b during remote %Bssh%b bootstrap"
+        print -Pru2 -- "%F{3}z4m%f: failed to download %F{1}${url//\%/%%}%f"
+        command rmdir -- ${dst:h} 2>/dev/null || true
+        return 0
+      fi
       print -ru2 -- $err
       print -Pru2 -- "%F{3}z4m%f: failed to download %F{1}${url//\%/%%}%f"
       return 1
     fi
-    command tar -C $new -xzf $new/snapshot.tar.gz || return
+    if ! command tar -C $new -xzf $new/snapshot.tar.gz; then
+      if (( z4m_remote_install_soft_fail )); then
+        print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: skipping %B${1//\%/%%}%b during remote %Bssh%b bootstrap"
+        print -Pru2 -- "%F{3}z4m%f: invalid archive content for %F{1}${url//\%/%%}%f"
+        command rmdir -- ${dst:h} 2>/dev/null || true
+        return 0
+      fi
+      return 1
+    fi
     local dirs=($new/*-*(N/))
     if (( $#dirs != 1 )); then
+      if (( z4m_remote_install_soft_fail )); then
+        print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: skipping %B${1//\%/%%}%b during remote %Bssh%b bootstrap"
+        print -Pru2 -- "%F{3}z4m%f: invalid content: %F{1}${url//\%/%%}%f"
+        command rmdir -- ${dst:h} 2>/dev/null || true
+        return 0
+      fi
       print -Pru2 -- "%F{3}z4m%f: invalid content: %F{1}${url//\%/%%}%f"
       return 1
     fi
@@ -129,7 +152,14 @@ local old new
     fi
   fi
 
-  eval $postinstall || return
+  if ! eval $postinstall; then
+    if (( z4m_remote_install_soft_fail )) && [[ -n $url ]]; then
+      print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: skipping %B${1//\%/%%}%b during remote %Bssh%b bootstrap"
+      command rmdir -- ${dst:h} 2>/dev/null || true
+      return 0
+    fi
+    return 1
+  fi
 
   [[ ! -e $dst ]] || -z4m-mv $dst $old/${1:t} 2>/dev/null || zf_rm -rf -- $dst || return
   -z4m-mv $new/${1:t} $dst || return

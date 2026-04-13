@@ -5,6 +5,13 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 
 local backend
 zstyle -s :z4m:highlight backend backend || backend=fast
+
+if [[ -n ${Z4M_SSH-} ]]; then
+  # Fast syntax highlighting still causes redraw corruption on some SSH links.
+  # Keep remote shells biased toward stable interaction.
+  backend=none
+fi
+
 case $backend in
   fast|none) ;;
   *)

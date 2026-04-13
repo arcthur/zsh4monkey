@@ -1,0 +1,36 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o no_aliases -o pipe_fail
+
+local spec=$1
+
+if [[ -z $spec ]]; then
+  print -Pru2 -- '%F{3}z4m%f: empty %Benv%b specification'
+  return 1
+fi
+
+local key value
+if [[ $spec == *=* ]]; then
+  key=${spec%%=*}
+  value=${spec#*=}
+else
+  key=$spec
+  value=
+fi
+
+if [[ ! $key =~ '^[A-Za-z_][A-Za-z0-9_]*$' ]]; then
+  print -Pru2 -- "%F{3}z4m%f: invalid environment variable name: %F{1}${key//\%/%%}%f"
+  return 1
+fi
+
+local action=unset
+if [[ $spec == *=* ]]; then
+  if [[ $value == _z4m_copy_env_var_ || $value == _kitty_copy_env_var_ ]]; then
+    action=copy
+    value=
+  else
+    action=set
+  fi
+fi
+
+reply=("$action" "$key" "$value")

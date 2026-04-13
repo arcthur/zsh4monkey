@@ -14,8 +14,12 @@ if (( ${+_z4m_substring_search_highlight} )) &&
   unset _z4m_substring_search_highlight _history_substring_search_cursor
 fi
 
+local -i autosuggest_library_mode=$(( ${+Z4M_ZAS_LIBRARY_MODE} ))
 if (( PENDING || KEYS_QUEUED_COUNT )); then
-  if (( ! ${+_z4m_redraw_fd} )); then
+  local -i sync_redraw=0
+  [[ -n ${Z4M_SSH-} ]] && sync_redraw=1
+
+  if (( autosuggest_library_mode && ! sync_redraw && ! ${+_z4m_redraw_fd} )); then
     typeset -gi _z4m_redraw_fd
     if sysopen -o cloexec -ru _z4m_redraw_fd /dev/null; then
       zle -F $_z4m_redraw_fd -z4m-redraw-buffer
@@ -28,8 +32,10 @@ if (( PENDING || KEYS_QUEUED_COUNT )); then
     -z4m-highlight-core-strip-overlays || true
   fi
 
-  (( ${+functions[-z4m-autosuggest-core-pre-redraw]} )) || -z4m-autosuggest-core || true
-  (( ${+functions[-z4m-autosuggest-core-pre-redraw]} )) && -z4m-autosuggest-core-pre-redraw || true
+  if (( autosuggest_library_mode )); then
+    (( ${+functions[-z4m-autosuggest-core-pre-redraw]} )) || -z4m-autosuggest-core || true
+    (( ${+functions[-z4m-autosuggest-core-pre-redraw]} )) && -z4m-autosuggest-core-pre-redraw || true
+  fi
 else
   -z4m-redraw-buffer
 fi

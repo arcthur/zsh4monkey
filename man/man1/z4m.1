@@ -69,9 +69,13 @@ for detailed documentation.
 .El
 .Ss Remote Access
 .Bl -tag -width Ds
-.It Cm ssh Oo Fl -force-sync Oc Ar ssh-options Ar host
+.It Cm ssh Ar ssh-options Ar host
 SSH with zsh4monkey teleportation.
 Automatically installs and configures zsh4monkey on the remote host.
+Interactive SSH sessions use one-shot bootstrap and then hand control to the
+remote shell.
+For redraw stability, remote SSH sessions use a simplified prompt and disable
+inline autosuggestions and syntax highlighting.
 See
 .Xr z4m-ssh 1
 for detailed documentation.

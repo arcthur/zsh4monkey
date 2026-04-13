@@ -60,7 +60,6 @@ The installer backs up existing files, guides you through configuration, and set
 | `z4m update` | Update z4m and plugins |
 | `z4m install <pkg>` | Register dependency in install queue |
 | `z4m ssh <host>` | SSH with teleportation |
-| `z4m env-propagation-diagnose [<base64>]` | Diagnose SSH env propagation payload |
 | `z4m bindkey <widget> <key>` | Bind key |
 | `z4m vi-mode on\|off\|toggle` | Toggle vi mode |
 | `z4m ai "<query>"` | Generate command from natural language (queued, not executed) |
@@ -112,6 +111,11 @@ zstyle ':z4m:highlight' theme 'clean'  # or 'catppuccin-mocha'
 # SSH teleportation
 zstyle ':z4m:ssh:*' enable 'no'
 zstyle ':z4m:ssh:myserver' enable 'yes'
+# Matches the SSH target you pass to z4m and the resolved HostName fallback.
+zstyle ':z4m:ssh:*' send-extra-files '--dest my-conf/zsh/.zshrc ~/.zshrc' '--exclude *.tmp ~/.config/nvim'
+zstyle ':z4m:ssh:*' env 'EDITOR=_z4m_copy_env_var_' 'COLORTERM=truecolor'
+zstyle ':z4m:ssh:*' cwd 'src/project'
+zstyle ':z4m:ssh:*' interpreter 'sh'
 
 # CLI tools
 z4m install eza bat fd rg zoxide || return
@@ -137,11 +141,13 @@ Your shell environment transfers to remote hosts automatically:
 z4m ssh user@host
 ```
 
-- First connection synchronizes your local z4m bootstrap onto the remote
-- Subsequent connections are instant
+For interactive hosts, `z4m ssh` can also start in a chosen remote directory and use a specific POSIX bootstrap shell via `:z4m:ssh:* cwd` and `:z4m:ssh:* interpreter`.
+
+- Each session uploads a fresh runtime snapshot before entering the remote shell
 - No git, zsh, or sudo required on remote
 - Supports ProxyJump (`-J`) for bastion hosts
-- Diagnose env propagation issues with `z4m env-propagation-diagnose` and `Z4M_ENV_PROPAGATION_DEBUG=1`
+- Non-interactive SSH usages are passed through to the underlying `ssh`
+- SSH sessions use a simplified prompt and disable inline autosuggestions and syntax highlighting for redraw stability
 
 ## Docker
 

@@ -1,0 +1,45 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+local value=$1
+local local_zdotdir=${2:-${ZDOTDIR:-$HOME}}
+
+[[ -n $value ]] || return 1
+
+-z4m-expand-user-path-has-dot-segments() {
+  emulate -L zsh -o no_aliases
+
+  local path=$1 segment
+  local -a parts=(${(s:/:)path})
+  for segment in $parts; do
+    [[ $segment == '.' || $segment == '..' ]] && return 0
+  done
+  return 1
+}
+
+if [[ $value == '~' ]]; then
+  REPLY=$HOME
+elif [[ $value == '~/'* ]]; then
+  REPLY=$HOME/${value:2}
+elif [[ $value == '$HOME' || $value == '${HOME}' ]]; then
+  REPLY=$HOME
+elif [[ $value == '$HOME/'* ]]; then
+  REPLY=$HOME/${value#\$HOME/}
+elif [[ $value == '${HOME}/'* ]]; then
+  REPLY=$HOME/${value#\$\{HOME\}/}
+elif [[ $value == '$ZDOTDIR' || $value == '${ZDOTDIR}' ]]; then
+  REPLY=$local_zdotdir
+elif [[ $value == '$ZDOTDIR/'* ]]; then
+  REPLY=$local_zdotdir/${value#\$ZDOTDIR/}
+elif [[ $value == '${ZDOTDIR}/'* ]]; then
+  REPLY=$local_zdotdir/${value#\$\{ZDOTDIR\}/}
+elif [[ $value == /* ]]; then
+  REPLY=$value
+else
+  REPLY=$HOME/$value
+fi
+
+if -z4m-expand-user-path-has-dot-segments "$REPLY"; then
+  return 1
+fi

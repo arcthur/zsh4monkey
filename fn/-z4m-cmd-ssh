@@ -3,15 +3,15 @@
 # z4m ssh - SSH with zsh4monkey teleportation
 #
 # Usage:
-#   z4m ssh [--force-sync] [ssh-options] [user@]hostname
+#   z4m ssh [ssh-options] [user@]hostname
 #
-# See configuration.md for full zstyle documentation:
-#   - :z4m:ssh:HOST enable, send-extra-files, retrieve-extra-files
-#   - :z4m:ssh:HOST ssh-command, retrieve-history, term, sync-mode
-#   - :z4m:ssh:HOST configure (custom setup function)
+# Supported styles:
+#   - :z4m:ssh:HOST enable, send-extra-files, env
+#   - :z4m:ssh:HOST ssh-command, term, cwd, interpreter
 
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+autoload -Uz -- -z4m-copy-path-with-excludes -z4m-ssh-parse-env-spec || return 1
 -z4m-check-core-params || return
 
 if (( _z4m_dangerous_root )); then
@@ -19,94 +19,266 @@ if (( _z4m_dangerous_root )); then
   return 1
 fi
 
-local -i must_passthrough i force_sync=0
-local -a pos args_to_remove
+local -i must_passthrough=0 i expecting_option_value=0 stop_option_processing=0
+local -a pos
+local -A z4m_ssh_boolean_opts z4m_ssh_other_opts z4m_ssh_passthrough_opts
+
+z4m_ssh_boolean_opts=(
+  4 1 6 1 A 1 a 1 C 1 f 1 G 1 g 1 K 1 k 1 M 1 N 1 n 1
+  q 1 s 1 T 1 t 1 V 1 v 1 X 1 x 1 Y 1 y 1
+)
+z4m_ssh_other_opts=(
+  B 1 b 1 c 1 D 1 E 1 e 1 F 1 I 1 i 1 J 1 L 1 l 1 m 1
+  O 1 o 1 p 1 Q 1 R 1 S 1 W 1 w 1
+)
+z4m_ssh_passthrough_opts=(
+  D 1 G 1 L 1 N 1 O 1 R 1 T 1 V 1 W 1 f 1 n 1 s 1
+)
+
 i=1
 while (( i <= $# )); do
-  case $*[i] in
+  local arg=${argv[i]}
+
+  if (( $#pos > 1 || stop_option_processing )); then
+    pos+=($i)
+    (( ++i ))
+    continue
+  fi
+
+  if (( expecting_option_value )); then
+    expecting_option_value=0
+    (( ++i ))
+    continue
+  fi
+
+  case $arg in
     --force-sync)
-      force_sync=1
-      args_to_remove+=($i)
-      ((++i))
+      print -Pru2 -- "%F{3}z4m%f: %B--force-sync%b has been removed"
+      print -Pru2 -- "%F{3}z4m%f: %Bz4m ssh%b now uses one-shot bootstrap instead of sync state"
+      return 1
       ;;
     --)
-      ((++i))
-      (( i <= $# )) && pos+=({$i..$#})
-      break
+      stop_option_processing=1
+      (( ++i ))
+      continue
       ;;
-    -[OG])
-      # Options that trigger passthrough, with argument
-      must_passthrough=1
-      ((i+=2))
-      ;;
-    -[bcDEeFIiJLlmOopQRSWw])
-      # Options that take an argument (including -J for ProxyJump)
-      ((i+=2))
-      ;;
-    -*)
-      # Options without argument
-      ((++i))
+    -?*)
+      local cluster=${arg#-}
+      local opt
+      while [[ -n $cluster ]]; do
+        opt=${cluster[1]}
+        [[ -n ${z4m_ssh_passthrough_opts[$opt]-} ]] && must_passthrough=1
+
+        if [[ -n ${z4m_ssh_boolean_opts[$opt]-} ]]; then
+          cluster=${cluster[2,-1]}
+          continue
+        fi
+
+        if [[ -n ${z4m_ssh_other_opts[$opt]-} ]]; then
+          [[ -z ${cluster[2,-1]} ]] && expecting_option_value=1
+          break
+        fi
+
+        must_passthrough=1
+        break
+      done
+      (( ++i ))
       ;;
     *)
-      # Positional argument (hostname)
       pos+=($i)
-      ((++i))
+      (( ++i ))
       ;;
   esac
 done
-# Remove --force-sync from arguments
-for i in ${(On)args_to_remove}; do
-  set -- "${@[1,i-1]}" "${@[i+1,-1]}"
-done
+
+(( expecting_option_value )) && must_passthrough=1
+(( $#pos == 1 )) || must_passthrough=1
 
 local z4m_min_version
 -z4m-read-version "$Z4M/zsh4monkey/version" || return
 z4m_min_version=$REPLY
 local -r z4m_min_version
 
+if [[ ! -r $Z4M/z4m.zsh ||
+      ! -r $Z4M/zsh4monkey/main.zsh ||
+      ! -r $Z4M/zsh4monkey/sc/exec-zsh-i ||
+      ! -d $Z4M/zsh4monkey/fn ]]; then
+  print -Pru2 -- "%F{3}z4m%f: local %Bzsh4monkey%b core is incomplete under %F{1}$Z4M/zsh4monkey%f"
+  print -Pru2 -- "%F{3}z4m%f: expected %Bz4m.zsh%b, %Bmain.zsh%b, %Bsc/exec-zsh-i%b and %Bfn/%b before running %Bssh%b"
+  return 1
+fi
+
 local -r z4m_ssh_client=${${(%):-%m}:-unknown}
 local -r z4m_local_zdotdir=${ZDOTDIR:-$HOME}
+local -r z4m_url=${Z4M_URL:-https://raw.githubusercontent.com/arcthur/zsh4monkey/main}
 
-# Parse ~/.ssh/config for ProxyJump (used for informational purposes)
--z4m-ssh-get-proxy-jump() {
-  local target=$1
-  local config=${SSH_CONFIG:-$HOME/.ssh/config}
-  [[ -r $config ]] || return 1
+-z4m-ssh-local-package-dirs() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
 
-  local in_host=0 proxy_jump= keyword
-  while IFS= read -r line || [[ -n $line ]]; do
-    line=${line%%#*}
-    [[ -z ${line// } ]] && continue
-    keyword=${line%%[[:space:]]*}
-    case ${(L)keyword} in
-      host)
-        in_host=0
-        local pattern
-        for pattern in ${(z)line#[Hh][Oo][Ss][Tt] }; do
-          [[ $target == $~pattern ]] && { in_host=1; break; }
-        done
-        ;;
-      proxyjump|proxycommand)
-        (( in_host )) && { proxy_jump=${line#*[[:space:]]}; break; }
-        ;;
+  -z4m-ssh-package-dir-has-payload() {
+    emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+    local dir=$1
+    local -a entries=($dir/*(N) $dir/.[^.]*(N) $dir/..?*(N))
+    (( $#entries )) || return 1
+    (( $#entries == 1 )) && [[ ${entries[1]:t} == .system-tool ]] && return 1
+    return 0
+  }
+
+  -z4m-ssh-package-dir-is-root() {
+    emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+    local dir=$1 base=${1:t}
+    local -a top_level_files=($dir/*(.N) $dir/.[^.]*(.N) $dir/..?*(.N))
+    (( $#top_level_files )) && return 0
+    [[ -d $dir/functions || -s $dir/init.zsh || -s $dir/$base.plugin.zsh || -e $dir/.system-tool ]]
+  }
+
+  local -aU dirs
+  local dir child
+  for dir in $Z4M/*(N-/); do
+    dir=${dir#$Z4M/}
+    case $dir in
+      cache|stickycache|tmp|zsh4monkey) continue ;;
     esac
-  done < $config
-  [[ -n $proxy_jump ]] && print -r -- $proxy_jump
+
+    if -z4m-ssh-package-dir-is-root $Z4M/$dir; then
+      -z4m-ssh-package-dir-has-payload $Z4M/$dir || continue
+      dirs+=($dir)
+      continue
+    fi
+
+    for child in $Z4M/$dir/*(N-/); do
+      -z4m-ssh-package-dir-is-root $child || continue
+      -z4m-ssh-package-dir-has-payload $child || continue
+      dirs+=(${child#$Z4M/})
+    done
+  done
+  print -lr -- $dirs
 }
 
-# Extract target hostname from positional arguments
-# Use last positional arg (after -J jumphost, the target is last)
-local z4m_ssh_host
-if (( $#pos >= 1 )); then
-  local user_host=$*[pos[-1]]
+-z4m-ssh-get-config-hostname() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local line
+  while IFS= read -r line; do
+    [[ $line == 'hostname '* ]] || continue
+    REPLY=${line#hostname }
+    [[ -n $REPLY ]]
+    return
+  done < <(command ssh -G "$@" 2>/dev/null)
+  return 1
+}
+
+-z4m-ssh-zstyle-has-host-specific() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local style=$1 host=$2 line pattern
+  local context=:z4m:ssh:$host
+  [[ -n $host ]] || return 1
+
+  [[ -n $(zstyle -L $context $style 2>/dev/null) ]] && return 0
+
+  while IFS= read -r line; do
+    local -a words=(${(z)line})
+    (( $#words >= 4 )) || continue
+    pattern=$words[2]
+    [[ $pattern == $context || $pattern == ':z4m:ssh:*' ]] && continue
+    [[ $context == $~pattern ]] && return 0
+  done < <(zstyle -L ':z4m:ssh:*' $style 2>/dev/null)
+  return 1
+}
+
+-z4m-ssh-zstyle-order() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local style=$1
+  local host_alias=${z4m_ssh_style_hosts[1]-}
+  local host_config=${z4m_ssh_style_hosts[2]-}
+  local -aU order
+
+  [[ -n $host_alias ]] || return 1
+
+  -z4m-ssh-zstyle-has-host-specific $style $host_alias && order+=($host_alias)
+  if [[ -n $host_config && $host_config != $host_alias ]]; then
+    -z4m-ssh-zstyle-has-host-specific $style $host_config && order+=($host_config)
+  fi
+  order+=($host_alias)
+  print -lr -- $order
+}
+
+-z4m-ssh-zstyle-a() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local style=$1 reply_var=$2
+  -z4m-ssh-zstyle-read a $style $reply_var
+}
+
+-z4m-ssh-zstyle-s() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local style=$1 reply_var=$2
+  -z4m-ssh-zstyle-read s $style $reply_var
+}
+
+-z4m-ssh-zstyle-t() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local style=$1
+  -z4m-ssh-zstyle-read t $style
+}
+
+-z4m-ssh-zstyle-read() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local mode=$1 style=$2 reply_var=${3-} host value
+  local -a order
+  order=("${(@f)$(-z4m-ssh-zstyle-order $style)}") || return 1
+  for host in $order; do
+    case $mode in
+      a|s)
+        if zstyle -$mode :z4m:ssh:$host $style $reply_var; then
+          REPLY=$host
+          return 0
+        fi
+        ;;
+      t)
+        if zstyle -s :z4m:ssh:$host $style value; then
+          REPLY=$host
+          case ${(L)value} in
+            yes|true|on|1) return 0 ;;
+            no|false|off|0) return 1 ;;
+          esac
+          zstyle -t :z4m:ssh:$host $style
+          return
+        fi
+        ;;
+    esac
+  done
+  return 1
+}
+
+local z4m_ssh_host=
+if (( $#pos == 1 )); then
+  local user_host=$*[pos[1]]
   z4m_ssh_host=${${user_host##*@}%%:*}
 fi
 local -r z4m_ssh_host
 
 [[ -n $z4m_ssh_host ]] || must_passthrough=1
 
+local -aU z4m_ssh_style_hosts
+if (( !must_passthrough )); then
+  z4m_ssh_style_hosts=($z4m_ssh_host)
+  local z4m_ssh_config_host
+  if -z4m-ssh-get-config-hostname "$@"; then
+    z4m_ssh_config_host=$REPLY
+    [[ -n $z4m_ssh_config_host ]] && z4m_ssh_style_hosts+=($z4m_ssh_config_host)
+  fi
+fi
+
 local -i z4m_ssh_enable=$(( !must_passthrough ))
-zstyle -t :z4m:ssh:$z4m_ssh_host enable || z4m_ssh_enable=0
+-z4m-ssh-zstyle-t enable || z4m_ssh_enable=0
 
 local -i mkdir_control_master=0
 local default_ssh_command=(command ssh)
@@ -119,352 +291,8 @@ if (( z4m_ssh_enable )); then
 fi
 
 local -a z4m_ssh_command
-if ! zstyle -a :z4m:ssh:$z4m_ssh_host ssh-command z4m_ssh_command; then
+if ! -z4m-ssh-zstyle-a ssh-command z4m_ssh_command; then
   z4m_ssh_command=($default_ssh_command)
-fi
-
--z4m-ssh-sync-state-key() {
-  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
-
-  local ssh_config=${SSH_CONFIG:-$HOME/.ssh/config}
-  local config_sig=missing
-  if [[ -r $ssh_config ]]; then
-    local cfg_stat
-    if cfg_stat=$(-z4m-ssh-stat-triplet "$ssh_config" 2>/dev/null); then
-      config_sig="${ssh_config}:${cfg_stat}"
-    else
-      config_sig="${ssh_config}:present"
-    fi
-  fi
-
-  local spec=${(pj:\0:)z4m_ssh_command}$'\0'${(pj:\0:)@}$'\0'"${config_sig}"
-  REPLY=$(-z4m-ssh-hash-string "$spec" 2>/dev/null) || REPLY=
-  [[ -n $REPLY ]] || REPLY=${${z4m_ssh_host:-unknown}//[^A-Za-z0-9_.-]/_}
-
-  [[ -n $REPLY ]]
-}
-
--z4m-ssh-stat-triplet() {
-  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
-
-  local target=$1 out
-  if out=$(command stat -f '%p:%z:%m' -- "$target" 2>/dev/null); then
-    print -r -- "$out"
-  elif out=$(command stat -c '%f:%s:%Y' -- "$target" 2>/dev/null); then
-    print -r -- "$out"
-  else
-    return 1
-  fi
-}
-
--z4m-ssh-hash-string() {
-  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
-
-  local payload=$1 digest=
-  if digest=$(print -rn -- "$payload" | command md5 -q 2>/dev/null); then
-    :
-  elif digest=$(print -rn -- "$payload" | command md5sum 2>/dev/null); then
-    digest=${digest%% *}
-  elif digest=$(print -rn -- "$payload" | command sha256sum 2>/dev/null); then
-    digest=${digest%% *}
-  elif digest=$(print -rn -- "$payload" | command shasum -a 256 2>/dev/null); then
-    digest=${digest%% *}
-  elif digest=$(print -rn -- "$payload" | command cksum 2>/dev/null); then
-    digest=${digest%% *}
-  fi
-
-  [[ -n $digest ]] || return 1
-  print -r -- "$digest"
-}
-
--z4m-ssh-hash-file() {
-  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
-
-  local target=$1 digest=
-  if digest=$(command md5 -q -- "$target" 2>/dev/null); then
-    :
-  elif digest=$(command md5sum -- "$target" 2>/dev/null); then
-    digest=${digest%% *}
-  elif digest=$(command sha256sum -- "$target" 2>/dev/null); then
-    digest=${digest%% *}
-  elif digest=$(command shasum -a 256 -- "$target" 2>/dev/null); then
-    digest=${digest%% *}
-  fi
-
-  [[ -n $digest ]] || return 1
-  print -r -- "$digest"
-}
-
--z4m-ssh-fingerprint-path() {
-  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
-
-  local target=$1
-  [[ -e $target ]] || return 1
-
-  local fingerprint=
-  if [[ -d $target ]]; then
-    local -a entries rows
-    entries=("$target" "$target"/**/*(DN))
-    entries=("${(@on)entries}")
-    local entry rel meta digest kind
-    for entry in "${entries[@]}"; do
-      [[ -n $entry ]] || continue
-      rel=${entry#$target/}
-      [[ $entry == $target ]] && rel=.
-
-      if [[ -d $entry ]]; then
-        kind=dir
-        meta=$(-z4m-ssh-stat-triplet "$entry" 2>/dev/null) || meta=missing
-        rows+=("$rel"$'\t'"$kind"$'\t'"$meta")
-      elif [[ -f $entry ]]; then
-        kind=file
-        meta=$(-z4m-ssh-stat-triplet "$entry" 2>/dev/null) || meta=missing
-        digest=$(-z4m-ssh-hash-file "$entry" 2>/dev/null) || digest=
-        [[ -n $digest ]] || digest=$meta
-        rows+=("$rel"$'\t'"$kind"$'\t'"$meta"$'\t'"$digest")
-      else
-        kind=other
-        meta=$(-z4m-ssh-stat-triplet "$entry" 2>/dev/null) || meta=missing
-        rows+=("$rel"$'\t'"$kind"$'\t'"$meta")
-      fi
-    done
-
-    local payload=${(F)rows}
-    fingerprint=$(-z4m-ssh-hash-string "$payload") || return 1
-  elif [[ -f $target ]]; then
-    fingerprint=$(-z4m-ssh-hash-file "$target") || fingerprint=
-    if [[ -z $fingerprint ]]; then
-      fingerprint=$(-z4m-ssh-stat-triplet "$target" 2>/dev/null) || return 1
-    fi
-  else
-    fingerprint=$(-z4m-ssh-stat-triplet "$target" 2>/dev/null) || return 1
-  fi
-
-  [[ -n $fingerprint ]] || return 1
-  print -r -- "$fingerprint"
-}
-
-local term
-zstyle -s :z4m:ssh:$z4m_ssh_host term term || term=${TERM:/tmux-256color/screen-256color}
-
-local -A z4m_ssh_send_files z4m_ssh_retrieve_files
-local -a z4m_ssh_prelude z4m_ssh_setup z4m_ssh_run z4m_ssh_teardown
-local -aU z4m_retrieve_history
-
-if (( !must_passthrough )); then
-  z4m_ssh_prelude=(
-    '"export" ZDOTDIR="$HOME"'
-    'if command -v "locale" >"/dev/null" 2>&1; then
-      "export" LC_ALL="C"
-    fi')
-
-  z4m_ssh_send_files=(
-    $z4m_local_zdotdir/.zshenv   '"$ZDOTDIR"/.zshenv'
-    $z4m_local_zdotdir/.zprofile '"$ZDOTDIR"/.zprofile'
-    $z4m_local_zdotdir/.zshrc    '"$ZDOTDIR"/.zshrc'
-    $z4m_local_zdotdir/.zlogin   '"$ZDOTDIR"/.zlogin'
-    $z4m_local_zdotdir/.zlogout  '"$ZDOTDIR"/.zlogout')
-
-  local file
-  for file in $z4m_local_zdotdir/.p10k{,-ascii}{,-8color}.zsh(N) \
-              $z4m_local_zdotdir/.zsh_history.*:$z4m_ssh_host(N); do
-    z4m_ssh_send_files[$file]='"$ZDOTDIR"/'${(q)file:t}
-  done
-
-  local -a extra_files
-  if zstyle -a :z4m:ssh:$z4m_ssh_host send-extra-files extra_files; then
-    local src dst
-    for dst in $extra_files; do
-      eval "src=$dst"
-      z4m_ssh_send_files[$src]=$dst
-    done
-  fi
-
-  z4m_ssh_run=(
-    'if "[" "-f" "$ZDOTDIR"/.zshenv "-a" "-r" "$ZDOTDIR"/.zshenv "]"; then
-      "." "$ZDOTDIR"/.zshenv
-    else
-      >&2 "printf" "\\033[33mz4m\\033[0m: not a readable file: \\033[31m%s\033[0m\n" "$ZDOTDIR"/.zshenv
-      "false"
-    fi')
-
-  if zstyle -a :z4m:ssh:$z4m_ssh_host retrieve-extra-files extra_files; then
-    local src dst
-    for src in $extra_files; do
-      eval "dst=$src"
-      z4m_ssh_retrieve_files[$src]=$dst
-    done
-  fi
-
-  zstyle -a :z4m:ssh:$z4m_ssh_host retrieve-history z4m_retrieve_history || z4m_retrieve_history=()
-
-  # Environment variable propagation
-  local -a propagate_env propagate_patterns propagate_exclude
-  zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env propagate_env
-  zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env-patterns propagate_patterns
-  zstyle -a :z4m:ssh:$z4m_ssh_host propagate-env-exclude propagate_exclude
-
-  if (( $#propagate_env || $#propagate_patterns )); then
-    # Default exclusions for security
-    local -a default_exclude=(
-      '*_SECRET' '*_SECRET_*' '*SECRET_*'
-      '*_TOKEN' '*_TOKEN_*' '*TOKEN_*'
-      '*_KEY' '*_API_KEY' '*API_KEY*'
-      '*_PASSWORD' '*PASSWORD*'
-      '*_CREDENTIAL*' '*CREDENTIAL*'
-      'AWS_SECRET_*' 'AWS_SESSION_TOKEN'
-      'GITHUB_TOKEN' 'GH_TOKEN' 'GITLAB_TOKEN'
-      'NPM_TOKEN' 'NPM_AUTH_TOKEN'
-      'DOCKER_PASSWORD' 'DOCKER_AUTH_*'
-      'SSH_AUTH_SOCK' 'SSH_AGENT_PID'
-    )
-    propagate_exclude+=($default_exclude)
-
-    local -a env_to_propagate=()
-    local var pattern
-
-    # Directly specified variables
-    for var in $propagate_env; do
-      [[ -v $var ]] && env_to_propagate+=($var)
-    done
-
-    # Pattern matching
-    if (( $#propagate_patterns )); then
-      for var in ${(k)parameters}; do
-        # Skip special/internal variables
-        [[ $var == _* || $var == Z4M_* || $var == z4m_* ]] && continue
-        for pattern in $propagate_patterns; do
-          if [[ $var == $~pattern ]]; then
-            env_to_propagate+=($var)
-            break
-          fi
-        done
-      done
-    fi
-
-    # Apply exclusions
-    if (( $#propagate_exclude )); then
-      local -a filtered=()
-      for var in $env_to_propagate; do
-        local excluded=0
-        for pattern in $propagate_exclude; do
-          if [[ $var == $~pattern ]]; then
-            excluded=1
-            break
-          fi
-        done
-        (( excluded )) || filtered+=($var)
-      done
-      env_to_propagate=($filtered)
-    fi
-
-    # Deduplicate
-    env_to_propagate=(${(u)env_to_propagate})
-
-    if (( $#env_to_propagate )); then
-      # Data-only payload (no shell code). Each line is tab-separated.
-      #   header: Z4M_ENV
-      #   scalar: NAME\tS\t<val_b64>
-      #   array:  NAME\tA\t<count>\t<elem1_b64>\t...\t<elemN_b64>
-      #   assoc:  NAME\tM\t<count>\t<k1_b64>\t<v1_b64>\t...\t<kN_b64>\t<vN_b64>
-      # The whole payload is then base64-encoded and assigned to _Z4M_PROPAGATED_ENV_B64.
-
-      local -A _z4m_limits
-      -z4m-env-propagation-limits _z4m_limits || return 1
-      local -ir _z4m_max_vars=${_z4m_limits[max_vars]}
-      local -ir _z4m_max_scalar=${_z4m_limits[max_scalar]}
-      local -ir _z4m_max_elems=${_z4m_limits[max_elems]}
-      local -ir _z4m_max_key=${_z4m_limits[max_key]}
-      local -ir _z4m_max_value=${_z4m_limits[max_value]}
-      local -ir _z4m_max_payload=${_z4m_limits[max_payload]}
-
-      local -a env_lines
-      env_lines=(Z4M_ENV)
-
-      function _z4m_b64enc() {
-        print -rn -- "$1" | command base64 2>/dev/null | command tr -d '\n'
-      }
-
-      local -i _z4m_vars=0
-      for var in $env_to_propagate; do
-        [[ $var == [A-Za-z_][A-Za-z0-9_]## ]] || continue
-        [[ $var != (_Z4M_*|Z4M_*|_z4m_*|z4m_*) ]] || continue
-        (( ++_z4m_vars <= _z4m_max_vars )) || break
-
-        local vtype=${(Pt)var}
-        case $vtype in
-          scalar*)
-            local val=${(P)var}
-            (( ${#val} > _z4m_max_scalar )) && continue
-            local val_b64
-            val_b64=$(_z4m_b64enc "$val") || continue
-            [[ -n $val_b64 ]] || continue
-            env_lines+=("$var"$'\t'"S"$'\t'"$val_b64")
-            ;;
-          array*)
-            typeset -n _z4m_ref=$var
-            local -a _z4m_vals
-            _z4m_vals=("${_z4m_ref[@]}")
-            (( ${#_z4m_vals} <= _z4m_max_elems )) || continue
-            local -a _z4m_fields
-            _z4m_fields=($var A ${#_z4m_vals})
-            local _z4m_elem _z4m_elem_b64
-            for _z4m_elem in "${_z4m_vals[@]}"; do
-              (( ${#_z4m_elem} <= _z4m_max_value )) || { _z4m_fields=(); break }
-              _z4m_elem_b64=$(_z4m_b64enc "$_z4m_elem") || { _z4m_fields=(); break }
-              [[ -n $_z4m_elem_b64 ]] || { _z4m_fields=(); break }
-              _z4m_fields+=("$_z4m_elem_b64")
-            done
-            (( ${#_z4m_fields} )) || continue
-            env_lines+=("${(j:\t:)_z4m_fields}")
-            ;;
-          association*)
-            typeset -n _z4m_ref=$var
-            local -a _z4m_kv
-            _z4m_kv=("${(@kv)_z4m_ref}")
-            local -i _z4m_pairs=$(( ${#_z4m_kv} / 2 ))
-            (( _z4m_pairs <= _z4m_max_elems )) || continue
-            local -a _z4m_fields
-            _z4m_fields=($var M $_z4m_pairs)
-            local _z4m_k _z4m_v _z4m_k_b64 _z4m_v_b64
-            local -i _z4m_i=1
-            while (( _z4m_i <= ${#_z4m_kv} )); do
-              _z4m_k=$_z4m_kv[_z4m_i]
-              _z4m_v=$_z4m_kv[_z4m_i+1]
-              (( ${#_z4m_k} <= _z4m_max_key && ${#_z4m_v} <= _z4m_max_value )) || { _z4m_fields=(); break }
-              _z4m_k_b64=$(_z4m_b64enc "$_z4m_k") || { _z4m_fields=(); break }
-              _z4m_v_b64=$(_z4m_b64enc "$_z4m_v") || { _z4m_fields=(); break }
-              [[ -n $_z4m_k_b64 && -n $_z4m_v_b64 ]] || { _z4m_fields=(); break }
-              _z4m_fields+=("$_z4m_k_b64" "$_z4m_v_b64")
-              _z4m_i+=2
-            done
-            (( ${#_z4m_fields} )) || continue
-            env_lines+=("${(j:\t:)_z4m_fields}")
-            ;;
-        esac
-      done
-
-      if (( ${#env_lines} > 1 )); then
-        local payload=${(F)env_lines}
-        if (( ${#payload} <= _z4m_max_payload )); then
-          local encoded
-          encoded=$(print -rn -- "$payload" | command base64 2>/dev/null | command tr -d '\n') || true
-          if [[ -n $encoded ]]; then
-            z4m_ssh_prelude+=(
-              "export _Z4M_PROPAGATED_ENV_B64='$encoded'"
-            )
-          fi
-        fi
-      fi
-    fi
-  fi
-fi
-
-local configure
-if zstyle -s :z4m:ssh:$z4m_ssh_host configure configure; then
-  eval $configure || return
-elif (( $+functions[z4m-ssh-configure] )); then
-  z4m-ssh-configure || return
 fi
 
 if (( ! $#z4m_ssh_command )); then
@@ -484,17 +312,17 @@ in `man ssh_config`. This directory must not be writable by anyone other
 than the current user.
 END
   } || return
-  if [[ -e ~/.ssh/control-master/README ]]; then
-    {
-      >>~/.ssh/s/README <<\END
+fi
 
-You might also have ~/.ssh/control-master with the same file in it. This
-is the old directory that was used by zsh4monkey for the same purpose
-before 2021-11-14. If you don't reference that directory explicitly from
-~/.ssh/config, you can safely delete it.
-END
-    } || return
-  fi
+local term z4m_ssh_cwd z4m_ssh_interpreter
+-z4m-ssh-zstyle-s term term || term=${TERM:/tmux-256color/screen-256color}
+-z4m-ssh-zstyle-s cwd z4m_ssh_cwd || z4m_ssh_cwd=
+-z4m-ssh-zstyle-s interpreter z4m_ssh_interpreter || z4m_ssh_interpreter=sh
+[[ -n $z4m_ssh_interpreter ]] || z4m_ssh_interpreter=sh
+
+if [[ $z4m_ssh_interpreter == *[[:space:]]* ]]; then
+  print -Pru2 -- "%F{3}z4m%f: %Binterpreter%b must be a single executable name or absolute path"
+  return 1
 fi
 
 if (( must_passthrough || !z4m_ssh_enable )); then
@@ -502,129 +330,121 @@ if (( must_passthrough || !z4m_ssh_enable )); then
   return
 fi
 
-# Incremental sync configuration
-local sync_mode
-zstyle -s :z4m:ssh:$z4m_ssh_host sync-mode sync_mode || sync_mode='smart'
-case $sync_mode in
-  full|incremental|smart) ;;
-  *) sync_mode='smart' ;;
-esac
+local -A z4m_ssh_send_files
+local -a z4m_ssh_extra_send_from z4m_ssh_extra_send_to z4m_ssh_extra_send_exclude
+local -a z4m_ssh_prelude
 
-# Offline mode configuration
-local -i offline_mode=0
-zstyle -t :z4m:ssh:$z4m_ssh_host offline-mode && offline_mode=1
-local sync_state_dir=$Z4M/cache/ssh-sync-state
-local sync_state_key
-if -z4m-ssh-sync-state-key "$@"; then
-  sync_state_key=$REPLY
-else
-  sync_state_key=${${z4m_ssh_host:-unknown}//[^A-Za-z0-9_.-]/_}
-fi
-local sync_state_file=$sync_state_dir/${sync_state_key}.state
+z4m_ssh_prelude=(
+  '"export" Z4M_URL='${(qq)z4m_url}
+  ': "${Z4M:=${XDG_CACHE_HOME:-$HOME/.cache}/zsh4monkey}"'
+  '"export" Z4M'
+  '"export" ZDOTDIR="$HOME"')
 
-if (( $#z4m_retrieve_history )); then
-  local local_hist_tmp=$Z4M/tmp/ssh-history.tmp.$sysparams[pid]
-  z4m_ssh_retrieve_files[\$HISTFILE]=$local_hist_tmp
-  zf_rm -f -- $local_hist_tmp || return
-else
-  local local_hist_tmp=
-fi
+z4m_ssh_send_files=(
+  $Z4M/z4m.zsh '"$Z4M"/z4m.zsh'
+  $Z4M/z4m.zsh.zwc '"$Z4M"/z4m.zsh.zwc'
+  $Z4M/zsh4monkey '"$Z4M"/zsh4monkey'
+  $z4m_local_zdotdir/.zshenv '"$ZDOTDIR"/.zshenv'
+  $z4m_local_zdotdir/.zshenv.zwc '"$ZDOTDIR"/.zshenv.zwc'
+  $z4m_local_zdotdir/.zprofile '"$ZDOTDIR"/.zprofile'
+  $z4m_local_zdotdir/.zprofile.zwc '"$ZDOTDIR"/.zprofile.zwc'
+  $z4m_local_zdotdir/.zshrc '"$ZDOTDIR"/.zshrc'
+  $z4m_local_zdotdir/.zshrc.zwc '"$ZDOTDIR"/.zshrc.zwc'
+  $z4m_local_zdotdir/.zlogin '"$ZDOTDIR"/.zlogin'
+  $z4m_local_zdotdir/.zlogin.zwc '"$ZDOTDIR"/.zlogin.zwc'
+  $z4m_local_zdotdir/.zlogout '"$ZDOTDIR"/.zlogout'
+  $z4m_local_zdotdir/.zlogout.zwc '"$ZDOTDIR"/.zlogout.zwc')
+
+local package_dir
+for package_dir in "${(@f)$(-z4m-ssh-local-package-dirs)}"; do
+  z4m_ssh_send_files[$Z4M/$package_dir]='"$Z4M"/'${(qq)package_dir}
+done
 
 local file
-for file in "${(@kv)z4m_ssh_send_files}"; do
-  if [[ -z $file ]]; then
+for file in $z4m_local_zdotdir/.p10k{,-ascii}{,-8color}.zsh(N); do
+  z4m_ssh_send_files[$file]='"$ZDOTDIR"/'${(qq)file:t}
+done
+
+local -a extra_files
+if -z4m-ssh-zstyle-a send-extra-files extra_files; then
+  local spec
+  local -a parsed_local parsed_remote parsed_exclude
+  for spec in $extra_files; do
+    parsed_local=()
+    parsed_remote=()
+    parsed_exclude=()
+    -z4m-ssh-parse-copy-spec "$spec" "$z4m_local_zdotdir" parsed_local parsed_remote parsed_exclude || return
+
+    local -i idx
+    for idx in {1..$#parsed_local}; do
+      z4m_ssh_extra_send_from+=(${parsed_local[idx]})
+      z4m_ssh_extra_send_to+=(${parsed_remote[idx]})
+      z4m_ssh_extra_send_exclude+=(${parsed_exclude[idx]})
+    done
+  done
+fi
+
+local -a z4m_ssh_env_specs env_specs
+if -z4m-ssh-zstyle-a env env_specs; then
+  z4m_ssh_env_specs+=($env_specs)
+fi
+
+if (( $#z4m_ssh_env_specs )); then
+  local spec action key value
+  local -a env_order reply
+  local -A env_commands
+
+  for spec in $z4m_ssh_env_specs; do
+    -z4m-ssh-parse-env-spec "$spec" || return
+    action=$reply[1]
+    key=$reply[2]
+    value=$reply[3]
+
+    case $action in
+      copy)
+        if [[ -v $key && ${(Pt)key} == scalar* ]]; then
+          value=${(P)key}
+          env_commands[$key]='"export" '$key'='${(qq)value}
+        else
+          env_commands[$key]=''
+        fi
+        ;;
+      set)
+        env_commands[$key]='"export" '$key'='${(qq)value}
+        ;;
+      unset)
+        env_commands[$key]='"unset" '$key
+        ;;
+    esac
+
+    (( ${env_order[(Ie)$key]} )) || env_order+=($key)
+  done
+
+  for key in $env_order; do
+    [[ -n ${env_commands[$key]-} ]] || continue
+    z4m_ssh_prelude+=(${env_commands[$key]})
+  done
+fi
+
+if [[ -n $z4m_ssh_cwd ]]; then
+  z4m_ssh_prelude+=('"export" Z4M_SSH_CWD='${(qq)z4m_ssh_cwd})
+fi
+
+local src dst
+for src in ${(k)z4m_ssh_send_files}; do
+  dst=${z4m_ssh_send_files[$src]}
+  if [[ -z $src || -z $dst ]]; then
     print -Pru2 -- '%F{3}z4m%f: empty element(s) in %F{1}z4m_ssh_send_files%f'
     return 1
   fi
-  if [[ $file == */ ]]; then
-    print -Pru2 -- "%F{3}z4m%f: element(s) of %Bz4m_ssh_send_files%b end with %B/%b: %F{1}${file//\%/%%}%f"
+  if [[ $src == */ ]]; then
+    print -Pru2 -- "%F{3}z4m%f: element(s) of %Bz4m_ssh_send_files%b end with %B/%b: %F{1}${src//\%/%%}%f"
     return 1
-  fi
-done
-for file in "${(@kv)z4m_ssh_retrieve_files}"; do
-  if [[ -z $file ]]; then
-    print -Pru2 -- '%F{3}z4m%f: empty element(s) in %F{1}z4m_ssh_retrieve_files%f'
-    return 1
-  fi
-  if [[ $file == */ ]]; then
-    print -Pru2 -- "%F{3}z4m%f: element(s) of %Bz4m_ssh_retrieve_files%b end with %B/%b: %F{1}${file//\%/%%}%f"
-    return 1
-  fi
-done
-for file in "${(@)z4m_retrieve_history}"; do
-  if [[ -z $file ]]; then
-    print -Pru2 -- '%F{3}z4m%f: empty element(s) in %F{1}z4m_retrieve_history%f'
-    return 1
-  fi
-  if [[ $file == */ ]]; then
-    print -Pru2 -- "%F{3}z4m%f: element(s) of %Bz4m_retrieve_history%b end with %B/%b: %F{1}${file//\%/%%}%f"
-    return 1
-  fi
-  if [[ -e $file ]]; then
-    if [[ ! ( -f $file && -r $file && -w $file ) ]]; then
-      print -Pru2 -- "%F{3}z4m%f: element of %Bz4m_retrieve_history%b is not a readable & writable file: %F{1}${file//\%/%%}%f"
-      return 1
-    fi
-  elif [[ -d ${file:h} ]]; then
-    if [[ ! -w ${file:h} ]]; then
-      print -Pru2 -- "%F{3}z4m%f: element of %Bz4m_retrieve_history%b is in a non-writable directory: %F{1}${file//\%/%%}%f"
-      return 1
-    fi
-  else
-    zf_mkdir -p -- ${file:h} || return
-  fi
-done
-
-if (( $#z4m_ssh_retrieve_files && ! $+commands[base64] )); then
-  print -Pru2 -- '%F{3}z4m%f: command not found: %F{1}base64%f'
-  return 1
-fi
-
-# Load previous sync state
-local -A prev_sync_state
-local -i has_prev_state=0
-if [[ -f $sync_state_file ]]; then
-  has_prev_state=1
-  local key value
-  while IFS=$'\t' read -r key value; do
-    [[ -n $key && $key != '#'* ]] || continue
-    prev_sync_state[$key]=$value
-  done < $sync_state_file
-fi
-
-# Determine effective sync mode
-local effective_sync_mode=$sync_mode
-if (( force_sync )); then
-  effective_sync_mode='full'
-elif [[ $sync_mode == 'smart' ]]; then
-  if (( has_prev_state )); then
-    effective_sync_mode='incremental'
-  else
-    effective_sync_mode='full'
-  fi
-fi
-
-# Compute current file fingerprints and determine which files need syncing.
-local -A current_sync_state files_need_sync files_need_delete
-local src dst fingerprint
-for src in ${(k)z4m_ssh_send_files}; do
-  dst=${z4m_ssh_send_files[$src]}
-  if [[ -e $src ]]; then
-    fingerprint=$(-z4m-ssh-fingerprint-path "$src") || fingerprint=
-    current_sync_state[$src]=$fingerprint
-    if [[ $effective_sync_mode == 'full' ]]; then
-      files_need_sync[$src]=1
-    elif [[ $effective_sync_mode == 'incremental' ]]; then
-      if [[ ${prev_sync_state[$src]:-} != $fingerprint ]]; then
-        files_need_sync[$src]=1
-      fi
-    fi
-  elif [[ $effective_sync_mode == 'full' || -n ${prev_sync_state[$src]-} ]]; then
-    files_need_delete[$src]=1
   fi
 done
 
 local tmpdir
+zf_mkdir -p -- $Z4M/tmp || return
 if (( $+commands[mktemp] )); then
   tmpdir=$(command mktemp -d -- $Z4M/tmp/ssh.XXXXXXXXXX) || return
 else
@@ -634,43 +454,33 @@ else
 fi
 
 {
-  # In offline mode, bundle z4m core with the upload
-  local z4m_bundle=
-  if (( offline_mode )); then
-    z4m_bundle=$tmpdir/z4m-bundle.tar.gz
-    print -Pru2 -- "%F{3}z4m%f: offline mode - bundling z4m installation..."
-    local -a bundle_entries=()
-    [[ -f $Z4M/z4m.zsh ]] && bundle_entries+=(z4m.zsh)
-    local -a z4m_dirs=(
-      zsh4monkey
-      fzf/bin
-      fzf/man
-      powerlevel10k
-      zsh-users
-      terminfo
-    )
-    local d
-    for d in $z4m_dirs; do
-      [[ -d $Z4M/$d ]] && bundle_entries+=($d)
-    done
-    if (( $#bundle_entries )); then
-      COPYFILE_DISABLE=1 command tar -C $Z4M -czf $z4m_bundle -- $bundle_entries 2>/dev/null || {
-        print -Pru2 -- "%F{3}z4m%f: %F{1}warning%f: failed to create z4m bundle"
-        z4m_bundle=
-      }
-    fi
-  fi
-
-  local -i i=0 files_synced=0 files_skipped=0
-  local indices=() send_to=() delete_to=()
+  local -a indices send_to send_from send_exclude
+  local -i index=0
   for src in ${(k)z4m_ssh_send_files}; do
-    dst=${z4m_ssh_send_files[$src]}
-    (( ++i ))
-    send_to+=($dst)
-    if [[ ! -e $src ]]; then
-      (( ${+files_need_delete[$src]} )) && delete_to+=($dst)
+    send_from+=($src)
+    send_exclude+=('')
+    send_to+=(${z4m_ssh_send_files[$src]})
+  done
+  for index in {1..$#z4m_ssh_extra_send_from}; do
+    send_from+=(${z4m_ssh_extra_send_from[index]})
+    send_to+=(${z4m_ssh_extra_send_to[index]})
+    send_exclude+=(${z4m_ssh_extra_send_exclude[index]})
+  done
+
+  for index in {1..$#send_from}; do
+    src=${send_from[index]}
+    dst=${send_to[index]}
+    local exclude_blob=$send_exclude[index]
+    local archive_path=$tmpdir/$index
+    [[ -e $src ]] || continue
+
+    if [[ -n $exclude_blob ]]; then
+      -z4m-copy-path-with-excludes "$src" "$archive_path" preserve "$exclude_blob" || return
+      [[ -e $archive_path || -L $archive_path ]] || continue
+      indices+=($index)
       continue
     fi
+
     local target=${src:P}
     if [[ -z $target(#qN.) && -z $target(#qN/) ]]; then
       print -Pru2 -- "%F{3}z4m%f: unsupported file type: %F{1}${src//\%/%%}%f"
@@ -680,295 +490,73 @@ fi
       print -Pru2 -- "%F{3}z4m%f: cannot send file: %F{1}${src//\%/%%}%f"
       return 1
     fi
-    # Incremental sync: only include files that need syncing
-    if (( ${+files_need_sync[$src]} )); then
-      zf_ln -s -- $target $tmpdir/$i || return
-      indices+=($i)
-      (( ++files_synced ))
-    else
-      (( ++files_skipped ))
-    fi
+    zf_ln -s -- $target $archive_path || return
+    indices+=($index)
   done
 
-  # Show sync stats in incremental mode
-  if [[ $effective_sync_mode == 'incremental' && $files_skipped -gt 0 ]]; then
-    print -Pru2 -- "%F{3}z4m%f: incremental sync: %F{2}$files_synced%f changed, %F{8}$files_skipped%f unchanged"
-  fi
+  local -a z4m_ssh_run=(
+    'if "[" "-f" "$Z4M"/zsh4monkey/sc/exec-zsh-i "-a" "-r" "$Z4M"/zsh4monkey/sc/exec-zsh-i "]"; then
+       "." "$Z4M"/zsh4monkey/sc/exec-zsh-i
+     else
+       >&2 "printf" "\\033[33mz4m\\033[0m: remote bootstrap helper is missing or unreadable: \\033[31m%s\\033[0m\n" "$Z4M"/zsh4monkey/sc/exec-zsh-i
+       "exit" "1"
+     fi')
 
-  local -a retrieve_from retrieve_to
-  local from to
-  for from in ${(k)z4m_ssh_retrieve_files}; do
-    to=${z4m_ssh_retrieve_files[$from]}
-    retrieve_from+=($from)
-    retrieve_to+=($to)
-  done
-
-  local dump_marker=${(%):-%n}.$sysparams[pid].$EPOCHSECONDS.$RANDOM
-
-  local script
-  script=${"$(<$Z4M/zsh4monkey/sc/ssh-bootstrap)"//$'\r'} || return
-  script=${script//'^TERM^'/${(q)term}}
-  script=${script//'^MIN_VERSION^'/${(q)z4m_min_version}}
-  script=${script//'^SSH_HOST^'/${(q)z4m_ssh_host}}
-  script=${script//'^SSH_CLIENT^'/${(q)z4m_ssh_client}}
-  script=${script//'^SSH_ARGS^'/${(q)${(j: :)@}}}
+  local script=${"$(<$Z4M/zsh4monkey/sc/ssh-bootstrap)"//$'\r'} || return
+  script=${script//'^TERM^'/${(qq)term}}
+  script=${script//'^MIN_VERSION^'/${(qq)z4m_min_version}}
+  script=${script//'^SSH_HOST^'/${(qq)z4m_ssh_host}}
+  script=${script//'^SSH_CLIENT^'/${(qq)z4m_ssh_client}}
   script=${script//'^PRELUDE^'/${(F)z4m_ssh_prelude}}
   script=${script//'^SEND_TO^'/${(j: :)send_to}}
-  script=${script//'^SETUP^'/${(F)z4m_ssh_setup}}
   script=${script//'^RUN^'/${(F)z4m_ssh_run}}
-  script=${script//'^TEARDOWN^'/${(F)z4m_ssh_teardown}}
-  if (( $#retrieve_from )); then
-    script=${script//'^EMPTY_RETRIEVE_FROM^'/"'false'"}
-  else
-    script=${script//'^EMPTY_RETRIEVE_FROM^'/"'true'"}
-  fi
-  script=${script//'^RETRIEVE_FROM^'/${(j: :)retrieve_from}}
-  if (( $#delete_to )); then
-    script=${script//'^EMPTY_DELETE_TO^'/"'false'"}
-  else
-    script=${script//'^EMPTY_DELETE_TO^'/"'true'"}
-  fi
-  script=${script//'^DELETE_TO^'/${(j: :)delete_to}}
-  script=${script//'^DUMP_MARKER^'/${(q)dump_marker}}
-  script=${script//'^CAN_SAVE_RESTORE_SCREEN^'/${_z4m_can_save_restore_screen:-0}}
-
   script=${script//'^DUMP_POS^'/${(r:8:: :)${#script}}}
 
   print -r -- $script >$tmpdir/script || return
 
-  local tar_v tar_c_opt tar_x_opt
+  local -a tar_c_opt tar_x_opt
+  local tar_v
   if tar_v=$(command tar --version 2>/dev/null) && [[ $tar_v == *'GNU tar'* ]]; then
     tar_c_opt=(--owner=0 --group=0)
     tar_x_opt=(--warning=no-unknown-keyword --warning=no-timestamp --no-same-owner)
   fi
+  (( ${#tar_x_opt} )) || tar_x_opt=()
 
-  local -a tar_files=()
-  (( $#indices )) && tar_files+=($indices)
-  # Include z4m bundle for offline mode
-  if [[ -n $z4m_bundle && -f $z4m_bundle ]]; then
-    tar_files+=(${z4m_bundle:t})
-  fi
-  if (( $#tar_files )); then
-    COPYFILE_DISABLE=1 command tar -C $tmpdir $tar_c_opt -czhf - -- $tar_files >>$tmpdir/script || return
+  if (( $#indices )); then
+    COPYFILE_DISABLE=1 command tar -C $tmpdir $tar_c_opt -czhf - -- $indices >>$tmpdir/script || return
   fi
 
-  local args=("$@")
-  args[pos[-1],pos[-1]-1]=('-T')
+  local -a ssh_front upload_args exec_args
+  (( pos[1] > 1 )) && ssh_front=("${@[1,pos[1]-1]}")
+  upload_args=("${ssh_front[@]}" -T "${@[pos[1],-1]}")
+  exec_args=("${ssh_front[@]}" -t "${@[pos[1],-1]}")
+
   local remote_script=.z4m-ssh.${(%):-%n}.$sysparams[pid].$EPOCHSECONDS.$RANDOM
-
-  # Tricky corner cases where this command must work:
-  #
-  #   1. The remote shell is csh (default on FreeBSD).
-  #   2. There is no /tmp on the remote host (e.g., Termux).
-  #   3. TMPDIR is not set.
-  #   4. TMPDIR has spaces in it.
-  #
-  # The next command (the one that invokes /bin/sh) must also work in these
-  # cases. It should also propagate the exit status of /bin/sh.
+  local remote_script_exec=${(qq)remote_script}
   local cmd="test -w /tmp && cat >/tmp/$remote_script && echo 1 && exit"
   cmd+=" || "
   cmd+="test ! -e /tmp/$remote_script && cat >~/$remote_script && echo 2"
+
   local loc
-  loc=$("${z4m_ssh_command[@]}" "${args[@]}" $cmd <$tmpdir/script) || return
+  loc=$("${z4m_ssh_command[@]}" "${upload_args[@]}" $cmd <$tmpdir/script) || return
+
+  case ${loc//[[:space:]]} in
+    1)
+      remote_script="/tmp/$remote_script"
+      remote_script_exec=${(qq)remote_script}
+      ;;
+    2)
+      remote_script_exec='$HOME/'${(qq)remote_script}
+      ;;
+    *)
+      print -Pru2 -- "%F{3}z4m%f: failed to upload bootstrap script"
+      return 1
+      ;;
+  esac
+
+  local remote_exec=${(qq)z4m_ssh_interpreter}' '$remote_script_exec
+
+  TERM=${term:-$TERM} "${z4m_ssh_command[@]}" "${exec_args[@]}" "$remote_exec"
 } always {
   zf_rm -rf -- $tmpdir
 }
-
-case ${loc//[[:space:]]} in
-  1) remote_script="/tmp/$remote_script";;
-  2) remote_script="~/$remote_script";;
-  *)
-    print -Pru2 -- "%F{3}z4m%f: failed to upload bootstrap script"
-    return 1
-  ;;
-esac
-
-args[pos[-1]]='-t'
-
-local stty
-if [[ -v commands[stty] && -v _z4m_tty_fd ]]; then
-  stty=$(command stty -g <&$_z4m_tty_fd 2>/dev/null) || stty=
-fi
-
-local -i bypass=0
-local -i ssh_ret=0
-{ (  # subshell to avoid TTOU
-
-local -i pid=$sysparams[pid]
-
-{
-  setopt no_multi_os
-  "${z4m_ssh_command[@]}" "${args[@]}" "sh $remote_script" 2>&1 1>&3 |
-     LC_ALL=C command grep -vxE '(Shared c|C)onnection to .* closed\.(.)?' >&2
-   return $pipestatus[1]
-} 3>&1 | {
-  if (( $+commands[mktemp] )); then
-    tmpdir=$(command mktemp -d -- $Z4M/tmp/ssh.XXXXXXXXXX) || return
-  else
-    tmpdir=$Z4M/tmp/ssh.tmp.$sysparams[pid]
-    zf_rm -rf -- $tmpdir || return
-    zf_mkdir -- $tmpdir || return
-  fi
-
-  unsetopt multibyte
-  local LC_ALL=C
-
-  unset _z4m_saved_screen
-
-  {
-    local buf=
-    local mark=$'\001z4m.'$dump_marker
-    while true; do
-      [[ -n $buf ]] || sysread 'buf[$#buf+1]' || return $(( $? != 5 ))
-      if [[ $buf != *$mark[1]* ]]; then
-        print -rn -- $buf
-        buf=
-        continue
-      fi
-      while true; do
-        print -rn -- ${buf%%$mark[1]*}
-        buf=$mark[1]${buf#*$mark[1]}
-        local -i prefix=$(($#buf < $#mark ? $#buf : $#mark))
-        (( prefix )) || continue
-        [[ ${buf:0:$prefix} == ${mark:0:$prefix} ]] && break
-        print -rn -- $buf[1]
-        buf[1]=""
-        continue 2
-      done
-      while (( $#buf < $#mark )) && [[ $mark == $buf* ]]; do
-        # What should we do if the output ends with a proper prefix of mark?
-        # Print it or not? Return an error or not? We choose to not print and return
-        # success iff we've reached eof.
-        sysread -s $(($#mark - $#buf)) 'buf[$#buf+1]' && continue
-        return $(( $? != 5 ))
-      done
-      if [[ $buf != $mark* ]]; then
-        print -rn -- $buf[1]
-        buf[1]=""
-        continue
-      fi
-      buf[1,$#mark]=""
-      while (( $#buf < 16 )); do
-        sysread -s $((16 - $#buf)) 'buf[$#buf+1]' && continue
-        return $(( $? != 5 ))
-      done
-
-      {
-        case ${buf[1,16]%% #} in
-          bypass)
-            bypass=1
-            break
-          ;;
-          save-screen)
-            (( _z4m_can_save_restore_screen )) || return
-            local _z4m_saved_screen=
-            -z4m-save-screen || return
-            _z4m_saved_screen+=x
-            continue
-          ;;
-          restore-screen)
-            [[ -n $_z4m_saved_screen ]] || return
-            _z4m_saved_screen[-1]=
-            -z4m-restore-screen || return
-            unset _z4m_saved_screen
-            continue
-          ;;
-          <->)
-            local -i len=buf[1,16]
-          ;;
-          *)
-            return 1
-          ;;
-        esac
-      } always {
-        buf=${buf:16}
-      }
-
-      (( len )) || continue
-      if [[ -d $tmpdir ]]; then
-        local dump_file=$tmpdir/dump.base64
-      else
-        local dump_file=/dev/null
-      fi
-      {
-        local -i n=$((len < $#buf ? len : $#buf))
-        print -rn -- $buf[1,n] || return
-        (( len -= n ))
-        buf[1,n]=""
-        while (( len )); do
-          sysread -s $((len > 65636 ? 65636 : len)) -o 1 -c n || return $(( $? != 5 ))
-          (( len -= n, 1 ))
-        done
-      } >$dump_file || return
-      if [[ $dump_file != /dev/null ]]; then
-        if base64 -d <<<'Cg==' &>/dev/null; then
-          local base64_opt=-d
-        else
-          local base64_opt=-D
-        fi
-        <$tmpdir/dump.base64 command base64 $base64_opt |
-          command tar -C $tmpdir $tar_x_opt -xzf - || return
-        local -i i
-        for i in {1..$#retrieve_to}; do
-          local src=$tmpdir/$i
-          local dst=$retrieve_to[i]
-          [[ -e $src ]] || continue
-          if [[ -e $dst ]]; then
-            zf_rm -rf -- $dst || return
-          fi
-          if ! command mv -f -- $src $dst 2>/dev/null; then
-            command cp -rf -- $src $dst || return
-          fi
-        done
-        if [[ -s $local_hist_tmp ]]; then
-          local local_hist
-          for local_hist in $z4m_retrieve_history; do
-            local TMPPREFIX=$local_hist
-            () {
-              () { fc -pa -- $1 $HISTSIZE $SAVEHIST } $1 && zf_mv -f -- $1 $local_hist
-            } =(command cat -- $local_hist(N) $local_hist_tmp) || return
-          done
-        fi
-      fi
-    done
-  } always {
-    local -i err=$?
-    zf_rm -rf -- $tmpdir $local_hist_tmp
-    if (( err )); then
-      kill -- -$pid 2>/dev/null
-    fi
-  }
-}
-
-if (( bypass )); then
-  setopt no_multi_os
-  {
-    TERM=${term:-$TERM} "${z4m_ssh_command[@]}" "${args[@]}" 2>&1 1>&3 |
-      LC_ALL=C command grep -vxE '(Shared c|C)onnection to .* closed\.(.)?' >&2
-    return $pipestatus[1]
-  } 3>&1
-fi
-
- ) } always {
-  [[ -n $stty ]] && command stty $stty <&$_z4m_tty_fd 2>/dev/null
-}
-ssh_ret=$?
-
-if (( ssh_ret == 0 && !bypass && $#current_sync_state )); then
-  if [[ ! -d $sync_state_dir ]]; then
-    zf_mkdir -p -- $sync_state_dir || true
-  fi
-  if [[ -d $sync_state_dir ]]; then
-    {
-      print -r -- "# z4m ssh sync state for $z4m_ssh_host"
-      print -r -- "# Connection key: $sync_state_key"
-      print -r -- "# Last sync: $(strftime '%Y-%m-%d %H:%M:%S' $EPOCHSECONDS)"
-      local k
-      for k in ${(k)current_sync_state}; do
-        print -r -- "${k}"$'\t'"${current_sync_state[$k]}"
-      done
-    } >$sync_state_file 2>/dev/null || true
-  fi
-fi
-
-return ssh_ret

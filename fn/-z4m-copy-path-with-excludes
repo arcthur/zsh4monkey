@@ -1,0 +1,77 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+-z4m-copy-path-matches-exclude() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local rel=$1
+  local exclude_blob=$2
+  local pattern
+
+  [[ -n $rel && -n $exclude_blob ]] || return 1
+  for pattern in "${(@f)exclude_blob}"; do
+    [[ -n $pattern ]] || continue
+    if [[ $pattern == */* ]]; then
+      [[ $rel == $~pattern ]] && return 0
+    else
+      [[ ${rel:t} == $~pattern ]] && return 0
+    fi
+  done
+  return 1
+}
+
+-z4m-copy-path-with-excludes-impl() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob -o no_aliases
+
+  local src=$1
+  local dst=$2
+  local mode=$3
+  local exclude_blob=$4
+  local rel=$5
+
+  if -z4m-copy-path-matches-exclude "$rel" "$exclude_blob"; then
+    return 0
+  fi
+
+  if [[ -d $src && ! -L $src ]]; then
+    command mkdir -p -- "$dst" || return
+    local -a entries=($src/*(N) $src/.[^.]*(N) $src/..?*(N))
+    local entry child_rel
+    for entry in $entries; do
+      child_rel=${rel:+$rel/}${entry:t}
+      -z4m-copy-path-with-excludes-impl "$entry" "$dst/${entry:t}" "$mode" "$exclude_blob" "$child_rel" || return
+    done
+    return 0
+  fi
+
+  command mkdir -p -- "${dst:h}" || return
+
+  if [[ -L $src ]]; then
+    if [[ $mode == follow ]]; then
+      command cp -RLp -- "$src" "$dst" || return
+    else
+      command cp -pP -- "$src" "$dst" || return
+    fi
+    return 0
+  fi
+
+  [[ -f $src ]] || return 1
+  command cp -p -- "$src" "$dst" || return
+}
+
+local src=$1
+local dst=$2
+local mode=${3:-preserve}
+local exclude_blob=${4-}
+
+[[ -n $src && -n $dst ]] || return 1
+[[ -e $src || -L $src ]] || return 1
+[[ $mode == preserve || $mode == follow ]] || return 1
+
+if [[ -d $src && ! -L $src ]]; then
+  -z4m-copy-path-with-excludes-impl "$src" "$dst" "$mode" "$exclude_blob" ''
+else
+  -z4m-copy-path-with-excludes-impl "$src" "$dst" "$mode" "$exclude_blob" "${src:t}"
+fi

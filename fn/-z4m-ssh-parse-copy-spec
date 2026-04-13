@@ -1,0 +1,184 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+autoload -Uz -- -z4m-expand-user-path || return 1
+
+local spec=$1
+local local_zdotdir=${2:-${ZDOTDIR:-$HOME}}
+local reply_local_name=$3
+local reply_remote_name=$4
+local reply_exclude_name=$5
+
+[[ -n $reply_local_name && -n $reply_remote_name ]] || return 1
+eval "$reply_local_name=()"
+eval "$reply_remote_name=()"
+[[ -n $reply_exclude_name ]] && eval "$reply_exclude_name=()"
+
+-z4m-ssh-copy-spec-error() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  print -Pru2 -- "%F{3}z4m%f: %Bsend-extra-files%b: ${1//\%/%%}"
+  return 1
+}
+
+-z4m-ssh-copy-spec-default-dest() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local local_path=$1
+  local local_zdotdir=$2
+
+  if [[ $local_path == $HOME/* ]]; then
+    REPLY=${local_path#$HOME/}
+    return 0
+  fi
+  if [[ $local_path == $local_zdotdir/* ]]; then
+    REPLY=${local_path#$local_zdotdir/}
+    return 0
+  fi
+  REPLY=$local_path
+}
+
+-z4m-ssh-copy-spec-normalize-dest() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local dest=$1
+
+  case $dest in
+    '~/'*) REPLY=${dest:2} ;;
+    '$HOME/'*) REPLY=${dest#\$HOME/} ;;
+    '${HOME}/'*) REPLY=${dest#\$\{HOME\}/} ;;
+    *) REPLY=$dest ;;
+  esac
+}
+
+-z4m-ssh-copy-spec-validate-dest() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+  local dest=$1
+
+  [[ -n $dest ]] || return 1
+  [[ $dest != *$'\n'* && $dest != *$'\t'* ]] || return 1
+  local part
+  local -a parts=(${(s:/:)dest})
+  for part in $parts; do
+    case $part in
+      .|..) return 1 ;;
+    esac
+  done
+  case $dest in
+    .|..|~|'$HOME'|'${HOME}') return 1 ;;
+    */) return 1 ;;
+  esac
+  return 0
+}
+
+-z4m-ssh-copy-spec-expand-source() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob -o no_aliases
+
+  local source_spec=$1
+  local local_zdotdir=$2
+  local -i is_glob=$3
+
+  local resolved
+  -z4m-expand-user-path "$source_spec" "$local_zdotdir" || return 1
+  resolved=$REPLY
+
+  if (( is_glob )); then
+    local -a matches=(${~resolved}(N))
+    (( $#matches )) || -z4m-ssh-copy-spec-error "glob matches no files: $source_spec"
+    print -lr -- $matches
+    return 0
+  fi
+
+  [[ -e $resolved ]] || -z4m-ssh-copy-spec-error "local source does not exist: $source_spec"
+  print -r -- "$resolved"
+}
+
+local -a words source_specs expanded_sources
+local -i is_glob=0
+local dest=
+local -a exclude_patterns
+local exclude_blob
+
+words=("${(z)spec}")
+(( $#words )) || -z4m-ssh-copy-spec-error 'empty copy spec'
+
+while (( $#words )); do
+  case $words[1] in
+    --glob)
+      is_glob=1
+      words=("${words[@]:1}")
+      ;;
+    --dest)
+      if (( $#words < 2 )); then
+        -z4m-ssh-copy-spec-error '--dest requires a remote path'
+        return 1
+      fi
+      dest=${(Q)words[2]}
+      words=("${words[@]:2}")
+      ;;
+    --dest=*)
+      dest=${(Q)${words[1]#--dest=}}
+      words=("${words[@]:1}")
+      ;;
+    --exclude)
+      if (( $#words < 2 )); then
+        -z4m-ssh-copy-spec-error '--exclude requires a pattern'
+        return 1
+      fi
+      exclude_patterns+=(${(Q)words[2]})
+      words=("${words[@]:2}")
+      ;;
+    --exclude=*)
+      exclude_patterns+=(${(Q)${words[1]#--exclude=}})
+      words=("${words[@]:1}")
+      ;;
+    --)
+      words=("${words[@]:1}")
+      source_specs+=("${words[@]}")
+      break
+      ;;
+    -*)
+      -z4m-ssh-copy-spec-error "unsupported copy option: ${(Q)words[1]}"
+      return 1
+      ;;
+    *)
+      source_specs+=(${(Q)words[1]})
+      words=("${words[@]:1}")
+      ;;
+  esac
+done
+
+exclude_blob=${(F)exclude_patterns}
+
+(( $#source_specs )) || -z4m-ssh-copy-spec-error 'copy spec has no local source'
+
+local source_spec
+for source_spec in $source_specs; do
+  expanded_sources+=("${(@f)$(-z4m-ssh-copy-spec-expand-source "$source_spec" "$local_zdotdir" $is_glob)}") || return
+done
+
+if [[ -n $dest && $#expanded_sources -ne 1 ]]; then
+  -z4m-ssh-copy-spec-error '--dest requires exactly one resolved local source'
+  return 1
+fi
+
+local local_path remote_path
+for local_path in $expanded_sources; do
+  if [[ -n $dest ]]; then
+    -z4m-ssh-copy-spec-normalize-dest "$dest"
+  else
+    -z4m-ssh-copy-spec-default-dest "$local_path" "$local_zdotdir"
+  fi
+  remote_path=$REPLY
+
+  if ! -z4m-ssh-copy-spec-validate-dest "$remote_path"; then
+    -z4m-ssh-copy-spec-error "invalid remote destination: ${remote_path:-<empty>}"
+    return 1
+  fi
+
+  eval "$reply_local_name+=(${(q)local_path})"
+  eval "$reply_remote_name+=(${(q)remote_path})"
+  [[ -n $reply_exclude_name ]] && eval "$reply_exclude_name+=(\"\${exclude_blob}\")"
+done

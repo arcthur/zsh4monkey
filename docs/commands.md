@@ -43,8 +43,9 @@ z4m load ~/.local/share/my-plugin
 | Command | Description |
 |---------|-------------|
 | `z4m ssh <host>` | Connect with shell teleportation |
-| `z4m ssh --force-sync <host>` | Force full configuration sync |
 | `z4m ssh -J <jump> <host>` | Connect via jump host |
+
+Interactive `z4m ssh` sessions use one-shot bootstrap and then hand control to the remote shell. For redraw stability, remote SSH sessions use a simplified prompt and disable inline autosuggestions and syntax highlighting.
 
 See [ssh.md](ssh.md) for details.
 
@@ -107,7 +108,6 @@ See [keybindings.md](keybindings.md) for available widgets.
 | `z4m tty-wait -t <seconds> -p <pattern>` | Wait for terminal size to match a `LINES COLUMNS` pattern (non-tmux) |
 | `z4m env` | Show z4m environment variables |
 | `z4m history-debug` | Show effective history-search wiring (widgets, flags, key bindings) |
-| `z4m env-propagation-diagnose [<base64>]` | Validate/inspect SSH env propagation payload (reads stdin if omitted) |
 
 ## AI & Suggestion Diagnostics
 
