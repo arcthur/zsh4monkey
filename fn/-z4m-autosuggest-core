@@ -615,8 +615,6 @@ function -z4m-autosuggest-core-fetch() {
     return 0
   fi
 
-  local -i ai_allow_empty=0
-
   if [[ $CONTEXT != start ]]; then
     unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
     _z4m_autosuggest_state[active_provider]=none
@@ -627,10 +625,7 @@ function -z4m-autosuggest-core-fetch() {
   if (( ${+functions[-z4m-autosuggest-ai-pre-redraw]} )); then
     -z4m-autosuggest-ai-pre-redraw "$BUFFER" || true
   fi
-  if (( ${+functions[-z4m-autosuggest-ai-allow-empty-p]} )) && -z4m-autosuggest-ai-allow-empty-p; then
-    ai_allow_empty=1
-  fi
-  if [[ -z $BUFFER ]] && (( ! ai_allow_empty )); then
+  if [[ -z $BUFFER ]]; then
     unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
     _z4m_autosuggest_state[active_provider]=none
     return 0

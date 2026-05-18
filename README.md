@@ -8,7 +8,7 @@ A modern, feature-rich Zsh configuration that just works. Built for developers w
 - **Blazing fast** - Sub-50ms startup with [zsh-bench](https://github.com/romkatv/zsh-bench)
 - **Syntax highlighting** - Built-in [fast-syntax-highlighting](https://github.com/zdharma-continuum/fast-syntax-highlighting) with 256-color themes
 - **Smart autosuggestions** - Built-in [zsh-autosuggestions](https://github.com/zsh-users/zsh-autosuggestions)
-- **AI assist lanes** - Non-blocking autosuggest fallback + manual rewrite + natural-language command intent
+- **AI assist lanes** - Manual rewrite + natural-language command intent, with optional conservative autosuggest fallback
 - **Beautiful prompt** - Powered by [Powerlevel10k](https://github.com/romkatv/powerlevel10k)
 - **Fuzzy completion** - [fzf](https://github.com/junegunn/fzf) with continuous path completion and file coloring
 - **SSH teleportation** - Your shell environment follows you to remote hosts

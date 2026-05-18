@@ -14,14 +14,14 @@ function -z4m-autosuggest-ai-ensure() {
   : ${_z4m_autosuggest_ai_state[configured_endpoint]:=https://api.deepseek.com/v1}
   : ${_z4m_autosuggest_ai_state[configured_model]:=deepseek-chat}
   : ${_z4m_autosuggest_ai_state[configured_api_key_env]:=DEEPSEEK_API_KEY}
-  : ${_z4m_autosuggest_ai_state[configured_mode]:=passive}
+  : ${_z4m_autosuggest_ai_state[configured_mode]:=manual}
   : ${_z4m_autosuggest_ai_state[configured_timeout_ms]:=3000}
   : ${_z4m_autosuggest_ai_state[configured_debounce_ms]:=160}
   : ${_z4m_autosuggest_ai_state[configured_cooldown_ms]:=800}
   : ${_z4m_autosuggest_ai_state[configured_min_input]:=2}
   : ${_z4m_autosuggest_ai_state[configured_max_input_tokens]:=384}
   : ${_z4m_autosuggest_ai_state[configured_max_output_tokens]:=96}
-  : ${_z4m_autosuggest_ai_state[configured_history_lines]:=6}
+  : ${_z4m_autosuggest_ai_state[configured_history_lines]:=0}
   : ${_z4m_autosuggest_ai_state[configured_budget_per_minute]:=12000}
   : ${_z4m_autosuggest_ai_state[configured_budget_per_day]:=300000}
   : ${_z4m_autosuggest_ai_state[configured_rewrite_enabled]:=1}
@@ -71,7 +71,8 @@ function -z4m-autosuggest-ai-ensure() {
   : ${_z4m_autosuggest_ai_state[intent_last_apply_result]:=}
   : ${_z4m_autosuggest_ai_state[intent_last_command]:=}
 
-  : ${_z4m_autosuggest_ai_state[context_policy]:=project:on,output:manual_intent,source:tmux_then_proxy}
+  -z4m-autosuggest-ai-context-policy
+  _z4m_autosuggest_ai_state[context_policy]=$REPLY
   : ${_z4m_autosuggest_ai_state[context_source_last]:=none}
   : ${_z4m_autosuggest_ai_state[context_source_last_mode]:=none}
 
@@ -124,6 +125,10 @@ function -z4m-autosuggest-ai-project-context-ttl-ms() {
   esac
 }
 
+function -z4m-autosuggest-ai-context-policy() {
+  REPLY=project:manual_intent,output:manual_intent,source:tmux_then_proxy
+}
+
 function -z4m-autosuggest-ai-json-escape() {
   local value=$1
   value=${value//\\/\\\\}
@@ -135,6 +140,29 @@ function -z4m-autosuggest-ai-json-escape() {
   value=${value//$'\f'/\\f}
   value=${value//[[:cntrl:]]/}
   print -rn -- "$value"
+}
+
+function -z4m-autosuggest-ai-redact-sensitive() {
+  local raw=${1-}
+  [[ -n $raw ]] || { REPLY=; return 0; }
+
+  if [[ -n ${commands[perl]-} ]]; then
+    REPLY=$(print -r -- "$raw" | command perl -pe '
+      s/\b((?:api[_-]?key|token|secret|password))\b\s*([=:])\s*([^\s;]+)/$1$2***REDACTED***/ig;
+      s#(https?://)[^/\s:@]+:[^/\s@]+@#$1***REDACTED***@#ig;
+      s/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]+/$1 ***REDACTED***/ig;
+    ' 2>/dev/null)
+    return 0
+  fi
+
+  local redacted=$raw
+  local key
+  for key in api_key api-key apikey token secret password; do
+    redacted=${redacted//(#b)((#i)$key)([[:space:]]#)([=:])([[:space:]]#)([^[:space:];]##)/${match[1]}${match[2]}${match[3]}${match[4]}***REDACTED***}
+  done
+  redacted=${redacted//(#b)((#i)Bearer|Basic)([[:space:]]##)([A-Za-z0-9._~+\/=:-]##)/${match[1]}${match[2]}***REDACTED***}
+  redacted=${redacted//(#b)(http(|s):\/\/)([^[:space:]\/:@]##):([^[:space:]@\/]##)@/${match[1]}***REDACTED***@}
+  REPLY=$redacted
 }
 
 function -z4m-autosuggest-ai-buffer-eq-p() {
@@ -395,6 +423,31 @@ function -z4m-autosuggest-ai-buffer-meta() {
 
   meta=$'BUFFER_META:\n'"kind: ${kind}"$'\n'"${meta}"
   REPLY=$meta
+}
+
+function -z4m-autosuggest-ai-autofallback-eligible-p() {
+  local buffer=${1-}
+  REPLY=weak_signal
+
+  [[ -n $buffer ]] || return 1
+  [[ $buffer == *[[:space:]]* ]] || return 1
+
+  local command_name=${buffer%%[[:space:]]*}
+  [[ -n $command_name ]] || return 1
+
+  local line
+  line=$(whence -w -- "$command_name" 2>/dev/null)
+  if [[ -n $line && $line != *': none' ]]; then
+    REPLY=ok
+    return 0
+  fi
+  if alias "$command_name" >/dev/null 2>&1 || (( ${+functions[$command_name]} )); then
+    REPLY=ok
+    return 0
+  fi
+
+  REPLY=unknown_command
+  return 1
 }
 
 function -z4m-autosuggest-ai-parse-bool() {
@@ -668,9 +721,9 @@ function -z4m-autosuggest-ai-read-config() {
   local endpoint=${_z4m_autosuggest_ai_state[configured_endpoint]}
   local model=${_z4m_autosuggest_ai_state[configured_model]}
   local api_key_env=${_z4m_autosuggest_ai_state[configured_api_key_env]}
-  local mode=passive
+  local mode=manual
   local -i timeout_ms=3000 debounce_ms=160 cooldown_ms=800 min_input=2
-  local -i max_input_tokens=384 max_output_tokens=96 history_lines=6
+  local -i max_input_tokens=384 max_output_tokens=96 history_lines=0
   local -i budget_per_minute=12000 budget_per_day=300000
   local -i rewrite_enabled=1 intent_command_enabled=1 proxy_enabled=0
   local rewrite_key='^O'
@@ -698,12 +751,12 @@ function -z4m-autosuggest-ai-read-config() {
     api_key_env='DEEPSEEK_API_KEY'
   fi
 
-  zstyle -s :z4m:autosuggestions:ai mode mode || mode=passive
+  zstyle -s :z4m:autosuggestions:ai mode mode || mode=manual
   case ${mode:l} in
     manual|passive|auto) mode=${mode:l} ;;
     *)
-      -z4m-autosuggest-ai-log warn ai-config "invalid mode=${mode}; forcing passive"
-      mode=passive
+      -z4m-autosuggest-ai-log warn ai-config "invalid mode=${mode}; forcing manual"
+      mode=manual
       ;;
   esac
 
@@ -759,7 +812,7 @@ function -z4m-autosuggest-ai-read-config() {
     if [[ $value == <-> ]]; then
       history_lines=$value
     else
-      -z4m-autosuggest-ai-log warn ai-config "invalid history-lines=${value}; forcing 6"
+      -z4m-autosuggest-ai-log warn ai-config "invalid history-lines=${value}; forcing 0"
     fi
   fi
 
@@ -1022,7 +1075,6 @@ function -z4m-autosuggest-ai-sanitize-output() {
       s/\e\][^\a]*(?:\a|\e\\)//g;
       s/\r//g;
       s/[\x00-\x08\x0B-\x1F\x7F]//g;
-      s/\b((?:api[_-]?key|token|secret|password))\b\s*([=:])\s*([^\s]+)/$1$2***REDACTED***/ig;
     ' 2>/dev/null)
   else
     cleaned=${raw//$'\r'/}
@@ -1042,6 +1094,9 @@ function -z4m-autosuggest-ai-sanitize-output() {
   if (( max_chars > 0 && ${#cleaned} > max_chars )); then
     cleaned="${cleaned[1,max_chars]}"
   fi
+
+  -z4m-autosuggest-ai-redact-sensitive "$cleaned"
+  cleaned=$REPLY
 
   REPLY=$cleaned
   [[ -n $REPLY ]]
@@ -1091,7 +1146,7 @@ function -z4m-autosuggest-ai-build-payload() {
   local mode=${3:-autosuggest_fallback}
   local intent_query=${4-}
   local model=${_z4m_autosuggest_ai_state[configured_model]}
-  local -i history_lines=${_z4m_autosuggest_ai_state[configured_history_lines]:-6}
+  local -i history_lines=${_z4m_autosuggest_ai_state[configured_history_lines]:-0}
   local -i max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-384}
   local -i max_output_tokens=${_z4m_autosuggest_ai_state[configured_max_output_tokens]:-96}
   local prompt_extend=${_z4m_autosuggest_ai_state[configured_prompt_extend]-}
@@ -1099,11 +1154,11 @@ function -z4m-autosuggest-ai-build-payload() {
   -z4m-autosuggest-ai-current-pane-id && pane=$REPLY
 
   local temperature=0.1
-  local system_prompt=$'You are a shell command assistant.\nReturn exactly one single-line protocol result with no markdown and no explanation.\nProtocol:\n- "+<suffix>" means append suffix to BUFFER.\n- "=<full command>" means rewrite whole command line.\nDo not output anything outside this protocol.'
+  local system_prompt=$'You are a shell command assistant.\nReturn exactly one single-line protocol result with no markdown and no explanation.\nProtocol:\n- "+<suffix>" means append suffix to BUFFER.\n- "=<full command>" means rewrite whole command line.\n- "!no_suggestion" means there is not enough signal to suggest anything useful.\nDo not output anything outside this protocol.'
 
   case $mode in
     autosuggest_fallback)
-      system_prompt+=$'\nMode: autosuggest_fallback. Return only +<suffix>. Do not use = in this mode. The final command MUST preserve BUFFER as an exact prefix (no edits to already-typed bytes).'
+      system_prompt+=$'\nMode: autosuggest_fallback. Return +<suffix> only when highly confident. Return !no_suggestion when context is weak or the next token would be a guess. Do not use = in this mode. The final command MUST preserve BUFFER as an exact prefix (no edits to already-typed bytes).'
       ;;
     manual_rewrite)
       system_prompt+=$'\nMode: manual_rewrite. You may use +suffix or =full command rewrite.'
@@ -1135,11 +1190,11 @@ function -z4m-autosuggest-ai-build-payload() {
 
   user_prompt+=$'RULES:\n'
   user_prompt+=$'- One line only.\n'
-  user_prompt+=$'- Valid protocol only (+ or =).\n'
-  user_prompt+=$'- Prefer safe non-destructive commands when uncertain.\n'
+  user_prompt+=$'- Valid protocol only (+, =, or !no_suggestion).\n'
+  user_prompt+=$'- Return !no_suggestion when uncertain.\n'
   user_prompt+=$'- No placeholders or random identifiers.\n'
   if [[ $mode == autosuggest_fallback ]]; then
-    user_prompt+=$'- autosuggest_fallback mode: return +<suffix> only; never use =.\n'
+    user_prompt+=$'- autosuggest_fallback mode: return +<suffix> only for high-confidence continuations; otherwise return !no_suggestion; never use =.\n'
     user_prompt+=$'- Never change, reorder, uppercase, or rewrite already-typed BUFFER text.\n'
   fi
 
@@ -1169,13 +1224,19 @@ function -z4m-autosuggest-ai-build-payload() {
   -z4m-autosuggest-ai-buffer-meta "$buffer"
   [[ -n $REPLY ]] && user_prompt+=$'\n'"$REPLY"$'\n'
 
-  -z4m-autosuggest-ai-project-context "$mode"
-  [[ -n $REPLY ]] && user_prompt+=$'\n'"$REPLY"$'\n'
+  if [[ $mode != autosuggest_fallback ]]; then
+    -z4m-autosuggest-ai-project-context "$mode"
+    [[ -n $REPLY ]] && user_prompt+=$'\n'"$REPLY"$'\n'
+  fi
 
   local output_context=
   if -z4m-autosuggest-ai-output-context "$mode" "$pane"; then
     output_context=$REPLY
     user_prompt+=$'\n'"${output_context}"$'\n'
+  fi
+
+  if [[ $mode == autosuggest_fallback ]]; then
+    history_lines=0
   fi
 
   if (( history_lines > 0 )); then
@@ -1205,6 +1266,8 @@ function -z4m-autosuggest-ai-build-payload() {
   fi
 
   local -i max_chars=$(( max_input_tokens * 4 ))
+  -z4m-autosuggest-ai-redact-sensitive "$user_prompt"
+  user_prompt=$REPLY
   if (( ${#user_prompt} > max_chars )); then
     user_prompt="${user_prompt[1,max_chars]}"
   fi
@@ -1370,7 +1433,7 @@ function -z4m-autosuggest-ai-submit() {
 function -z4m-autosuggest-ai-retryable-reject-p() {
   local reason=${1-}
   case $reason in
-    empty_suggestion|numeric_tail|prefix_mismatch|no_delta|multiline|control_chars|invalid_head|unknown_command|low_quality|invalid_protocol)
+    numeric_tail|prefix_mismatch|no_delta|multiline|control_chars|invalid_head|unknown_command)
       return 0
       ;;
   esac
@@ -1389,7 +1452,7 @@ function -z4m-autosuggest-ai-maybe-retry-strict() {
   [[ $profile == strict ]] && return 1
   -z4m-autosuggest-ai-retryable-reject-p "$reason" || return 1
   [[ -n $inflight_buffer && $inflight_buffer == "$current_buffer" ]] || return 1
-  [[ ${_z4m_autosuggest_ai_state[configured_mode]-passive} == manual ]] && return 1
+  [[ ${_z4m_autosuggest_ai_state[configured_mode]-manual} == manual ]] && return 1
 
   -z4m-autosuggest-ai-submit "$inflight_buffer" strict autosuggest_fallback '' || return 1
   _z4m_autosuggest_ai_state[last_reject]=retrying_strict
@@ -1422,8 +1485,23 @@ function -z4m-autosuggest-ai-parse-protocol() {
   case $marker in
     +) kind=suffix ;;
     =) kind=rewrite ;;
+    !) kind=none ;;
     *) return 2 ;;
   esac
+
+  if [[ $kind == none ]]; then
+    payload=${payload##[[:space:]]##}
+    payload=${payload%%[[:space:]]##}
+    case ${payload:l} in
+      ''|no_suggestion|none|noop|no-op)
+        reply=(none '')
+        return 0
+        ;;
+      *)
+        return 2
+        ;;
+    esac
+  fi
 
   if [[ $kind == suffix ]]; then
     # Keep leading spaces for suffix mode so "+ foo" can append argument separators correctly.
@@ -1602,6 +1680,24 @@ function -z4m-autosuggest-ai-harvest() {
   suggestion=$reply[2]
   _z4m_autosuggest_ai_state[last_result_kind]=$kind
 
+  if [[ $kind == none ]]; then
+    _z4m_autosuggest_ai_state[last_reject]=no_suggestion
+    _z4m_autosuggest_ai_state[last_error]=
+    -z4m-autosuggest-ai-log info ai-result "no_suggestion mode=${inflight_mode} latency_ms=${_z4m_autosuggest_ai_state[last_latency_ms]}"
+    case $inflight_mode in
+      manual_rewrite)
+        _z4m_autosuggest_ai_state[manual_last_result_kind]=none
+        _z4m_autosuggest_ai_state[manual_last_apply_result]=no_suggestion
+        ;;
+      intent_command)
+        _z4m_autosuggest_ai_state[intent_last_result_kind]=none
+        _z4m_autosuggest_ai_state[intent_last_apply_result]=no_suggestion
+        ;;
+    esac
+    REPLY=
+    return 1
+  fi
+
   if ! -z4m-autosuggest-ai-validate-result "$inflight_mode" "$kind" "$inflight_buffer" "$suggestion"; then
     local reason=${REPLY:-low_quality}
     _z4m_autosuggest_ai_state[last_reject]=$reason
@@ -1679,13 +1775,6 @@ function -z4m-autosuggest-ai-harvest() {
   return 1
 }
 
-function -z4m-autosuggest-ai-allow-empty-p() {
-  -z4m-autosuggest-ai-ensure
-  (( ${_z4m_autosuggest_ai_state[enabled]:-0} )) || return 1
-  [[ ${_z4m_autosuggest_ai_state[configured_mode]-passive} == auto ]] || return 1
-  (( ${_z4m_autosuggest_ai_state[configured_min_input]:-2} == 0 ))
-}
-
 function -z4m-autosuggest-ai-maybe-suggest() {
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
@@ -1710,7 +1799,7 @@ function -z4m-autosuggest-ai-maybe-suggest() {
     return 1
   fi
 
-  local mode=${_z4m_autosuggest_ai_state[configured_mode]-passive}
+  local mode=${_z4m_autosuggest_ai_state[configured_mode]-manual}
   if [[ $mode == manual ]]; then
     _z4m_autosuggest_ai_state[last_reject]=manual_mode
     return 1
@@ -1734,6 +1823,11 @@ function -z4m-autosuggest-ai-maybe-suggest() {
   local -i min_input=${_z4m_autosuggest_ai_state[configured_min_input]:-2}
   if (( ${#buffer} < min_input )); then
     _z4m_autosuggest_ai_state[last_reject]=below_min_input
+    return 1
+  fi
+
+  if ! -z4m-autosuggest-ai-autofallback-eligible-p "$buffer"; then
+    _z4m_autosuggest_ai_state[last_reject]=${REPLY:-weak_signal}
     return 1
   fi
 
@@ -2049,14 +2143,14 @@ function -z4m-autosuggest-ai-status() {
   print -r -- "ai_model=${_z4m_autosuggest_ai_state[configured_model]-}"
   print -r -- "ai_api_key_env=${_z4m_autosuggest_ai_state[configured_api_key_env]-}"
   print -r -- "ai_auth_header_enabled=${_z4m_autosuggest_ai_state[auth_header_enabled]:-0}"
-  print -r -- "ai_mode=${_z4m_autosuggest_ai_state[configured_mode]-passive}"
+  print -r -- "ai_mode=${_z4m_autosuggest_ai_state[configured_mode]-manual}"
   print -r -- "ai_timeout_ms=${_z4m_autosuggest_ai_state[configured_timeout_ms]:-3000}"
   print -r -- "ai_debounce_ms=${_z4m_autosuggest_ai_state[configured_debounce_ms]:-160}"
   print -r -- "ai_cooldown_ms=${_z4m_autosuggest_ai_state[configured_cooldown_ms]:-800}"
   print -r -- "ai_min_input=${_z4m_autosuggest_ai_state[configured_min_input]:-2}"
   print -r -- "ai_max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-384}"
   print -r -- "ai_max_output_tokens=${_z4m_autosuggest_ai_state[configured_max_output_tokens]:-96}"
-  print -r -- "ai_history_lines=${_z4m_autosuggest_ai_state[configured_history_lines]:-6}"
+  print -r -- "ai_history_lines=${_z4m_autosuggest_ai_state[configured_history_lines]:-0}"
 
   print -r -- "ai_rewrite_enabled=${_z4m_autosuggest_ai_state[configured_rewrite_enabled]:-1}"
   print -r -- "ai_rewrite_key=${_z4m_autosuggest_ai_state[configured_rewrite_key]-^O}"
@@ -2064,7 +2158,10 @@ function -z4m-autosuggest-ai-status() {
   print -r -- "ai_prompt_extend=${prompt_extend}"
   print -r -- "ai_context_output_lines=${_z4m_autosuggest_ai_state[configured_context_output_lines]:-40}"
   print -r -- "ai_context_output_max_chars=${_z4m_autosuggest_ai_state[configured_context_output_max_chars]:-2000}"
-  print -r -- "ai_context_policy=${_z4m_autosuggest_ai_state[context_policy]-project:on,output:manual_intent,source:tmux_then_proxy}"
+  -z4m-autosuggest-ai-context-policy
+  local ai_context_policy=$REPLY
+  _z4m_autosuggest_ai_state[context_policy]=$ai_context_policy
+  print -r -- "ai_context_policy=${ai_context_policy}"
   print -r -- "ai_context_source_last=${_z4m_autosuggest_ai_state[context_source_last]-none}"
   print -r -- "ai_context_source_last_mode=${_z4m_autosuggest_ai_state[context_source_last_mode]-none}"
 

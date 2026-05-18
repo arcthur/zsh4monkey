@@ -54,6 +54,14 @@ function -z4m-cmd-autosuggest-load-status-map() {
   done
 }
 
+function -z4m-cmd-autosuggest-context-policy() {
+  if (( ${+functions[-z4m-autosuggest-ai-context-policy]} )); then
+    -z4m-autosuggest-ai-context-policy
+  else
+    REPLY=${_z4m_autosuggest_cmd_status[ai_context_policy]-unknown}
+  fi
+}
+
 function -z4m-cmd-autosuggest-status() {
   local -i json=0 do_init=0
   while (( $# )); do
@@ -95,21 +103,23 @@ function -z4m-cmd-autosuggest-status() {
   local ai_model=${_z4m_autosuggest_cmd_status[ai_model]-}
   local ai_api_key_env=${_z4m_autosuggest_cmd_status[ai_api_key_env]-DEEPSEEK_API_KEY}
   local ai_auth_header_enabled=${_z4m_autosuggest_cmd_status[ai_auth_header_enabled]-0}
-  local ai_mode=${_z4m_autosuggest_cmd_status[ai_mode]-passive}
+  local ai_mode=${_z4m_autosuggest_cmd_status[ai_mode]-manual}
   local ai_timeout_ms=${_z4m_autosuggest_cmd_status[ai_timeout_ms]-3000}
   local ai_debounce_ms=${_z4m_autosuggest_cmd_status[ai_debounce_ms]-160}
   local ai_cooldown_ms=${_z4m_autosuggest_cmd_status[ai_cooldown_ms]-800}
   local ai_min_input=${_z4m_autosuggest_cmd_status[ai_min_input]-2}
   local ai_max_input_tokens=${_z4m_autosuggest_cmd_status[ai_max_input_tokens]-384}
   local ai_max_output_tokens=${_z4m_autosuggest_cmd_status[ai_max_output_tokens]-96}
-  local ai_history_lines=${_z4m_autosuggest_cmd_status[ai_history_lines]-6}
+  local ai_history_lines=${_z4m_autosuggest_cmd_status[ai_history_lines]-0}
   local ai_rewrite_enabled=${_z4m_autosuggest_cmd_status[ai_rewrite_enabled]-1}
   local ai_rewrite_key=${_z4m_autosuggest_cmd_status[ai_rewrite_key]-^O}
   local ai_intent_command_enabled=${_z4m_autosuggest_cmd_status[ai_intent_command_enabled]-1}
   local ai_prompt_extend=${_z4m_autosuggest_cmd_status[ai_prompt_extend]-}
   local ai_context_output_lines=${_z4m_autosuggest_cmd_status[ai_context_output_lines]-40}
   local ai_context_output_max_chars=${_z4m_autosuggest_cmd_status[ai_context_output_max_chars]-2000}
-  local ai_context_policy=${_z4m_autosuggest_cmd_status[ai_context_policy]-project:on,output:manual_intent,source:tmux_then_proxy}
+  -z4m-cmd-autosuggest-context-policy
+  local expected_ai_context_policy=$REPLY
+  local ai_context_policy=${_z4m_autosuggest_cmd_status[ai_context_policy]-$expected_ai_context_policy}
   local ai_context_source_last=${_z4m_autosuggest_cmd_status[ai_context_source_last]-none}
   local ai_context_source_last_mode=${_z4m_autosuggest_cmd_status[ai_context_source_last_mode]-none}
   local ai_proxy_configured_enabled=${_z4m_autosuggest_cmd_status[ai_proxy_configured_enabled]-0}
@@ -372,14 +382,16 @@ function -z4m-cmd-autosuggest-doctor() {
   local ai_configured_enabled=${_z4m_autosuggest_cmd_status[ai_configured_enabled]-0}
   local ai_enabled=${_z4m_autosuggest_cmd_status[ai_enabled]-0}
   local ai_api_key_present=${_z4m_autosuggest_cmd_status[ai_api_key_present]-0}
-  local ai_mode=${_z4m_autosuggest_cmd_status[ai_mode]-passive}
+  local ai_mode=${_z4m_autosuggest_cmd_status[ai_mode]-manual}
   local ai_model=${_z4m_autosuggest_cmd_status[ai_model]-}
   local ai_endpoint=${_z4m_autosuggest_cmd_status[ai_endpoint]-}
   local ai_auth_header_enabled=${_z4m_autosuggest_cmd_status[ai_auth_header_enabled]-0}
   local ai_rewrite_enabled=${_z4m_autosuggest_cmd_status[ai_rewrite_enabled]-1}
   local ai_rewrite_key=${_z4m_autosuggest_cmd_status[ai_rewrite_key]-^O}
   local ai_intent_command_enabled=${_z4m_autosuggest_cmd_status[ai_intent_command_enabled]-1}
-  local ai_context_policy=${_z4m_autosuggest_cmd_status[ai_context_policy]-project:on,output:manual_intent,source:tmux_then_proxy}
+  -z4m-cmd-autosuggest-context-policy
+  local expected_ai_context_policy=$REPLY
+  local ai_context_policy=${_z4m_autosuggest_cmd_status[ai_context_policy]-$expected_ai_context_policy}
   local ai_context_source_last=${_z4m_autosuggest_cmd_status[ai_context_source_last]-none}
   local ai_proxy_configured_enabled=${_z4m_autosuggest_cmd_status[ai_proxy_configured_enabled]-0}
   local ai_proxy_runtime_enabled=${_z4m_autosuggest_cmd_status[ai_proxy_runtime_enabled]-0}
@@ -544,7 +556,7 @@ function -z4m-cmd-autosuggest-doctor() {
     checks+=("error"$'\t'"ai"$'\t'"rewrite-key is invalid or empty")
     (( errors++ ))
   fi
-  if [[ $ai_context_policy == project:on,output:manual_intent,source:tmux_then_proxy ]]; then
+  if [[ $ai_context_policy == "$expected_ai_context_policy" ]]; then
     checks+=("ok"$'\t'"context"$'\t'"context policy is fixed and expected")
   else
     checks+=("warn"$'\t'"context"$'\t'"context policy mismatch: ${ai_context_policy}")
@@ -639,7 +651,7 @@ function -z4m-cmd-autosuggest-doctor() {
 
   if [[ -n $ai_last_reject ]]; then
     case $ai_last_reject in
-      finish|reset|disabled|manual_mode|empty_buffer|below_min_input|debounce_wait|inflight|cooldown|retrying_strict|low_quality|numeric_tail|prefix_mismatch|no_delta|multiline|control_chars|invalid_head|unknown_command|invalid_protocol|stale_buffer|rewrite_disabled|intent_disabled|proxy_requires_tmux|proxy_missing_pane|proxy_dir_failed|proxy_flag_failed|timeout|empty_query)
+      finish|reset|disabled|manual_mode|empty_buffer|below_min_input|debounce_wait|inflight|cooldown|retrying_strict|low_quality|numeric_tail|prefix_mismatch|no_delta|multiline|control_chars|invalid_head|unknown_command|weak_signal|no_suggestion|invalid_protocol|stale_buffer|rewrite_disabled|intent_disabled|proxy_requires_tmux|proxy_missing_pane|proxy_dir_failed|proxy_flag_failed|timeout|empty_query)
         checks+=("ok"$'\t'"ai"$'\t'"ai last reject reason is expected: ${ai_last_reject}")
         ;;
       *)

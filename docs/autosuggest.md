@@ -12,7 +12,7 @@ The subsystem combines local history-based suggestions with optional AI lanes:
 
 ```
 Local strategies (history/history_pwd/match_prev_cmd)
-  -> if no local suggestion -> AI fallback lane (non-blocking)
+  -> optional passive/auto AI fallback lane when local lanes miss
 
 Manual AI rewrite lane (Ctrl+O by default)
 Intent command lane (z4m ai "...")
@@ -32,7 +32,7 @@ Intent command lane (z4m ai "...")
 
 | Lane | Entry point | Purpose | Apply behavior |
 |------|-------------|---------|----------------|
-| `autosuggest_fallback` | Internal fetch cycle | Fallback suggestion when local lanes miss | Writes suggestion overlay only |
+| `autosuggest_fallback` | Internal fetch cycle, only in `passive`/`auto` mode | Fallback suggestion when local lanes miss and signal is strong | Writes suggestion overlay only |
 | `manual_rewrite` | `z4m-autosuggest-ai-trigger` (`Ctrl+O` by default) | Rewrite/extend current buffer | No input prefix required; provider `+` -> overlay, `=` -> replace `BUFFER` |
 | `intent_command` | `z4m ai "<query>"` | Convert natural language intent into one command | Queues result via `print -z` |
 
@@ -86,14 +86,15 @@ Provider output must be exactly one protocol line:
 
 - `+<suffix>`: append-style suggestion
 - `=<full command>`: full-line rewrite
+- `!no_suggestion`: no useful suggestion is available
 
-Any other output is rejected as `invalid_protocol`.
+Any other output is rejected as `invalid_protocol`. The automatic fallback lane treats `!no_suggestion` as a silent no-op.
 
 ## Context Strategy (Built-in)
 
 Context policy is fixed in code:
 
-- Project context: always enabled.
+- Project context: only enabled for `manual_rewrite` and `intent_command`.
 - Output context: only enabled for `manual_rewrite` and `intent_command`.
 - Output source: fixed chain `tmux capture-pane -> proxy tail`.
 - Kitty-specific branch: not implemented.
@@ -103,6 +104,7 @@ If context capture fails, request continues without output context (safe degrada
 ## Safety and Quality Gates
 
 - AI never bypasses local validation gates.
+- AI fallback accepts only high-confidence prefix-preserving suffixes; uncertain responses should be `!no_suggestion`.
 - AI results are single-line validated before apply.
 - Stale buffer protection drops outdated manual results.
 - Request budgets are enforced (per-minute and per-day token budgets).
@@ -127,7 +129,7 @@ zstyle ':z4m:autosuggestions:ai' enabled yes
 export DEEPSEEK_API_KEY='your-token'
 
 # Optional tuning
-zstyle ':z4m:autosuggestions:ai' mode passive
+zstyle ':z4m:autosuggestions:ai' mode manual
 zstyle ':z4m:autosuggestions:ai' rewrite-key '^O'
 zstyle ':z4m:autosuggestions:ai' intent-command-enabled yes
 zstyle ':z4m:autosuggestions:ai' proxy-enabled no
