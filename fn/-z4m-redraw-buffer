@@ -1,5 +1,7 @@
 #!/usr/bin/env zsh
 
+emulate -L zsh -o extended_glob
+
 if (( ${+_z4m_redraw_fd} )); then
   zle -F "$_z4m_redraw_fd"
   exec {_z4m_redraw_fd}>&-

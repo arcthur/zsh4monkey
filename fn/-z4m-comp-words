@@ -43,10 +43,14 @@
     # User-defined preview; if 'no' or 'false', disable preview
     [[ $preview_cmd == (no|false|off|0) ]] && preview_cmd=
   elif zstyle -T :z4m:${WIDGET#z4m-} fzf-preview; then
-    word_file=${TMPPREFIX:-/tmp/zsh}-z4m-words-$$
-    print -l -- "${_z4m_words[@]}" > $word_file
-    # Use awk to get word by line number, then call z4m-preview
-    preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview ${(q)_z4m_curcontext} \$(awk 'NR=={1}' ${(q)word_file})"
+    # Use mktemp (not a predictable $$-suffixed path): a guessable, world-
+    # readable file in a shared tmp dir leaks completion candidates and is a
+    # symlink-clobber target. Disable preview gracefully if mktemp fails.
+    if word_file=$(command mktemp "${TMPDIR:-/tmp}/z4m-words.XXXXXXXXXX" 2>/dev/null); then
+      print -l -- "${_z4m_words[@]}" > $word_file
+      # Quote the awk result so words containing spaces reach z4m-preview intact.
+      preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview ${(q)_z4m_curcontext} \"\$(awk 'NR=={1}' ${(q)word_file})\""
+    fi
   fi
 
   # Preview window style: left border only, auto-hide when empty
@@ -111,10 +115,10 @@
         # Colorize file completions when list_colors is enabled
         if (( list_colors )); then
           local -i m
-          local word descr style file_style orig_descr
+          local word descr style file_style row
           if (( sort )); then
             # Sort by original descr, then colorize for output
-            local rows=() sorted_rows=()
+            local rows=()
             local -A idx_to_style=()
             for idx in $indices; do
               word=$_z4m_words[idx]

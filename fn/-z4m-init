@@ -53,6 +53,11 @@ TIMEFMT='user=%U system=%S cpu=%P total=%*E'  # output format of `time` reserved
 zstyle -t :z4m:ssh-agent: start && -z4m-start-ssh-agent
 
 function -z4m-wrap-commands() {
+  # This is the first precmd hook (prepended in -z4m-init-zle), so $? here is
+  # the last interactive command's exit status. Capture it before anything
+  # (including `emulate`) clobbers it, so later precmd hooks (cmd-notify, shell
+  # integration OSC-133) can read the real status instead of a clobbered 0.
+  typeset -gi _z4m_last_status=$?
   emulate -L zsh
   if (( _z4m_wrap_ssh != 2 )); then
     if (( _z4m_wrap_ssh )); then

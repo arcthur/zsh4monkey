@@ -14,5 +14,14 @@ got_version=$REPLY
 
 print -Pru2 -- "%F{3}z4m%f: %Binitiating update%b (cached version too old)"
 
+# Neutralize the version field so the re-exec'd shell (after a successful
+# update's exec) does not re-enter this path.
 Z4M_SSH=0:${Z4M_SSH#*:}
--z4m-cmd-update
+
+# Soft-fail: on success -z4m-cmd-update exec's a fresh shell and never returns.
+# If it fails (e.g. no network on the remote), fall back to the cached runtime
+# instead of propagating failure into a recovery shell.
+if ! -z4m-cmd-update; then
+  print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: update failed; continuing with cached runtime"
+  return 0
+fi

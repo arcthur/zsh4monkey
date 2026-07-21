@@ -18,6 +18,23 @@ Manual AI rewrite lane (Ctrl+O by default)
 Intent command lane (z4m ai "...")
 ```
 
+## Privacy: what leaves your machine
+
+The AI lanes are **opt-in** — nothing is sent unless you enable an AI lane and
+provide an API key. When enabled, requests to your configured provider include:
+
+- The current command buffer.
+- Lightweight project context: current directory, git branch/dirty state, and a
+  short listing (up to 12 entries) of the current directory.
+- For the `manual_rewrite` and `intent_command` lanes only: recent terminal
+  scrollback captured from the current tmux pane, used as extra context.
+
+Captured output is passed through best-effort secret redaction
+(`api_key`/`token`/`secret`/`password` assignments are masked) before sending.
+Redaction is a safety net, not a guarantee — treat any enabled AI lane as
+"this content may leave the machine" and avoid enabling it in sessions that
+display credentials.
+
 ## Lanes and Responsibilities
 
 ### Local Lanes (Primary Fast Path)

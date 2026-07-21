@@ -1,5 +1,8 @@
 #!/usr/bin/env zsh
 
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
 z4m compile -- $Z4M/zsh4monkey/{main.zsh,sc/exec-zsh-i,fn/(|-|_)z4m[^.]#~*.zwc} $Z4M/z4m.zsh || return
 
 local vendor_fast=$Z4M/zsh4monkey/vendor/fast-syntax-highlighting
@@ -12,7 +15,11 @@ z4m compile -- $vendor_autosuggest/{zsh-autosuggestions.zsh,zsh-autosuggestions.
 autoload -Uz +X compinit || return
 local orig="bindkey '^i' | IFS=\$' \t' read -A _i_line"
 local replacement="_i_line=( '\"^I\"' z4m-fzf-complete )"
-print -r -- ${functions[compinit]/$orig/$replacement} >$Z4M/zsh4monkey/fn/tmp.$$.compinit || return
+local patched=${functions[compinit]/$orig/$replacement}
+if [[ $patched == $functions[compinit] ]]; then
+  print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: compinit fzf-completion patch did not apply (zsh %B${ZSH_VERSION}%b changed compinit); Tab completion may fall back to the default menu"
+fi
+print -r -- $patched >$Z4M/zsh4monkey/fn/tmp.$$.compinit || return
 zf_mv -f -- $Z4M/zsh4monkey/fn/tmp.$$.compinit $Z4M/zsh4monkey/fn/-z4m-compinit-impl || return
 z4m compile -- $Z4M/zsh4monkey/fn/-z4m-compinit-impl || return
 autoload -Uz -- -z4m-compinit-impl

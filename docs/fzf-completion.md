@@ -101,11 +101,15 @@ Enabled by default. Shows context-aware preview for completions:
 # Disable preview
 zstyle ':z4m:fzf-complete' fzf-preview no
 
-# Custom preview command
-# Note: z4m uses NUL-delimited records in fzf.
-# - {1} is the internal key field
-# - {2} is the displayed text field
-zstyle ':z4m:fzf-complete' fzf-preview 'bat --color=always -- {2}'
+# Custom preview command.
+# z4m emits NUL-delimited records; the fields your command receives are:
+# - {1}: z4m's internal key -- a base64-encoded path for FILE completions, or a
+#        line index for WORD completions. It is not a plain path.
+# - {2}: the displayed text (ANSI-colored, may carry a trailing type marker like
+#        '/', '@' or '*'). Also not a clean path.
+# The built-in preview already decodes {1} correctly. If you override it for file
+# completions, decode {1} yourself:
+zstyle ':z4m:fzf-complete' fzf-preview 'bat --color=always -- "$(printf %s {1} | base64 -d)"'
 ```
 
 ## Configuration

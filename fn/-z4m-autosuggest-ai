@@ -138,6 +138,7 @@ function -z4m-autosuggest-ai-json-escape() {
 }
 
 function -z4m-autosuggest-ai-buffer-eq-p() {
+  setopt localoptions extended_glob
   local a=${1-} b=${2-}
   [[ $a == "$b" ]] && return 0
   [[ ${a%%[[:space:]]##} == "${b%%[[:space:]]##}" ]]
@@ -961,11 +962,28 @@ function -z4m-autosuggest-ai-project-context() {
   if [[ -n ${commands[git]-} ]] && command git -C "$cwd" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git_branch=$(command git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null)
     [[ -n $git_branch ]] || git_branch=detached
-    if command git -C "$cwd" diff --no-ext-diff --quiet --ignore-submodules -- >/dev/null 2>&1 &&
-       command git -C "$cwd" diff --cached --no-ext-diff --quiet --ignore-submodules -- >/dev/null 2>&1; then
-      git_dirty=clean
-    else
-      git_dirty=dirty
+    # This runs synchronously in the ZLE submit path and `git diff` can take
+    # hundreds of ms on a large repo. Bound it with a short timeout when one is
+    # available; leave dirty=unknown (rather than falsely "dirty") if it can't
+    # be determined quickly. `git diff --quiet` exits 0=clean, 1=dirty; a
+    # timeout kill exits 124, which we treat as unknown.
+    local -a _z4m_tmo=()
+    if (( ${+commands[timeout]} )); then
+      _z4m_tmo=(command timeout 1)
+    elif (( ${+commands[gtimeout]} )); then
+      _z4m_tmo=(command gtimeout 1)
+    fi
+    local -i _z4m_diff_rc _z4m_diff_cached_rc
+    $_z4m_tmo command git -C "$cwd" diff --no-ext-diff --quiet --ignore-submodules -- >/dev/null 2>&1
+    _z4m_diff_rc=$?
+    $_z4m_tmo command git -C "$cwd" diff --cached --no-ext-diff --quiet --ignore-submodules -- >/dev/null 2>&1
+    _z4m_diff_cached_rc=$?
+    if (( _z4m_diff_rc <= 1 && _z4m_diff_cached_rc <= 1 )); then
+      if (( _z4m_diff_rc == 0 && _z4m_diff_cached_rc == 0 )); then
+        git_dirty=clean
+      else
+        git_dirty=dirty
+      fi
     fi
   fi
 
@@ -1025,11 +1043,16 @@ function -z4m-autosuggest-ai-sanitize-output() {
       s/\b((?:api[_-]?key|token|secret|password))\b\s*([=:])\s*([^\s]+)/$1$2***REDACTED***/ig;
     ' 2>/dev/null)
   else
+    # No perl available: strip control characters (preserving newlines) and
+    # redact common secrets natively, so the no-perl path never ships plaintext
+    # api_key/token/secret/password values to the AI provider.
     cleaned=${raw//$'\r'/}
     local sentinel='__Z4M_NL__'
     cleaned=${cleaned//$'\n'/$sentinel}
     cleaned=${cleaned//[[:cntrl:]]/}
     cleaned=${cleaned//$sentinel/$'\n'}
+    setopt localoptions extended_glob
+    cleaned=${cleaned//(#bi)(api[_-]#key|token|secret|password)[[:space:]]#([:=])[[:space:]]#[^[:space:]]##/${match[1]}${match[2]}***REDACTED***}
   fi
 
   local -a lines
@@ -1286,9 +1309,12 @@ function -z4m-autosuggest-ai-submit() {
   if tmp_dir=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-autosuggest-ai.XXXXXXXX" 2>/dev/null); then
     command chmod 700 "$tmp_dir" 2>/dev/null || true
   else
-    tmp_dir=${TMPDIR:-/tmp}/z4m-autosuggest-ai-${EPOCHSECONDS:-0}-${RANDOM}-${$}
-    command mkdir -p -- "$tmp_dir" 2>/dev/null || return 1
-    command chmod 700 "$tmp_dir" 2>/dev/null || true
+    # Fail closed: this directory holds the API-key header file, so never fall
+    # back to a predictable name that another user could pre-create/symlink in a
+    # shared tmp dir.
+    _z4m_autosuggest_ai_state[last_reject]=mktemp_failed
+    _z4m_autosuggest_ai_state[last_error]='mktemp -d failed'
+    return 1
   fi
   local body_file=${tmp_dir}/body
   local code_file=${tmp_dir}/code
@@ -1399,6 +1425,7 @@ function -z4m-autosuggest-ai-maybe-retry-strict() {
 }
 
 function -z4m-autosuggest-ai-parse-protocol() {
+  setopt localoptions extended_glob
   local content=${1-}
   local buffer=${2-}
 
@@ -1737,6 +1764,14 @@ function -z4m-autosuggest-ai-maybe-suggest() {
     return 1
   fi
 
+  # Trailing-edge debounce. The trigger is keystroke-driven (there is no idle
+  # timer that re-invokes this), so measure the gap since the previous change
+  # *before* recording this one: while the user is typing quickly (gap <
+  # debounce_ms) defer instead of firing a request on every partial prefix;
+  # once a keystroke arrives after a pause (gap >= debounce_ms) let it through.
+  local -i debounce_ms=${_z4m_autosuggest_ai_state[configured_debounce_ms]:-160}
+  local -i since_change_ms=$(( now_ms - ${_z4m_autosuggest_ai_state[last_change_ms]:-0} ))
+
   local -i changed=0
   if [[ $buffer != ${_z4m_autosuggest_ai_state[last_buffer]-} ]]; then
     changed=1
@@ -1744,8 +1779,7 @@ function -z4m-autosuggest-ai-maybe-suggest() {
     _z4m_autosuggest_ai_state[last_change_ms]=$now_ms
   fi
 
-  local -i debounce_ms=${_z4m_autosuggest_ai_state[configured_debounce_ms]:-160}
-  if (( ! changed && now_ms - ${_z4m_autosuggest_ai_state[last_change_ms]:-0} < debounce_ms )); then
+  if (( changed && since_change_ms < debounce_ms )); then
     _z4m_autosuggest_ai_state[last_reject]=debounce_wait
     return 1
   fi

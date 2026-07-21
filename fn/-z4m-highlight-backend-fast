@@ -118,6 +118,10 @@ function -z4m-highlight-fast-render() {
   if [[ ${#BUFFER} -gt ${ZSH_HIGHLIGHT_MAXLENGTH:-${#BUFFER}} ]]; then
     region_highlight=()
   else
+    # A missing core means the backend never initialized: return non-zero so the
+    # caller can degrade to the `none` backend. A *render-time* throw from the
+    # (mature) vendor highlighter, by contrast, is swallowed on purpose — a
+    # transient glitch on one buffer must not permanently disable highlighting.
     (( ${+functions[-z4m-highlight-fast-core]} )) || return 1
     local -i pending=${PENDING:-0} keys_queued=${KEYS_QUEUED_COUNT:-0}
     local -ih PENDING=$pending KEYS_QUEUED_COUNT=$keys_queued

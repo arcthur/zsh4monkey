@@ -134,14 +134,20 @@ function _history-substring-search-end() {
 #-----------------------------------------------------------------------------
 
 function _history-substring-search-up-buffer() {
-  (( CURSOR != _z4m_cursor_max() )) || return 1
+  # Move up within a multi-line buffer only when the cursor is not on the first
+  # visual line, i.e. LBUFFER contains a newline (this also implies CURSOR > 0).
+  # Note: the boundary is the *top* of the buffer, so do NOT gate on
+  # CURSOR == cursor_max here (that is the down-handler's boundary and, copied
+  # here, wrongly fell through to history search whenever the cursor sat at the
+  # end of a freshly recalled multi-line command).
   [[ $LBUFFER == *$'\n'* ]] || return 1
   builtin zle up-line-or-history || true
   return 0
 }
 
 function _history-substring-search-down-buffer() {
-  (( CURSOR != _z4m_cursor_max() )) || return 1
+  # Move down only when the cursor is not on the last visual line, i.e. RBUFFER
+  # contains a newline (which already implies CURSOR != cursor_max).
   [[ $RBUFFER == *$'\n'* ]] || return 1
   builtin zle down-line-or-history || true
   return 0

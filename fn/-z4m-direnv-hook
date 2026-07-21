@@ -64,9 +64,11 @@ elif command -v gtimeout &>/dev/null; then
 fi
 
 if [[ -n $timeout_cmd ]]; then
-  # Use timeout command, capture stdout and stderr separately
-  local tmpfile=${TMPDIR:-/tmp}/z4m-direnv-$$
-  local errfile=${TMPDIR:-/tmp}/z4m-direnv-err-$$
+  # Use timeout command, capture stdout and stderr separately. Keep these in the
+  # z4m-owned cache dir (not a predictable name in a shared, world-writable tmp
+  # dir) to avoid symlink races on multi-user hosts.
+  local tmpfile=$Z4M/cache/direnv-out.$$
+  local errfile=$Z4M/cache/direnv-err.$$
   local -i ret
   $timeout_cmd ${timeout}s $direnv export zsh >$tmpfile 2>$errfile
   ret=$?

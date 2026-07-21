@@ -57,7 +57,7 @@ function -z4m-cmd-notify-preexec() {
   zstyle -a ':z4m:cmd-notify' exclude exclude
   exclude+=($_z4m_cmd_notify_default_exclude)
 
-  if (( ${exclude[(I)$cmd]} )); then
+  if (( ${exclude[(Ie)$cmd]} )); then
     _z4m_cmd_start_time=0
     return
   fi
@@ -70,8 +70,10 @@ function -z4m-cmd-notify-preexec() {
 # Precmd Hook: Send notification if threshold exceeded
 # =============================================================================
 function -z4m-cmd-notify-precmd() {
-  # Capture exit code immediately (before any other command runs)
-  local -i exit_code=$?
+  # The last command's exit status is captured by -z4m-wrap-commands (the first
+  # precmd hook) into $_z4m_last_status, because earlier precmd hooks have
+  # already clobbered $? by the time this hook runs.
+  local -i exit_code=${_z4m_last_status-$?}
 
   # Skip if no command was tracked
   (( _z4m_cmd_start_time == 0 )) && return

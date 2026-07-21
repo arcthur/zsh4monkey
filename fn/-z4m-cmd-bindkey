@@ -163,8 +163,10 @@ for kb in ${@:2}; do
       esac
     fi
   done
-done
-
-for seq in ${(u)seqs}; do
-  builtin bindkey -- $seq $1
+  # Bind this key argument's sequences before `seqs` is reset for the next one.
+  # (This loop must stay INSIDE the outer `for kb` loop; hoisting it out made
+  # multi-key bindings bind only the last key argument.)
+  for seq in ${(u)seqs}; do
+    builtin bindkey -- $seq $1
+  done
 done

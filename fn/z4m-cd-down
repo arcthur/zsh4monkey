@@ -45,6 +45,9 @@ fi
 
       if (( first )); then
         first=0
+        # No sub-directories to descend into: return instead of opening an
+        # empty picker (previously only guarded on non-first iterations).
+        (( $#dirs )) || return 0
       elif (( ! $#dirs )); then
         return 0
       fi

@@ -27,6 +27,7 @@ typeset -gr _Z4M_CURSOR_BEAM_BLINK='\e[5 q'      # Blinking beam
 
 # === Cursor Shape Control ===
 function -z4m-set-cursor-shape() {
+  emulate -L zsh
   local shape=${1:-block}
   # Only output if we have a TTY
   [[ -t 1 ]] || [[ -v _z4m_tty_fd ]] || return 0
@@ -48,6 +49,7 @@ function -z4m-set-cursor-shape() {
 
 # === Keymap Select Hook ===
 function -z4m-zle-keymap-select() {
+  emulate -L zsh
   local -i ret=0
 
   # Call original hook if it exists

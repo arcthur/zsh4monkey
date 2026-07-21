@@ -30,7 +30,7 @@ fi
 
 {
   print
-  -z4m-flowing -i0 -- %F{3}Zsh For Humans%f installed successfully!
+  -z4m-flowing -i0 -- %F{3}zsh4monkey%f installed successfully!
   print
   -z4m-flowing -i0 -- Next steps:
   print
@@ -92,6 +92,6 @@ fi
     print
   fi
 
-  -z4m-flowing -i0 -- Enjoy %F{3}Zsh For Humans%f!
+  -z4m-flowing -i0 -- Enjoy %F{3}zsh4monkey%f!
   print
 } >&2

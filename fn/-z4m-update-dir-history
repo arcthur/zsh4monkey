@@ -20,13 +20,17 @@ typeset -g _z4m_last_dir=$dir
 
 if (( ! $#dirstack && (DIRSTACKSIZE || ! $+DIRSTACKSIZE) )); then
   local d stack=()
+  # Bound the rebuild even when DIRSTACKSIZE is unset (the common case), so the
+  # first prompt after a cd doesn't synchronously stat the entire history (up to
+  # max-size, default 10000).
+  local -i cap=${DIRSTACKSIZE:-1000}
   for d in $_z4m_dir_history; do
     {
       if [[ ($#stack -ne 0 || $d != $dir) ]]; then
         d=${~d}
         if [[ -d ${d::=${(g:oce:)d}} ]]; then
           stack+=($d)
-          (( $+DIRSTACKSIZE && $#stack >= DIRSTACKSIZE - 1 )) && break
+          (( $#stack >= cap - 1 )) && break
         fi
       fi
     } always {

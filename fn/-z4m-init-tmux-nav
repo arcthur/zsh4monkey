@@ -23,12 +23,12 @@ fi
 # Require tmux environment
 [[ -n $TMUX ]] || return 0
 
-# Resolve tmux command path
-local tmux_cmd=${_Z4M_TMUX_CMD:-${commands[tmux]:-tmux}}
-
 # =============================================================================
 # Core: Select tmux pane in specified direction
 # =============================================================================
+# Note: widgets run long after this init function returns, so the tmux command
+# must be resolved from the exported global $_Z4M_TMUX_CMD (a function-local
+# would be out of dynamic scope by then), falling back to $PATH lookup.
 function -z4m-tmux-select-pane() {
   local direction=$1
   local flag
@@ -38,7 +38,7 @@ function -z4m-tmux-select-pane() {
     up)    flag='-U' ;;
     right) flag='-R' ;;
   esac
-  $tmux_cmd select-pane $flag 2>/dev/null
+  ${_Z4M_TMUX_CMD:-tmux} select-pane $flag 2>/dev/null
 }
 
 # =============================================================================
@@ -151,10 +151,10 @@ esac
 # Resize Bindings (Ctrl+Alt+h/j/k/l)
 # =============================================================================
 if zstyle -T :z4m:tmux-nav resize-bindings; then
-  function z4m-resize-left()  { $tmux_cmd resize-pane -L 5 2>/dev/null }
-  function z4m-resize-down()  { $tmux_cmd resize-pane -D 5 2>/dev/null }
-  function z4m-resize-up()    { $tmux_cmd resize-pane -U 5 2>/dev/null }
-  function z4m-resize-right() { $tmux_cmd resize-pane -R 5 2>/dev/null }
+  function z4m-resize-left()  { ${_Z4M_TMUX_CMD:-tmux} resize-pane -L 5 2>/dev/null }
+  function z4m-resize-down()  { ${_Z4M_TMUX_CMD:-tmux} resize-pane -D 5 2>/dev/null }
+  function z4m-resize-up()    { ${_Z4M_TMUX_CMD:-tmux} resize-pane -U 5 2>/dev/null }
+  function z4m-resize-right() { ${_Z4M_TMUX_CMD:-tmux} resize-pane -R 5 2>/dev/null }
 
   zle -N z4m-resize-left
   zle -N z4m-resize-down

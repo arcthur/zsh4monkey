@@ -202,7 +202,7 @@ zmv '(**/)(*).jpeg' '$1$2.jpg'  # Recursive rename
 | Variable | Description |
 |----------|-------------|
 | `Z4M` | z4m installation directory |
-| `Z4M_SSH` | Set on remote: `local:remote` format |
+| `Z4M_SSH` | Set on the teleported remote: `<min-version>:<client-host>:<target-host>` |
 | `Z4M_SAFE_MODE` | Set to `1` to force safe mode |
 | `Z4M_DEBUG` | Set to `1` for debug output |
 | `GPG_TTY` | Automatically set to `$TTY` |

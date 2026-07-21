@@ -23,4 +23,8 @@ local sub="
     YELLOW=\$'\\e[33m'
     PURPLE=\$'\\e[35m'
 "
-print -r -- ${code/$orig/$sub} >$file
+local patched=${code/$orig/$sub}
+if [[ $patched == $code ]]; then
+  print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: %Bzsh-you-should-use%b patch did not apply (upstream changed); using unpatched plugin"
+fi
+print -r -- $patched >$file

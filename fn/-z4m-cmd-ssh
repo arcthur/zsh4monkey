@@ -510,17 +510,24 @@ fi
   script=${script//'^PRELUDE^'/${(F)z4m_ssh_prelude}}
   script=${script//'^SEND_TO^'/${(j: :)send_to}}
   script=${script//'^RUN^'/${(F)z4m_ssh_run}}
-  script=${script//'^DUMP_POS^'/${(r:8:: :)${#script}}}
+  # DUMP_POS is a byte offset consumed by `tail -c` on the remote side, so it
+  # must be the byte length of the script (not the character count). ${#script}
+  # counts characters under a multibyte locale, which is wrong whenever any
+  # interpolated value (e.g. an `env` value) contains non-ASCII bytes. Measure
+  # bytes via a no_multibyte scope. The placeholder is 10 chars and its padded
+  # replacement is 8, so the -2 delta plus the trailing newline from `print`
+  # leaves the archive starting exactly at byte $dump_pos.
+  local -i dump_pos
+  () { emulate -L zsh -o no_multibyte; dump_pos=${#script} }
+  script=${script//'^DUMP_POS^'/${(r:8:: :)dump_pos}}
 
   print -r -- $script >$tmpdir/script || return
 
-  local -a tar_c_opt tar_x_opt
+  local -a tar_c_opt
   local tar_v
   if tar_v=$(command tar --version 2>/dev/null) && [[ $tar_v == *'GNU tar'* ]]; then
     tar_c_opt=(--owner=0 --group=0)
-    tar_x_opt=(--warning=no-unknown-keyword --warning=no-timestamp --no-same-owner)
   fi
-  (( ${#tar_x_opt} )) || tar_x_opt=()
 
   if (( $#indices )); then
     COPYFILE_DISABLE=1 command tar -C $tmpdir $tar_c_opt -czhf - -- $indices >>$tmpdir/script || return

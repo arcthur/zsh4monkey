@@ -23,14 +23,13 @@ fi
 # Require tmux environment
 [[ -n $TMUX ]] || return 0
 
-# Resolve tmux command path
-local tmux_cmd=${_Z4M_TMUX_CMD:-${commands[tmux]:-tmux}}
-
 # =============================================================================
 # Configuration
 # =============================================================================
-local -i max_length
-zstyle -s :z4m:tmux-title max-length max_length || max_length=24
+# Must be global: the hook widgets below run long after this init function
+# returns, so a function-local would be out of dynamic scope by then.
+typeset -gi _z4m_tmux_title_max_length
+zstyle -s :z4m:tmux-title max-length _z4m_tmux_title_max_length || _z4m_tmux_title_max_length=24
 
 # =============================================================================
 # Command Icon Mapping (Nerd Fonts)
@@ -113,7 +112,8 @@ typeset -g _z4m_tmux_title_context=''
 function -z4m-tmux-set-window-name() {
   local name=$1
   # Truncate if too long
-  (( ${#name} > max_length )) && name="${name:0:$((max_length-1))}…"
+  (( ${#name} > _z4m_tmux_title_max_length )) &&
+    name="${name:0:$((_z4m_tmux_title_max_length-1))}…"
   # Use escape sequence (faster, works in nested sessions)
   printf '\033k%s\033\\' "$name"
 }
@@ -246,9 +246,14 @@ function -z4m-tmux-title-preexec() {
 # Hook: precmd - Restore context after command
 # =============================================================================
 function -z4m-tmux-title-precmd() {
-  # Rebuild context (git status may have changed)
-  -z4m-tmux-build-context
-  _z4m_tmux_title_context=$REPLY
+  # When git-branch display is enabled the branch may have changed while the
+  # command ran, so rebuild. Otherwise the context only depends on the current
+  # directory (already maintained by chpwd), so restore the cached context
+  # instead of walking the directory tree on every prompt.
+  if zstyle -t :z4m:tmux-title git-branch; then
+    -z4m-tmux-build-context
+    _z4m_tmux_title_context=$REPLY
+  fi
   -z4m-tmux-set-window-name "$_z4m_tmux_title_context"
 }
 

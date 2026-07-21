@@ -22,18 +22,27 @@ print -Pru2 -- ""
 local uname_s=${$(uname -s 2>/dev/null):-unknown}
 local -a suggestions=()
 
+# Package/crate names often differ from the binary name and across managers,
+# and some tools (fzf, carapace, tmux) are not Rust crates, so a blanket
+# "cargo install <binary>" would just fail.
+local -A brew_pkg=(rg ripgrep)
+local -A apt_pkg=(rg ripgrep fd fd-find)
+local -A dnf_pkg=(rg ripgrep fd fd-find)
+local -A cargo_pkg=(rg ripgrep fd fd-find eza eza bat bat zoxide zoxide atuin atuin)
+
 case $uname_s in
   Darwin)
-    suggestions+=("brew install $tool")
+    suggestions+=("brew install ${brew_pkg[$tool]:-$tool}")
     ;;
   Linux)
-    (( $+commands[apt] )) && suggestions+=("sudo apt install $tool")
-    (( $+commands[dnf] )) && suggestions+=("sudo dnf install $tool")
-    (( $+commands[pacman] )) && suggestions+=("sudo pacman -S $tool")
+    (( $+commands[apt] )) && suggestions+=("sudo apt install ${apt_pkg[$tool]:-$tool}")
+    (( $+commands[dnf] )) && suggestions+=("sudo dnf install ${dnf_pkg[$tool]:-$tool}")
+    (( $+commands[pacman] )) && suggestions+=("sudo pacman -S ${tool}")
     ;;
 esac
 
-suggestions+=("cargo install $tool")
+# Only suggest cargo for tools that are actually published crates.
+[[ -n ${cargo_pkg[$tool]-} ]] && suggestions+=("cargo install ${cargo_pkg[$tool]}")
 (( $+commands[mise] )) && suggestions+=("mise use -g $tool")
 
 print -Pru2 -- "  Install with one of:"

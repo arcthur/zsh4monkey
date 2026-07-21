@@ -1,5 +1,7 @@
 #!/usr/bin/env zsh
 
+emulate -L zsh -o extended_glob
+
 local -i ret
 
 if (( ${+widgets[-z4m-orig-zle-line-pre-redraw]} )); then

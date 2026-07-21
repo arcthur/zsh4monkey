@@ -15,7 +15,7 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
       [[ $char == $~pat ]] || continue
       [[ -e ~/.terminfo/$hex ]] || zf_mkdir -p -- ~/.terminfo/$hex || return
       cp -- $Z4M_PACKAGE_DIR/$hex/* ~/.terminfo/$hex/ || return
-      if [[ $char == [a-z] || ! ~/.terminfo/$char -ef ~/.terminfo/${(L)char}] ]]; then
+      if [[ $char == [a-z] || ! ~/.terminfo/$char -ef ~/.terminfo/${(L)char} ]]; then
         [[ -e ~/.terminfo/$char ]]                       ||
           zf_ln -s -- $hex ~/.terminfo/$char 2>/dev/null ||
           zf_mkdir -p -- ~/.terminfo/$char               ||

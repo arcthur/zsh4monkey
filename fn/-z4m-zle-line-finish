@@ -1,5 +1,9 @@
 #!/usr/bin/env zsh
 
+# extended_glob is required for the ` #` (zero-or-more spaces) pattern below and
+# must not depend on the user's ambient options.
+emulate -L zsh -o extended_glob
+
 local -i ret
 
 if [[ -v widgets[-z4m-orig-zle-line-finish] ]]; then

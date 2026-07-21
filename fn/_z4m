@@ -26,6 +26,7 @@ _z4m_commands() {
     'env:Show environment info'
     'time:Time command execution'
     'recovery:Enter recovery shell'
+    'reset:Clear failure markers and caches'
     'version:Show version info'
     'help:Show help'
     'uninstall:Uninstall zsh4monkey'

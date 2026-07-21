@@ -17,4 +17,8 @@ local sub='
 for var in "${(@)parameters[(I)FORGIT_*]}"; do
     if [[ ${parameters[$var]} != *export* ]]; then
 '
-print -r -- ${code/$orig/$sub} >$file
+local patched=${code/$orig/$sub}
+if [[ $patched == $code ]]; then
+  print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: %Bforgit%b patch did not apply (upstream changed); using unpatched plugin"
+fi
+print -r -- $patched >$file

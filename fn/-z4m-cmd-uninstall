@@ -108,7 +108,12 @@ print -Pr -- "%F{3}z4m%f: Creating backup in: ${backup_dir//\%/%%}"
 # Backup and remove files
 for f in "${files_to_remove[@]}"; do
   if [[ -e $f ]]; then
-    cp -a -- "$f" "$backup_dir/" 2>/dev/null
+    # Never remove without a verified backup: a failed cp (disk full, perms)
+    # must abort rather than silently destroy the user's config.
+    if ! cp -a -- "$f" "$backup_dir/"; then
+      print -Pru2 -- "%F{3}z4m%f: %F{1}error%f: backup failed, keeping: ${f//\%/%%}"
+      return 1
+    fi
     zf_rm -f -- "$f" 2>/dev/null
     print -Pr -- "%F{3}z4m%f: Removed: ${f//\%/%%}"
   fi
@@ -117,7 +122,11 @@ done
 # Backup and remove directories
 for f in "${dirs_to_remove[@]}"; do
   if [[ -d $f ]]; then
-    cp -a -- "$f" "$backup_dir/" 2>/dev/null
+    # Never remove without a verified backup.
+    if ! cp -a -- "$f" "$backup_dir/"; then
+      print -Pru2 -- "%F{3}z4m%f: %F{1}error%f: backup failed, keeping: ${f//\%/%%}"
+      return 1
+    fi
     zf_rm -rf -- "$f" 2>/dev/null
     print -Pr -- "%F{3}z4m%f: Removed: ${f//\%/%%}"
   fi

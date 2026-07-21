@@ -6,24 +6,9 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 # This is an autoloaded function body; guard against repeated re-definition.
 (( ${+functions[-z4m-highlight-core-ensure]} )) && return 0
 
-# Eagerly initialise globals so hot-path functions never need to check.
-(( ${+_z4m_highlight_state} ))  || typeset -gA _z4m_highlight_state
-(( ${+_z4m_highlight_events} )) || typeset -ga _z4m_highlight_events
-: ${_z4m_highlight_state[state]:=uninitialized}
-: ${_z4m_highlight_state[active_backend]:=none}
-: ${_z4m_highlight_state[configured_theme]:=clean}
-: ${_z4m_highlight_state[active_theme]:=none}
-: ${_z4m_highlight_state[theme_source]:=none}
-: ${_z4m_highlight_state[overlay_count]:=0}
-: ${_z4m_highlight_state[event_capacity]:=200}
-
-function -z4m-highlight-core-install-facade() {
-  function _zsh_highlight() {
-    -z4m-highlight-render "$@"
-  }
-}
-
 # Re-entrant guard for callers that may run before the module is loaded.
+# Also used once below for eager load-time initialisation (single source of
+# truth for the default state, so the two can never drift).
 function -z4m-highlight-core-ensure() {
   (( ${+_z4m_highlight_state} )) || typeset -gA _z4m_highlight_state
   (( ${+_z4m_highlight_events} )) || typeset -ga _z4m_highlight_events
@@ -34,6 +19,15 @@ function -z4m-highlight-core-ensure() {
   : ${_z4m_highlight_state[theme_source]:=none}
   : ${_z4m_highlight_state[overlay_count]:=0}
   : ${_z4m_highlight_state[event_capacity]:=200}
+}
+
+# Eagerly initialise globals so hot-path functions never need to check.
+-z4m-highlight-core-ensure
+
+function -z4m-highlight-core-install-facade() {
+  function _zsh_highlight() {
+    -z4m-highlight-render "$@"
+  }
 }
 
 function -z4m-highlight-core-log() {

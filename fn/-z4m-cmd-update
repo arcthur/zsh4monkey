@@ -6,7 +6,7 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 
 if (( ARGC )); then
   print -Pru2 -- '%F{3}z4m%f: unexpected %F{1}update%f argument'
-  return '_z4m_err()'
+  return 1
 fi
 
 if (( _z4m_dangerous_root )); then
@@ -32,12 +32,12 @@ typeset -i _z4m_update_pid=0
 typeset -i _z4m_update_tries=0
 function _z4m_update_restore() {
   local entry
-  for entry in \$_z4m_update_root/*(N) \$_z4m_update_root/.[^.](N) \$_z4m_update_root/..?*(N); do
+  for entry in \$_z4m_update_root/*(N) \$_z4m_update_root/.[^.]*(N) \$_z4m_update_root/..?*(N); do
     [[ \$entry == \$_z4m_update_guard || \$entry == \$_z4m_update_backup ]] && continue
     command rm -rf -- \"\$entry\" 2>/dev/null || return 1
   done
   if [[ -d \$_z4m_update_backup ]]; then
-    for entry in \$_z4m_update_backup/*(N) \$_z4m_update_backup/.[^.](N) \$_z4m_update_backup/..?*(N); do
+    for entry in \$_z4m_update_backup/*(N) \$_z4m_update_backup/.[^.]*(N) \$_z4m_update_backup/..?*(N); do
       command mv -f -- \"\$entry\" \"\$_z4m_update_root/\${entry:t}\" 2>/dev/null || return 1
     done
   fi
@@ -115,12 +115,13 @@ return 1" >$Z4M/z4m.zsh || return
   if [[ ! -e $new/tmp/update-successful ]]; then
     local home=~
     local zdotdir=${${${(q)ZDOTDIR}/#${(q)home}/'~'}//\%/%%}
-    local z4m=${${${(q)Z4M}/#${(q)home}/'~'}//\%/%%}
-    print -Pru2 -- '%F{3}z4m%f: %B$Z4M%b %F{1}does not propagate%f through %U.zshrc%u'
+    print -Pru2 -- '%F{3}z4m%f: %F{1}update did not complete%f'
     print -Pru2 -- ''
-    print -Pru2 -- 'Change %U'$zdotdir'/.zshrc%u to keep %BZ4M%b intact if already set.'
+    print -Pru2 -- 'This usually means one of:'
+    print -Pru2 -- '  1. Downloading or installing the new version failed (e.g. no network).'
+    print -Pru2 -- '  2. %BZ4M%b does not propagate through your %U.zshrc%u.'
     print -Pru2 -- ''
-    print -Pru2 -- 'For example:'
+    print -Pru2 -- 'For (2), change %U'$zdotdir'/.zshrc%u to keep %BZ4M%b intact if already set:'
     print -Pru2 -- ''
     print -Pru2 -- '  %F{2}:%f %F{3}"${Z4M:=${XDG_CACHE_HOME:-$HOME/.cache}/zsh4monkey}"%f'
     print -Pru2 -- ''
@@ -144,11 +145,11 @@ return 1" >$Z4M/z4m.zsh || return
   fi
 
   local entry
-  for entry in $Z4M/*(N) $Z4M/.[^.](N) $Z4M/..?*(N); do
+  for entry in $Z4M/*(N) $Z4M/.[^.]*(N) $Z4M/..?*(N); do
     [[ $entry == $guard || $entry == $Z4M/z4m.zsh || $entry == $Z4M/zsh4monkey || $entry == $old ]] && continue
     -z4m-mv $entry $old/${entry:t} || return
   done
-  for entry in $new/*(N) $new/.[^.](N) $new/..?*(N); do
+  for entry in $new/*(N) $new/.[^.]*(N) $new/..?*(N); do
     [[ $entry == $new/z4m.zsh ]] && continue
     -z4m-mv $entry $Z4M/${entry:t} || return
   done
@@ -159,11 +160,11 @@ return 1" >$Z4M/z4m.zsh || return
   local -i rc=$?
   if (( rc )) && (( sync_started )); then
     local entry
-    for entry in $Z4M/*(N) $Z4M/.[^.](N) $Z4M/..?*(N); do
+    for entry in $Z4M/*(N) $Z4M/.[^.]*(N) $Z4M/..?*(N); do
       [[ $entry == $guard || $entry == $old ]] && continue
       zf_rm -rf -- $entry 2>/dev/null || true
     done
-    for entry in $old/*(N) $old/.[^.](N) $old/..?*(N); do
+    for entry in $old/*(N) $old/.[^.]*(N) $old/..?*(N); do
       -z4m-mv $entry $Z4M/${entry:t} 2>/dev/null || true
     done
   fi
