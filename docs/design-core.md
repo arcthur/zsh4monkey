@@ -76,6 +76,44 @@ z4m uses a few recurring strategies:
 - **Caching**: cache expensive init output (e.g., `zoxide init zsh`, `atuin init zsh`) under `$Z4M/cache/` and reuse it until the binary changes.
 - **Lazy execution**: `z4m-defer` queues user commands to execute after prompt display (ZLE idle time).
 - **Compilation**: `z4m compile` compiles zsh sources to `.zwc` to reduce load overhead.
+- **Readiness measurement**: `z4m bench` measures time to the first fully
+  initialized prompt through a PTY and reports distribution statistics rather
+  than a fixed startup-time claim.
+
+## Update and Distribution Model
+
+- Versioned releases are the production channel. Archives use SHA-256 sidecars
+  and GitHub artifact attestations; the separate release installer pins and
+  verifies bootstrap files.
+- `main` is a mutable, explicitly unverified development channel.
+- Built-in remote dependencies resolve through `dependencies.lock` to exact
+  commits and SHA-256 digests. Custom repositories require the same immutable
+  ref and digest contract unless the compatibility opt-out is enabled.
+- `z4m update` builds a complete candidate tree before replacing the active
+  cache. A guard serializes updates, while a temporary bootstrap and immutable
+  backup snapshot provide idempotent recovery if replacement or rollback is
+  interrupted.
+
+Replacement is not atomic: between clearing `$Z4M` and moving the candidate in,
+the cache is incomplete. Everything else in the update path exists to make that
+window survivable — the guard, the recovery lock, the backup snapshot, and the
+temporary `z4m.zsh` that a shell entering the window will load instead of the
+framework.
+
+Recovery therefore has exactly one implementation, `fn/-z4m-recover-update`.
+Both callers use it: `z4m update` for in-process rollback and stale-transaction
+cleanup, and the temporary bootstrap, which autoloads it from the backup
+snapshot (falling back to the active tree once replacement has completed). It
+either restores the backup or, when the new tree is already in place and only
+the entry point is missing, rolls forward. Keeping it in one file is what
+prevents the two paths from drifting into different notions of "recovered".
+
+A content-addressed layout — versioned directories plus an atomic `current`
+symlink, with state separated from code — would remove the window rather than
+guard it. That is a deliberate future direction, not the current model.
+
+See [SECURITY.md](../SECURITY.md) for the release trust boundary and
+[config.md](config.md) for channel and dependency configuration.
 
 ## Security Model (First Principles)
 
@@ -99,6 +137,8 @@ Safety:
 - `fn/-z4m-safe-mode-init`
 - `fn/-z4m-recovery-shell`
 - `fn/-z4m-show-failure-log`
+- `fn/-z4m-recover-update`: the single update restore/roll-forward implementation
+  shared by `z4m update` and the temporary bootstrap
 
 Performance primitives:
 

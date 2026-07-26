@@ -67,7 +67,10 @@ assert_no_match 'LC_ALL="C"|LC_ALL='"'"'C'"'"'' \
 assert_no_match 'ssh-sync-state' \
   man/man1/z4m-ssh.1
 
-assert_no_match 'remote_script="~/\$remote_script"' \
+assert_no_match 'remote_script="~/\$remote_script"|cat >/tmp/' \
+  fn/-z4m-cmd-ssh
+
+assert_match 'umask 077|mktemp.*z4m-ssh|chmod 600' \
   fn/-z4m-cmd-ssh
 
 assert_match '_z4m_use\[powerlevel10k\].*Z4M_SSH|PROMPT='"'"'%~ %# '"'"'|unsetopt transient_rprompt' \
@@ -133,8 +136,26 @@ assert_no_match '"\\$1"/"\\$_z4m_ssh_src"' \
 assert_no_match '"\\$@" 2>"' \
   sc/ssh-bootstrap
 
-assert_match '_z4m_ssh_tmp="\$\{_z4m_ssh_tmp-\}"' \
+assert_match '_z4m_ssh_cleanup\\(\\)|_z4m_ssh_remove_transactions' \
   sc/ssh-bootstrap
+
+assert_match 'all-committed|_z4m_ssh_rollback|_z4m_ssh_txn/new|mktemp.*\\.z4m-ssh' \
+  sc/ssh-bootstrap
+
+assert_no_match "'rm' '-rf' '--' \"\\$_z4m_ssh_dst\"" \
+  sc/ssh-bootstrap
+
+assert_match "send_to_expression|send_to_tokens" \
+  fn/-z4m-cmd-ssh
+
+assert_no_match "\\$\\{\\(j: :\\)\\$\\{\\(@qq\\)send_to\\}\\}" \
+  fn/-z4m-cmd-ssh
+
+assert_no_match 'tar .*-[^ ]*h[^ ]* .*\\$indices|zf_ln -s -- \\$target \\$archive_path' \
+  fn/-z4m-cmd-ssh
+
+assert_match 'copy-path-with-excludes.*follow|cp -RLp' \
+  fn/-z4m-cmd-ssh
 
 assert_match "ssh:\\*' cwd|ssh:\\* cwd|z4m:ssh:\\*.*cwd" \
   docs/config.md \

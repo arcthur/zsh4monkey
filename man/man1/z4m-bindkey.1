@@ -1,17 +1,20 @@
 .\" z4m-bindkey - Bind keys to ZLE widgets
 .\" Keep in sync with fn/-z4m-cmd-bindkey and fn/-z4m-help-bindkey
-.Dd December 29, 2024
+.Dd July 26, 2026
 .Dt Z4M-BINDKEY 1
 .Os
 .Sh NAME
-.Nm z4m bindkey
+.Nm z4m-bindkey
 .Nd bind keys to ZLE widgets with proper terminal handling
 .Sh SYNOPSIS
-.Nm z4m bindkey
+.Nm z4m
+.Cm bindkey
 .Fl l
-.Nm z4m bindkey
+.Nm z4m
+.Cm bindkey
 .Fl L
-.Nm z4m bindkey
+.Nm z4m
+.Cm bindkey
 .Ar widget
 .Ar key ...
 .Sh DESCRIPTION
@@ -32,7 +35,8 @@ List all current key bindings in a readable table format,
 organized by category.
 .It Fl L
 List all bindings as
-.Nm z4m bindkey
+.Nm z4m
+.Cm bindkey
 commands that can be saved and replayed via
 .Cm eval .
 .El
@@ -258,8 +262,8 @@ Clear screen (hard)
 Enter recovery shell
 .El
 .Sh SEE ALSO
+.Xr bindkey 1 ,
 .Xr z4m 1 ,
-.Xr zshzle 1 ,
-.Xr bindkey 1
+.Xr zshzle 1
 .Sh AUTHORS
 .An arcthur

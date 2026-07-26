@@ -1,0 +1,133 @@
+#!/bin/sh
+
+_z4m_dependency_get() {
+  Z4M_DEPENDENCY_REF=''
+  Z4M_DEPENDENCY_SHA256=''
+  Z4M_DEPENDENCY_URL=''
+
+  _z4m_dependency_file=$1
+  _z4m_dependency_name=$2
+  '[' '-r' "$_z4m_dependency_file" ']' || return 1
+
+  while IFS='|' read -r _z4m_lock_name _z4m_lock_ref _z4m_lock_sha256 _z4m_lock_url; do
+    '[' "$_z4m_lock_name" '=' "$_z4m_dependency_name" ']' || continue
+    case "$_z4m_lock_ref" in
+      ''|*[!0-9a-f]*) return 1 ;;
+    esac
+    case "$_z4m_lock_sha256" in
+      ''|*[!0-9a-f]*) return 1 ;;
+    esac
+    '[' "${#_z4m_lock_ref}" '-eq' '40' ']' || return 1
+    '[' "${#_z4m_lock_sha256}" '-eq' '64' ']' || return 1
+    case "$_z4m_lock_url" in
+      'https://'*) ;;
+      *) return 1 ;;
+    esac
+    Z4M_DEPENDENCY_REF=$_z4m_lock_ref
+    Z4M_DEPENDENCY_SHA256=$_z4m_lock_sha256
+    Z4M_DEPENDENCY_URL=$_z4m_lock_url
+    return 0
+  done <"$_z4m_dependency_file"
+
+  return 1
+}
+
+_z4m_sha256_file() {
+  Z4M_SHA256=''
+  _z4m_sha256_path=$1
+
+  if command -v 'sha256sum' >'/dev/null' 2>&1; then
+    _z4m_sha256_output="$(command sha256sum -- "$_z4m_sha256_path")" || return 1
+    Z4M_SHA256=${_z4m_sha256_output%% *}
+  elif command -v 'shasum' >'/dev/null' 2>&1; then
+    _z4m_sha256_output="$(command shasum -a 256 -- "$_z4m_sha256_path")" || return 1
+    Z4M_SHA256=${_z4m_sha256_output%% *}
+  elif command -v 'openssl' >'/dev/null' 2>&1; then
+    _z4m_sha256_output="$(command openssl dgst -sha256 "$_z4m_sha256_path")" || return 1
+    Z4M_SHA256=${_z4m_sha256_output##* }
+  else
+    return 1
+  fi
+
+  Z4M_SHA256="$(printf '%s' "$Z4M_SHA256" | command tr '[A-F]' '[a-f]')" || return 1
+  case "$Z4M_SHA256" in
+    *[!0-9a-f]*) return 1 ;;
+  esac
+  '[' "${#Z4M_SHA256}" '-eq' '64' ']'
+}
+
+_z4m_verify_sha256() {
+  _z4m_verify_path=$1
+  _z4m_verify_expected=$2
+  case "$_z4m_verify_expected" in
+    *[!0-9a-f]*) return 1 ;;
+  esac
+  '[' "${#_z4m_verify_expected}" '-eq' '64' ']' || return 1
+  _z4m_sha256_file "$_z4m_verify_path" || return 1
+  '[' "$Z4M_SHA256" '=' "$_z4m_verify_expected" ']'
+}
+
+# Reject absolute paths, parent traversal, hard links, and unsafe symlink
+# targets. z4m.zsh inlines the same two awk programs because this file is not
+# available yet during bootstrap; test/bootstrap_duplication.zsh keeps them in
+# sync.
+_z4m_archive_safe_p() {
+  _z4m_archive_list="$(mktemp "${TMPDIR:-/tmp}/z4m-archive-list.XXXXXXXXXX")" ||
+    return 1
+  _z4m_archive_verbose="$(mktemp "${TMPDIR:-/tmp}/z4m-archive-verbose.XXXXXXXXXX")" || {
+    command rm -f -- "$_z4m_archive_list"
+    return 1
+  }
+  if ! command tar -tzf "$1" >"$_z4m_archive_list" 2>'/dev/null'; then
+    command rm -f -- "$_z4m_archive_list" "$_z4m_archive_verbose"
+    return 1
+  fi
+  if ! command tar -tvzf "$1" >"$_z4m_archive_verbose" 2>'/dev/null'; then
+    command rm -f -- "$_z4m_archive_list" "$_z4m_archive_verbose"
+    return 1
+  fi
+  command awk '
+    BEGIN { safe = 1 }
+    /^\// { safe = 0 }
+    {
+      count = split($0, parts, "/")
+      for (i = 1; i <= count; i++) {
+        if (parts[i] == "..") {
+          safe = 0
+        }
+      }
+    }
+    END { exit safe ? 0 : 1 }
+  ' "$_z4m_archive_list" &&
+    command awk '
+      BEGIN { safe = 1 }
+      substr($0, 1, 1) == "h" { safe = 0 }
+      substr($0, 1, 1) == "l" {
+        marker = " -> "
+        offset = index($0, marker)
+        if (!offset) {
+          safe = 0
+          next
+        }
+        target = substr($0, offset + length(marker))
+        if (index(target, marker)) {
+          safe = 0
+          next
+        }
+        if (target ~ /^\//) {
+          safe = 0
+          next
+        }
+        count = split(target, parts, "/")
+        for (i = 1; i <= count; i++) {
+          if (parts[i] == "..") {
+            safe = 0
+          }
+        }
+      }
+      END { exit safe ? 0 : 1 }
+    ' "$_z4m_archive_verbose"
+  _z4m_archive_rc=$?
+  command rm -f -- "$_z4m_archive_list" "$_z4m_archive_verbose"
+  return "$_z4m_archive_rc"
+}

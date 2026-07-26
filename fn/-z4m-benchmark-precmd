@@ -1,0 +1,8 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o no_aliases
+
+local marker=${Z4M_BENCHMARK_MARKER-}
+unset Z4M_BENCHMARK_MARKER
+precmd_functions=(${precmd_functions:#-z4m-benchmark-precmd})
+[[ -n $marker ]] && print -rn -- "$marker"

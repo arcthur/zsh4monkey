@@ -7,9 +7,10 @@ _z4m_try_exec_zsh_i() {
   <'/dev/null' >'/dev/null' 2>&1 'command' "$1" '-fc' '
     [[ $ZSH_VERSION == (5.<9->*|<6->.*) ]] || return
     exe=${${(M)0:#/*}:-$commands[$0]}
+    version_dir=${ZSH_VERSION%%.*}.${${ZSH_VERSION#*.}%%.*}
     zmodload -s zsh/terminfo zsh/zselect ||
-      [[ $ZSH_PATCHLEVEL == zsh-5.9-*-g* && $exe == */bin/zsh &&
-         -e ${exe:h:h}/share/zsh/5.9/scripts/relocate ]]' || 'return' '0'
+      [[ $ZSH_PATCHLEVEL == zsh-${version_dir}-*-g* && $exe == */bin/zsh &&
+         -e ${exe:h:h}/share/zsh/${version_dir}/scripts/relocate ]]' || 'return' '0'
   # >&2 'printf' '\033[33mz4m\033[0m: starting \033[32mzsh\033[0m\n'
   'exec' "$@" || 'return'
 }
@@ -29,7 +30,7 @@ _z4m_exec_zsh_i() {
 
   # There is no suitable Zsh. Need to install.
   >&2 'printf' '\033[33mz4m\033[0m: cannot find usable \033[32mzsh\033[0m\n'
-  >&2 'printf' '\033[33mz4m\033[0m: fetching \033[1mzsh 5.9\033[0m installer\n'
+  >&2 'printf' '\033[33mz4m\033[0m: fetching verified \033[1mzsh 5.9+\033[0m installer\n'
 
   'local' 'install'
   if command -v 'mktemp' >'/dev/null' 2>&1; then
@@ -39,14 +40,21 @@ _z4m_exec_zsh_i() {
     '[' '!' '-e' "$install" ']' || 'command' 'rm' '-rf' '--' "$install" || 'return'
   fi
 
-  'local' zsh_url='https://raw.githubusercontent.com/romkatv/zsh-bin/master/install'
+  if '[' '!' '-r' "$Z4M"/zsh4monkey/sc/supply-chain ']' ||
+     ! '.' "$Z4M"/zsh4monkey/sc/supply-chain ||
+     ! '_z4m_dependency_get' "$Z4M"/zsh4monkey/dependencies.lock 'zsh-bin-installer'; then
+    >&2 'printf' '\033[33mz4m\033[0m: invalid or missing dependency lock for zsh installer\n'
+    'return' '1'
+  fi
+  'local' zsh_url="$Z4M_DEPENDENCY_URL"
+  'local' zsh_sha256="$Z4M_DEPENDENCY_SHA256"
 
   (
     'local' 'err'
     if command -v 'curl' >'/dev/null' 2>&1; then
-      err="$(command curl -fsSL -- "$zsh_url" 2>&1 >"$install")"
+      err="$(command curl --connect-timeout 10 --max-time 120 --retry 2 -fsSL -- "$zsh_url" 2>&1 >"$install")"
     elif command -v 'wget' >'/dev/null' 2>&1; then
-      err="$(command wget -O-   -- "$zsh_url" 2>&1 >"$install")"
+      err="$(command wget --timeout=120 --tries=2 -O- -- "$zsh_url" 2>&1 >"$install")"
     else
       >&2 'printf' '\033[33mz4m\033[0m: please install \033[32mcurl\033[0m or \033[32mwget\033[0m\n'
       'exit' '1'
@@ -58,6 +66,12 @@ _z4m_exec_zsh_i() {
       'exit' '1'
     fi
   ) || 'return'
+
+  if ! '_z4m_verify_sha256' "$install" "$zsh_sha256"; then
+    >&2 'printf' '\033[33mz4m\033[0m: SHA-256 verification failed for \033[31m%s\033[0m\n' "$zsh_url"
+    'command' 'rm' '-f' '--' "$install"
+    'return' '1'
+  fi
 
   if '[' '-n' "${Z4M_SSH-}" '-o' "${USER-}" '=' 'cloudshell-user' ']'; then
     >&2 'printf' '\033[33mz4m\033[0m: installing \033[1mzsh 5.9\033[0m to \033[4m~/.local\033[0m\n'

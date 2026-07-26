@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -eu
+
+repository="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+raw_version="$(tr -d '\r\n' <"$repository/version")"
+
+case "$raw_version" in
+  ''|*[!0-9]*)
+    >&2 printf 'invalid version file\n'
+    exit 1
+    ;;
+esac
+
+major=$((raw_version / 100000000))
+minor=$(((raw_version / 1000000) % 100))
+patch=$(((raw_version / 10000) % 100))
+build=$((raw_version % 10000))
+tag="v$major.$minor.$patch"
+[ "$build" -eq 0 ] || tag="$tag.$build"
+
+printf '%s\n' "$tag"

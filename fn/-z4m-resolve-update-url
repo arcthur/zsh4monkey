@@ -1,0 +1,78 @@
+#!/usr/bin/env zsh
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob -o no_aliases
+
+local current_url=${Z4M_URL:-https://raw.githubusercontent.com/arcthur/zsh4monkey/main}
+local current_ref=${current_url:t}
+local channel
+if ! zstyle -s :z4m:update channel channel; then
+  [[ $current_ref == main ]] && channel=development || channel=stable
+fi
+
+case $channel in
+  pinned)
+    REPLY=$current_url
+    ;;
+  development)
+    REPLY=https://raw.githubusercontent.com/arcthur/zsh4monkey/main
+    ;;
+  stable)
+    local api=https://api.github.com/repos/arcthur/zsh4monkey/releases/latest
+    local payload
+    if (( $+commands[curl] )); then
+      payload=$(command curl --connect-timeout 10 --max-time 20 --retry 2 -fsSL -- "$api") || return 1
+    elif (( $+commands[wget] )); then
+      payload=$(command wget --timeout=20 --tries=2 -O- -- "$api") || return 1
+    else
+      print -Pru2 -- "%F{3}z4m%f: update resolution requires %F{1}curl%f or %F{1}wget%f"
+      return 1
+    fi
+
+    # Take the first "tag_name" field. A greedy expression would take the last
+    # one instead, which silently resolves to the oldest release if the endpoint
+    # ever answers with an array. Parameter expansion keeps this free of extra
+    # processes and locale-dependent regex behavior.
+    local tag=$payload
+    if [[ $tag != *'"tag_name"'* ]]; then
+      print -Pru2 -- "%F{3}z4m%f: latest release response has no tag"
+      return 1
+    fi
+    tag=${tag#*'"tag_name"'}
+    tag=${tag#[[:space:]]#:[[:space:]]#\"}
+    tag=${tag%%\"*}
+    local -a version_parts=("${(@s:.:)${tag#v}}")
+    local component
+    if [[ $tag != v* || ( $#version_parts != 3 && $#version_parts != 4 ) ]]; then
+      print -Pru2 -- "%F{3}z4m%f: latest release response has an invalid tag"
+      return 1
+    fi
+    for component in $version_parts; do
+      if [[ -z $component || $component != <-> ]]; then
+        print -Pru2 -- "%F{3}z4m%f: latest release response has an invalid tag"
+        return 1
+      fi
+    done
+    (( 10#$version_parts[2] < 100 &&
+       10#$version_parts[3] < 100 &&
+       ( ${#version_parts} < 4 || 10#$version_parts[4] < 10000 ) )) || {
+      print -Pru2 -- "%F{3}z4m%f: latest release response has an invalid tag"
+      return 1
+    }
+    local -i tag_version=$(( 10#$version_parts[1] * 100000000 +
+      10#$version_parts[2] * 1000000 +
+      10#$version_parts[3] * 10000 +
+      (${version_parts[4]:-0}) ))
+    local current_version=
+    [[ -r ${Z4M-}/zsh4monkey/version ]] &&
+      current_version=$(<${Z4M-}/zsh4monkey/version)
+    if [[ $current_version == <-> ]] && (( tag_version < current_version )); then
+      print -Pru2 -- "%F{3}z4m%f: refusing release downgrade from %B$current_version%b to %B$tag_version%b"
+      return 1
+    fi
+    REPLY=https://raw.githubusercontent.com/arcthur/zsh4monkey/$tag
+    ;;
+  *)
+    print -Pru2 -- "%F{3}z4m%f: invalid update channel: %F{1}${channel//\%/%%}%f"
+    return 1
+    ;;
+esac

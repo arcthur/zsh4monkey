@@ -6,6 +6,8 @@ else
   'set' '-f'
 fi
 
+'umask' '077'
+
 _z4m_bypass=''
 _z4m_bypass_reason=''
 
@@ -53,7 +55,7 @@ _z4m_ssh_apply_cwd() {
   'unset' 'Z4M_SSH_CWD' 2>'/dev/null' || :
 }
 
-for _z4m_ssh_cmd in 'tar' 'tail' 'rm' 'mkdir' 'mv' 'cp' 'cat' 'uname' 'tr'; do
+for _z4m_ssh_cmd in 'tar' 'tail' 'rm' 'mkdir' 'mktemp' 'mv' 'cp' 'cat' 'touch' 'uname' 'tr'; do
   if ! command -v "$_z4m_ssh_cmd" >'/dev/null' 2>&1; then
     _z4m_bypass='1'
     _z4m_bypass_reason="missing command: $_z4m_ssh_cmd"
@@ -118,20 +120,63 @@ _z4m_ssh_mktemp() {
   else
     'set' '--' '/tmp'
   fi
-  if command -v 'mktemp' >'/dev/null' 2>&1; then
-    _z4m_ssh_tmp="$('command' 'mktemp' '-d' -- "$1"/z4m-ssh.XXXXXXXXXX)"
+  _z4m_ssh_tmp="$('command' 'mktemp' '-d' "$1"/z4m-ssh.XXXXXXXXXX)" || 'exit'
+}
+
+_z4m_ssh_rollback() {
+  '[' '-r' "${_z4m_ssh_transactions-}" ']' || 'return' '0'
+  '[' '!' '-e' "$_z4m_ssh_tmp/all-committed" ']' || 'return' '0'
+  _z4m_ssh_rollback_failed=''
+  while IFS="$_z4m_ssh_tab" read -r _z4m_ssh_dst _z4m_ssh_txn; do
+    '[' '-n' "$_z4m_ssh_dst" '-a' '-n' "$_z4m_ssh_txn" ']' || continue
+
+    if '[' '-e' "$_z4m_ssh_txn/old" '-o' '-L' "$_z4m_ssh_txn/old" ']'; then
+      if '[' '-e' "$_z4m_ssh_dst" '-o' '-L' "$_z4m_ssh_dst" ']'; then
+        if ! 'command' 'mv' '--' "$_z4m_ssh_dst" "$_z4m_ssh_txn/failed" 2>'/dev/null'; then
+          _z4m_ssh_rollback_failed='1'
+          continue
+        fi
+      fi
+      if ! 'command' 'mv' '--' "$_z4m_ssh_txn/old" "$_z4m_ssh_dst" 2>'/dev/null'; then
+        _z4m_ssh_rollback_failed='1'
+        if '[' '-e' "$_z4m_ssh_txn/failed" '-o' '-L' "$_z4m_ssh_txn/failed" ']'; then
+          'command' 'mv' '--' "$_z4m_ssh_txn/failed" "$_z4m_ssh_dst" 2>'/dev/null' ||
+            _z4m_ssh_rollback_failed='1'
+        fi
+      fi
+    elif '[' '!' '-e' "$_z4m_ssh_txn/new" '-a' '!' '-L' "$_z4m_ssh_txn/new" ']'; then
+      if '[' '-e' "$_z4m_ssh_dst" '-o' '-L' "$_z4m_ssh_dst" ']'; then
+        'command' 'mv' '--' "$_z4m_ssh_dst" "$_z4m_ssh_txn/failed" 2>'/dev/null' ||
+          _z4m_ssh_rollback_failed='1'
+      fi
+    fi
+  done <"$_z4m_ssh_transactions"
+  '[' '-z' "$_z4m_ssh_rollback_failed" ']'
+}
+
+_z4m_ssh_remove_transactions() {
+  '[' '-r' "${_z4m_ssh_transactions-}" ']' || 'return' '0'
+  while IFS="$_z4m_ssh_tab" read -r _z4m_ssh_dst _z4m_ssh_txn; do
+    '[' '-n' "$_z4m_ssh_txn" ']' || continue
+    'command' 'rm' '-rf' '--' "$_z4m_ssh_txn" 2>'/dev/null' || :
+  done <"$_z4m_ssh_transactions"
+}
+
+_z4m_ssh_cleanup() {
+  'trap' '-' 'HUP' 'INT' 'TERM' 'EXIT'
+  if _z4m_ssh_rollback; then
+    _z4m_ssh_remove_transactions
+    '[' '-z' "${_z4m_ssh_tmp-}" ']' ||
+      'command' 'rm' '-rf' '--' "$_z4m_ssh_tmp" 2>'/dev/null' || :
   else
-    _z4m_ssh_tmp="$1"/z4m-ssh.tmp."$$"
-    '[' '!' '-e' "$_z4m_ssh_tmp" ']' || 'command' 'rm' '-rf' '--' "$_z4m_ssh_tmp" || 'exit'
-    'command' 'mkdir' '-p' '--' "$_z4m_ssh_tmp" || 'exit'
+    >&2 'printf' '\033[33mz4m\033[0m: rollback incomplete; preserving transaction state: \033[31m%s\033[0m\n' "$_z4m_ssh_tmp"
   fi
 }
 
-_z4m_ssh_cleanup='"trap" "-" "HUP" "INT" "TERM" "EXIT"; _z4m_ssh_tmp="${_z4m_ssh_tmp-}"; [ -n "$_z4m_ssh_tmp" ] && "command" "rm" "-rf" "--" "$_z4m_ssh_tmp" 2>"/dev/null"'
-'trap' "$_z4m_ssh_cleanup; 'exit' '129'" 'HUP'
-'trap' "$_z4m_ssh_cleanup; 'exit' '130'" 'INT'
-'trap' "$_z4m_ssh_cleanup; 'exit' '143'" 'TERM'
-'trap' "$_z4m_ssh_cleanup; _z4m_ssh_error" 'EXIT'
+'trap' '_z4m_ssh_cleanup; exit 129' 'HUP'
+'trap' '_z4m_ssh_cleanup; exit 130' 'INT'
+'trap' '_z4m_ssh_cleanup; exit 143' 'TERM'
+'trap' '_z4m_ssh_cleanup; _z4m_ssh_error' 'EXIT'
 
 z4m_min_version=^MIN_VERSION^
 z4m_ssh_client=^SSH_CLIENT^
@@ -152,6 +197,9 @@ if _z4m_ssh_tar_v="$('command' 'tar' '--version' 2>&1)"; then
 fi
 
 _z4m_ssh_mktemp
+_z4m_ssh_transactions="$_z4m_ssh_tmp/transactions"
+_z4m_ssh_tab="$('printf' '\t')"
+: >"$_z4m_ssh_transactions" || 'exit'
 
 'command' 'tail' '-c' '+'^DUMP_POS^ '--' "$0" \
   | 'command' 'tar' '-C' "$_z4m_ssh_tmp" $_z4m_ssh_tar_x_opt '-xzf' '-' || 'exit'
@@ -171,28 +219,86 @@ for _z4m_ssh_dst in ^SEND_TO^; do
       >&2 'printf' '\033[33mz4m\033[0m: remote destination ends with \033[1m/\033[0m: \033[31m%s\033[0m\n' "$_z4m_ssh_dst"
       'exit' '1'
       ;;
+    *'
+'*|*'	'*)
+      >&2 'printf' '\033[33mz4m\033[0m: remote destination contains a control character\n'
+      'exit' '1'
+      ;;
     /*)
       ;;
     *)
       _z4m_ssh_dst="$HOME/$_z4m_ssh_dst"
       ;;
   esac
+  case "/$_z4m_ssh_dst/" in
+    */../*|*/./*)
+      >&2 'printf' '\033[33mz4m\033[0m: remote destination contains a dot segment: \033[31m%s\033[0m\n' "$_z4m_ssh_dst"
+      'exit' '1'
+      ;;
+  esac
+  case "$_z4m_ssh_dst" in
+    *//*)
+      >&2 'printf' '\033[33mz4m\033[0m: remote destination contains repeated separators: \033[31m%s\033[0m\n' "$_z4m_ssh_dst"
+      'exit' '1'
+      ;;
+  esac
+  if '[' "$_z4m_ssh_dst" '=' '/' ']'; then
+    >&2 'printf' '\033[33mz4m\033[0m: refusing unsafe remote destination: \033[31m/\033[0m\n'
+    'exit' '1'
+  fi
 
   if '[' '-e' "$_z4m_ssh_tmp"/"$_z4m_ssh_src" ']'; then
+    _z4m_ssh_duplicate=''
+    _z4m_ssh_overlap=''
+    while IFS="$_z4m_ssh_tab" read -r _z4m_ssh_existing _z4m_ssh_existing_txn; do
+      if '[' "$_z4m_ssh_existing" '=' "$_z4m_ssh_dst" ']'; then
+        _z4m_ssh_duplicate='1'
+        'break'
+      fi
+      case "$_z4m_ssh_dst/" in
+        "$_z4m_ssh_existing/"*) _z4m_ssh_overlap='1'; 'break' ;;
+      esac
+      case "$_z4m_ssh_existing/" in
+        "$_z4m_ssh_dst/"*) _z4m_ssh_overlap='1'; 'break' ;;
+      esac
+    done <"$_z4m_ssh_transactions"
+    if '[' '-n' "$_z4m_ssh_duplicate" ']'; then
+      >&2 'printf' '\033[33mz4m\033[0m: duplicate remote destination: \033[31m%s\033[0m\n' "$_z4m_ssh_dst"
+      'exit' '1'
+    fi
+    if '[' '-n' "$_z4m_ssh_overlap" ']'; then
+      >&2 'printf' '\033[33mz4m\033[0m: overlapping remote destinations: \033[31m%s\033[0m and \033[31m%s\033[0m\n' "$_z4m_ssh_existing" "$_z4m_ssh_dst"
+      'exit' '1'
+    fi
+
     _z4m_ssh_dir="${_z4m_ssh_dst%/*}"
+    '[' '-n' "$_z4m_ssh_dir" ']' || _z4m_ssh_dir='/'
     if '[' '!' '-e' "$_z4m_ssh_dir" ']'; then
       'command' 'mkdir' '-p' '--' "$_z4m_ssh_dir" || 'exit'
     fi
-    if '[' '-e' "$_z4m_ssh_dst" ']'; then
-      'command' 'rm' '-rf' '--' "$_z4m_ssh_dst" || 'exit'
+    _z4m_ssh_txn="$('command' 'mktemp' '-d' "$_z4m_ssh_dir"/.z4m-ssh.XXXXXXXXXX)" || 'exit'
+    if ! 'command' 'cp' '-RP' '--' "$_z4m_ssh_tmp"/"$_z4m_ssh_src" "$_z4m_ssh_txn/new"; then
+      'command' 'rm' '-rf' '--' "$_z4m_ssh_txn" 2>'/dev/null' || :
+      'exit' '1'
     fi
-    if ! 'command' 'mv' '-f' '--' "$_z4m_ssh_tmp"/"$_z4m_ssh_src" "$_z4m_ssh_dst" 2>'/dev/null'; then
-      'command' 'cp' '-rf' '--' "$_z4m_ssh_tmp"/"$_z4m_ssh_src" "$_z4m_ssh_dst" || 'exit'
+    if ! 'printf' '%s\t%s\n' "$_z4m_ssh_dst" "$_z4m_ssh_txn" >>"$_z4m_ssh_transactions"; then
+      'command' 'rm' '-rf' '--' "$_z4m_ssh_txn" 2>'/dev/null' || :
+      'exit' '1'
     fi
   fi
 done
 
-'command' 'rm' '-rf' '--' "$_z4m_ssh_tmp" || 'exit'
+while IFS="$_z4m_ssh_tab" read -r _z4m_ssh_dst _z4m_ssh_txn; do
+  '[' '-n' "$_z4m_ssh_dst" '-a' '-n' "$_z4m_ssh_txn" ']' || continue
+  if '[' '-e' "$_z4m_ssh_dst" '-o' '-L' "$_z4m_ssh_dst" ']'; then
+    'command' 'mv' '--' "$_z4m_ssh_dst" "$_z4m_ssh_txn/old" || 'exit'
+  fi
+  'command' 'mv' '--' "$_z4m_ssh_txn/new" "$_z4m_ssh_dst" || 'exit'
+done <"$_z4m_ssh_transactions"
+
+'command' 'touch' "$_z4m_ssh_tmp/all-committed" || 'exit'
+_z4m_ssh_remove_transactions
+: >"$_z4m_ssh_transactions" || 'exit'
 
 if '[' '!' '-d' "$Z4M"/tmp '-o' '!' '-d' "$Z4M"/stickycache ']'; then
   'command' 'mkdir' '-p' '--' "$Z4M"/tmp "$Z4M"/stickycache || 'exit'
@@ -200,8 +306,11 @@ fi
 
 _z4m_ssh_apply_cwd || :
 
+'command' 'rm' '-rf' '--' "$_z4m_ssh_tmp" || 'exit'
+
 ^RUN^
 
 _z4m_ssh_ret="$?"
 'trap' '-' 'HUP' 'INT' 'TERM' 'EXIT'
+'command' 'rm' '-rf' '--' "$_z4m_ssh_tmp" 2>'/dev/null' || :
 'exit' "${_z4m_ssh_ret:-1}"

@@ -1,19 +1,79 @@
 #!/usr/bin/env zsh
 
-local url postinstall command
+local url postinstall command checksum ref repository owner project
 local -i z4m_remote_install_soft_fail=0
 [[ -n ${Z4M_SSH-} || -n ${_Z4M_OFFLINE-} ]] && z4m_remote_install_soft_fail=1
 
+if (( ! ${+functions[_z4m_dependency_get]} )); then
+  builtin source -- $Z4M/zsh4monkey/sc/supply-chain || return
+fi
+local lock_file=$Z4M/zsh4monkey/dependencies.lock
+
 if [[ $1 == */* ]]; then
-  if [[ $1 == zsh-users/zsh-autosuggestions ]]; then
-    print -Pru2 -- "%F{3}z4m%f: %Binstall%b: %B$1%b is built-in; remove this install entry"
+  repository=${1%%@*}
+  owner=${repository%%/*}
+  project=${repository#*/}
+  if [[ -z $owner || -z $project || $project == */* ||
+        $owner == . || $owner == .. || $project == . || $project == .. ||
+        $owner == *[^A-Za-z0-9_.-]* || $project == *[^A-Za-z0-9_.-]* ]]; then
+    print -Pru2 -- "%F{3}z4m%f: invalid GitHub repository: %F{1}${repository//\%/%%}%f"
     return 1
   fi
+  if [[ $repository == zsh-users/zsh-autosuggestions ]]; then
+    print -Pru2 -- "%F{3}z4m%f: %Binstall%b: %B$repository%b is built-in; remove this install entry"
+    return 1
+  fi
+  if [[ -n ${Z4M_UPDATING-} &&
+        ( -d $Z4M_UPDATING/$repository || -L $Z4M_UPDATING/$repository ) ]] &&
+     { [[ $1 != *@* ]] ||
+       [[ ${#${1#*@}} != 40 || ${1#*@} == *[^A-Fa-f0-9]* ]]; }; then
+    print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: preserving legacy unpinned dependency %B$repository%b"
+    print -Pru2 -- "%F{3}z4m%f: migrate it to %B$repository@<commit>%b with a configured SHA-256"
+    zf_mkdir -p -- $Z4M/${repository:h} || return
+    command cp -RP -- $Z4M_UPDATING/$repository $Z4M/$repository || return
+    return 0
+  fi
   if [[ $1 == *@* ]]; then
-    url=https://github.com/${1%%@*}/archive/${1#*@}.tar.gz
+    ref=${1#*@}
     1=${1%%@*}
-  else
+    if [[ ${#ref} == 40 && $ref != *[^A-Fa-f0-9]* ]]; then
+      if _z4m_dependency_get "$lock_file" "$1" && [[ $Z4M_DEPENDENCY_REF == $ref ]]; then
+        url=$Z4M_DEPENDENCY_URL
+        checksum=$Z4M_DEPENDENCY_SHA256
+      else
+        url=https://github.com/$1/archive/$ref.tar.gz
+        zstyle -s ":z4m:$1" sha256 checksum || checksum=
+      fi
+    elif ! zstyle -t :z4m:security allow-unverified-downloads; then
+      print -Pru2 -- "%F{3}z4m%f: dependency ref must be an exact 40-character commit: %F{1}${ref//\%/%%}%f"
+      return 1
+    elif [[ -z $ref || $ref == [-/]* || $ref == */ ||
+            $ref == *//* || $ref == *..* ||
+            $ref == *[^A-Za-z0-9._/-]* ]]; then
+      print -Pru2 -- "%F{3}z4m%f: invalid compatibility dependency ref: %F{1}${ref//\%/%%}%f"
+      return 1
+    else
+      url=https://github.com/$1/archive/$ref.tar.gz
+      zstyle -s ":z4m:$1" sha256 checksum || checksum=
+      print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: downloading unverified compatibility ref %B$1@$ref%b"
+    fi
+  elif _z4m_dependency_get "$lock_file" "$1"; then
+    ref=$Z4M_DEPENDENCY_REF
+    url=$Z4M_DEPENDENCY_URL
+    checksum=$Z4M_DEPENDENCY_SHA256
+  elif zstyle -t :z4m:security allow-unverified-downloads; then
+    ref=master
     url=https://github.com/$1/archive/master.tar.gz
+    print -Pru2 -- "%F{3}z4m%f: %F{3}warning%f: downloading mutable, unverified ref for %B$1%b"
+  else
+    print -Pru2 -- "%F{3}z4m%f: refusing mutable, unverified dependency %F{1}$1%f"
+    print -Pru2 -- "%F{3}z4m%f: use %B$1@<commit>%b and configure %B:z4m:$1 sha256%b"
+    return 1
+  fi
+  if [[ -z $checksum ]] && ! zstyle -t :z4m:security allow-unverified-downloads; then
+    print -Pru2 -- "%F{3}z4m%f: missing SHA-256 for %F{1}$1@$ref%f"
+    print -Pru2 -- "%F{3}z4m%f: configure %Bzstyle ':z4m:$1' sha256 '<digest>'%b"
+    return 1
   fi
   if ! zstyle -s :z4m:$1 postinstall postinstall; then
     case $1 in
@@ -38,13 +98,19 @@ else
     2-command) command=$channel[2];;
     1-stable|1-testing|1-dev)
       case $1 in
-        terminfo)                     url=https://github.com/romkatv/terminfo/archive/v1.4.0.tar.gz;;
+        terminfo|powerlevel10k|zsh-completions)
+          if ! _z4m_dependency_get "$lock_file" "$1"; then
+            print -Pru2 -- "%F{3}z4m%f: invalid or missing dependency lock for %F{1}$1%f"
+            return 1
+          fi
+          ref=$Z4M_DEPENDENCY_REF
+          url=$Z4M_DEPENDENCY_URL
+          checksum=$Z4M_DEPENDENCY_SHA256
+        ;;
         tmux|fzf|eza|bat|fd|rg|zoxide|carapace|atuin)
           # CLI tools: postinstall checks system command
           url=
         ;;
-        powerlevel10k)                url=https://github.com/romkatv/$1/archive/master.tar.gz;;
-        zsh-completions)              url=https://github.com/zsh-users/$1/archive/master.tar.gz;;
         zsh-autosuggestions)
           print -Pru2 -- "%F{3}z4m%f: %Binstall%b: %B$1%b is built-in; remove this install entry"
           return 1
@@ -78,10 +144,16 @@ else
 fi
 
 local dst=$Z4M/$1
+local root_path=${Z4M:A}
+if [[ ${dst:A} != $root_path/* ]]; then
+  print -Pru2 -- "%F{3}z4m%f: refusing dependency path outside %B\$Z4M%b: %F{1}${dst//\%/%%}%f"
+  return 1
+fi
 
 zf_mkdir -p -- ${dst:h} 2>/dev/null || zf_mkdir -p -- ${dst:h} || return
 
 local old new
+local -i old_moved=0 preserve_old=0
 
 {
   if (( $+commands[mktemp] )); then
@@ -108,9 +180,9 @@ local old new
   else
     local err
     if (( $+commands[curl] )); then
-      err="$(command curl -fsSL -- $url 2>&1 >$new/snapshot.tar.gz)"
+      err="$(command curl --connect-timeout 10 --max-time 120 --retry 2 -fsSL -- $url 2>&1 >$new/snapshot.tar.gz)"
     elif (( $+commands[wget] )); then
-      err="$(command wget -O-   -- $url 2>&1 >$new/snapshot.tar.gz)"
+      err="$(command wget --timeout=120 --tries=2 -O- -- $url 2>&1 >$new/snapshot.tar.gz)"
     else
       print -Pru2 -- "%F{3}z4m%f: please install %F{1}curl%f or %F{1}wget%f"
       return 1
@@ -125,6 +197,14 @@ local old new
       fi
       print -ru2 -- $err
       print -Pru2 -- "%F{3}z4m%f: failed to download %F{1}${url//\%/%%}%f"
+      return 1
+    fi
+    if [[ -n $checksum ]] && ! _z4m_verify_sha256 $new/snapshot.tar.gz $checksum; then
+      print -Pru2 -- "%F{3}z4m%f: SHA-256 verification failed for %F{1}${url//\%/%%}%f"
+      return 1
+    fi
+    if ! _z4m_archive_safe_p $new/snapshot.tar.gz; then
+      print -Pru2 -- "%F{3}z4m%f: unsafe archive content for %F{1}${url//\%/%%}%f"
       return 1
     fi
     if ! command tar -C $new -xzf $new/snapshot.tar.gz; then
@@ -161,8 +241,18 @@ local old new
     return 1
   fi
 
-  [[ ! -e $dst ]] || -z4m-mv $dst $old/${1:t} 2>/dev/null || zf_rm -rf -- $dst || return
-  -z4m-mv $new/${1:t} $dst || return
+  if [[ -e $dst || -L $dst ]]; then
+    -z4m-mv $dst $old/${1:t} 2>/dev/null || return
+    old_moved=1
+  fi
+  if ! -z4m-mv $new/${1:t} $dst; then
+    if (( old_moved )) && ! -z4m-mv $old/${1:t} $dst 2>/dev/null; then
+      preserve_old=1
+      print -Pru2 -- "%F{3}z4m%f: dependency rollback incomplete; backup preserved at %F{1}${old//\%/%%}%f"
+    fi
+    return 1
+  fi
 } always {
-  [[ -z $old && -z $new ]] || zf_rm -rf -- $old $new
+  [[ -z $new ]] || zf_rm -rf -- $new
+  (( preserve_old )) || [[ -z $old ]] || zf_rm -rf -- $old
 }

@@ -107,11 +107,8 @@ The offline package contains your dotfiles and a copy of your z4m installation s
 - Prefer copying over authenticated transport (e.g., `scp` to a known host, or a secure artifact store).
 - Consider adding your own integrity checks (hash/signing) if you distribute widely.
 
-## Relationship to SSH Offline Mode
-
-Historical note: `z4m ssh` no longer supports `offline-mode`. This document only describes the standalone `z4m pack` workflow.
-
-`z4m pack` is a general-purpose offline installer for non-SSH workflows.
+`z4m pack` is a standalone offline installer and is independent of the
+one-shot `z4m ssh` bootstrap.
 
 ## Implementation Anchors
 

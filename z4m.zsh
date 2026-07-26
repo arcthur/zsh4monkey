@@ -171,15 +171,67 @@ if '[' '-z' "${Z4M_UPDATING-}" '-a' '-n' "${Z4M-}" '-a' '-z' "${Z4M##/*}" '-a' '
   'unset' '_z4m_wait' '_z4m_update_pid'
 fi
 
+if '[' '-n' "${Z4M_UPDATE_SOURCE_URL-}" ']'; then
+  Z4M_URL=$Z4M_UPDATE_SOURCE_URL
+  'unset' 'Z4M_UPDATE_SOURCE_URL'
+fi
+
+_z4m_cached_ref=
+if '[' '-r' "${Z4M-}"/zsh4monkey/.z4m-source-ref ']'; then
+  IFS= 'read' '-r' '_z4m_cached_ref' <"$Z4M"/zsh4monkey/.z4m-source-ref ||
+    _z4m_cached_ref=
+fi
+
+_z4m_update_source_configured=
+_z4m_update_source_effective=
+_z4m_update_source_extra=
+if '[' '-r' "${Z4M-}"/.update-source ']'; then
+  IFS='|' 'read' '-r' \
+    '_z4m_update_source_configured' \
+    '_z4m_update_source_effective' \
+    '_z4m_update_source_extra' <"$Z4M"/.update-source || :
+  case "$_z4m_update_source_configured|$_z4m_update_source_effective|$_z4m_update_source_extra" in
+    'https://raw.githubusercontent.com/arcthur/zsh4monkey/'*'|https://raw.githubusercontent.com/arcthur/zsh4monkey/'*'|')
+      _z4m_update_source_configured_ref="${_z4m_update_source_configured##*/}"
+      _z4m_update_source_effective_ref="${_z4m_update_source_effective##*/}"
+      case "$_z4m_update_source_configured_ref" in
+        ''|*[!A-Za-z0-9._-]*) ;;
+        *) case "$_z4m_update_source_effective_ref" in
+          ''|*[!A-Za-z0-9._-]*) ;;
+          *)
+          if '[' "${Z4M_URL-}" '=' "$_z4m_update_source_configured" -o \
+                 "${Z4M_URL-}" '=' "$_z4m_update_source_effective" ']'; then
+            Z4M_URL=$_z4m_update_source_effective
+          fi
+          ;;
+        esac
+        ;;
+      esac
+    ;;
+  esac
+fi
+'unset' \
+  '_z4m_update_source_configured' \
+  '_z4m_update_source_effective' \
+  '_z4m_update_source_extra' \
+  '_z4m_update_source_configured_ref' \
+  '_z4m_update_source_effective_ref'
+
 if '[' '-n' "${Z4M-}" ']' &&
-   '[' "${Z4M_URL-}" '=' 'https://raw.githubusercontent.com/arcthur/zsh4monkey/main' ']' &&
-   '[' '-z' "${Z4M##/*}" '-a' '-r' "$Z4M"/zsh4monkey/main.zsh ']'; then
+   '[' '-z' "${Z4M##/*}" '-a' '-r' "$Z4M"/zsh4monkey/main.zsh ']' &&
+   {
+     '[' "$_z4m_cached_ref" '=' "${Z4M_URL##*/}" ']' ||
+       { '[' '-z' "$_z4m_cached_ref" ']' &&
+         '[' "${Z4M_URL-}" '=' 'https://raw.githubusercontent.com/arcthur/zsh4monkey/main' ']'; }
+   }; then
+  'unset' '_z4m_cached_ref'
   if '.' "$Z4M"/zsh4monkey/main.zsh; then
     'setopt' 'aliases'
     'return'
   fi
   'unset' '_z4m_bootstrap'
 else
+  'unset' '_z4m_cached_ref'
   _z4m_bootstrap='1'
 fi
 
@@ -260,20 +312,12 @@ if '[' '-n' "${_z4m_bootstrap-}" ']'; then
       'exit' '1'
     fi
 
-    if '[' "$v" '!=' 'main' ']'; then
-      >&2 'printf' '\033[33mz4m\033[0m: unexpected branch in \033[1mZ4M_URL\033[0m\n'
-      >&2 'printf' '\n'
-      >&2 'printf' 'Expected:\n'
-      >&2 'printf' '\n'
-      >&2 'printf' '  Z4M_URL=\033[33m"%s"\033[0m\n' "https://raw.githubusercontent.com/arcthur/zsh4monkey/main"
-      >&2 'printf' '\n'
-      >&2 'printf' 'Found:\n'
-      >&2 'printf' '\n'
-      >&2 'printf' '  Z4M_URL=\033[33m"%s"\033[0m\n' "$Z4M_URL"
-      >&2 'printf' '\n'
-      >&2 'printf' 'Delete \033[4m%s\033[0m to switch to \033[1m%s\033[0m.\n' "$Z4M" "$v"
-      'exit' '1'
-    fi
+    case "$v" in
+      ''|*[!A-Za-z0-9._-]*)
+        >&2 'printf' '\033[33mz4m\033[0m: unsafe ref in \033[1mZ4M_URL\033[0m: \033[31m%s\033[0m\n' "$v"
+        'exit' '1'
+      ;;
+    esac
 
     if '[' '-e' "$Z4M"/.updating ']'; then
       >&2 'printf' '\033[33mz4m\033[0m: updating \033[1m%s\033[0m\n' "zsh4monkey"
@@ -315,23 +359,152 @@ if '[' '-n' "${_z4m_bootstrap-}" ']'; then
       fi
 
       if '[' '-z' "${Z4M_BOOTSTRAP_COMMAND-}" ']'; then
-        url="https://github.com/arcthur/zsh4monkey/archive/$v.tar.gz"
+        case "$v" in
+          v[0-9]*)
+            url="https://github.com/arcthur/zsh4monkey/releases/download/$v/zsh4monkey-$v.tar.gz"
+            checksum_url="$url.sha256"
+          ;;
+          *)
+            url="https://github.com/arcthur/zsh4monkey/archive/$v.tar.gz"
+            checksum_url=
+          ;;
+        esac
 
+        download_rc='0'
+        checksum_rc='0'
         if command -v 'curl' >'/dev/null' 2>&1; then
-          err="$('command' 'curl' '-fsSL' '--' "$url" 2>&1 >"$tmpdir"/snapshot.tar.gz)"
+          err="$('command' 'curl' '--connect-timeout' '10' '--max-time' '120' '--retry' '2' '-fsSL' '--' "$url" 2>&1 >"$tmpdir"/snapshot.tar.gz)" ||
+            download_rc="$?"
+          if '[' "$download_rc" '=' '0' ']' && '[' '-n' "$checksum_url" ']'; then
+            checksum_err="$('command' 'curl' '--connect-timeout' '10' '--max-time' '120' '--retry' '2' '-fsSL' '--' "$checksum_url" 2>&1 >"$tmpdir"/snapshot.tar.gz.sha256)" ||
+              checksum_rc="$?"
+          fi
         elif command -v 'wget' >'/dev/null' 2>&1; then
-          err="$('command' 'wget' '-O-'   '--' "$url" 2>&1 >"$tmpdir"/snapshot.tar.gz)"
+          err="$('command' 'wget' '--timeout=120' '--tries=2' '-O-' '--' "$url" 2>&1 >"$tmpdir"/snapshot.tar.gz)" ||
+            download_rc="$?"
+          if '[' "$download_rc" '=' '0' ']' && '[' '-n' "$checksum_url" ']'; then
+            checksum_err="$('command' 'wget' '--timeout=120' '--tries=2' '-O-' '--' "$checksum_url" 2>&1 >"$tmpdir"/snapshot.tar.gz.sha256)" ||
+              checksum_rc="$?"
+          fi
         else
           >&2 'printf' '\033[33mz4m\033[0m: please install \033[32mcurl\033[0m or \033[32mwget\033[0m\n'
           'exit' '1'
         fi
 
-        if '[' "$?" '!=' '0' ']'; then
+        if '[' "$download_rc" '!=' '0' ']'; then
           >&2 'printf' "%s\n" "$err"
           >&2 'printf' '\033[33mz4m\033[0m: failed to download \033[31m%s\033[0m\n' "$url"
           'exit' '1'
         fi
 
+        if '[' '-n' "$checksum_url" ']'; then
+          if '[' "$checksum_rc" '!=' '0' ']' ||
+             '[' '!' '-s' "$tmpdir"/snapshot.tar.gz.sha256 ']'; then
+            >&2 'printf' "%s\n" "$checksum_err"
+            >&2 'printf' '\033[33mz4m\033[0m: failed to download checksum \033[31m%s\033[0m\n' "$checksum_url"
+            'exit' '1'
+          fi
+          expected="$('command' 'awk' 'NR == 1 { print $1 }' "$tmpdir"/snapshot.tar.gz.sha256)" || 'exit'
+          case "$expected" in
+            *[!0-9a-f]*|'')
+              >&2 'printf' '\033[33mz4m\033[0m: invalid SHA-256 for \033[31m%s\033[0m\n' "$url"
+              'exit' '1'
+            ;;
+          esac
+          if '[' "${#expected}" '!=' '64' ']'; then
+            >&2 'printf' '\033[33mz4m\033[0m: invalid SHA-256 for \033[31m%s\033[0m\n' "$url"
+            'exit' '1'
+          fi
+
+          if command -v 'sha256sum' >'/dev/null' 2>&1; then
+            actual="$('command' 'sha256sum' "$tmpdir"/snapshot.tar.gz)"
+            actual="${actual%% *}"
+          elif command -v 'shasum' >'/dev/null' 2>&1; then
+            actual="$('command' 'shasum' '-a' '256' "$tmpdir"/snapshot.tar.gz)"
+            actual="${actual%% *}"
+          elif command -v 'openssl' >'/dev/null' 2>&1; then
+            actual="$('command' 'openssl' 'dgst' '-sha256' "$tmpdir"/snapshot.tar.gz)"
+            actual="${actual##* }"
+          else
+            >&2 'printf' '\033[33mz4m\033[0m: SHA-256 tool required for release verification\n'
+            'exit' '1'
+          fi
+          actual="$('printf' '%s' "$actual" | 'command' 'tr' '[A-F]' '[a-f]')" || 'exit'
+          if '[' "$actual" '!=' "$expected" ']'; then
+            >&2 'printf' '\033[33mz4m\033[0m: SHA-256 verification failed for \033[31m%s\033[0m\n' "$url"
+            'exit' '1'
+          fi
+          if command -v 'gh' >'/dev/null' 2>&1; then
+            if ! attestation_err="$('command' 'gh' 'attestation' 'verify' "$tmpdir"/snapshot.tar.gz \
+                '--repo' 'arcthur/zsh4monkey' \
+                '--signer-workflow' 'arcthur/zsh4monkey/.github/workflows/release.yml' \
+                2>&1 >'/dev/null')"; then
+              >&2 'printf' '\033[33mz4m\033[0m: release provenance verification failed for \033[31m%s\033[0m\n' "$url"
+              '[' '-z' "$attestation_err" ']' || >&2 'printf' '%s\n' "$attestation_err"
+              >&2 'printf' '\033[33mz4m\033[0m: authenticate with \033[32mgh auth login\033[0m or set \033[1mGH_TOKEN\033[0m if GitHub requires credentials\n'
+              'exit' '1'
+            fi
+          elif '[' "${Z4M_ALLOW_CHECKSUM_ONLY_RELEASES-}" '=' '1' ']' ; then
+            >&2 'printf' '\033[33mz4m\033[0m: \033[33mwarning\033[0m: accepting checksum-only release without provenance verification\n'
+          else
+            >&2 'printf' '\033[33mz4m\033[0m: GitHub CLI is required for release provenance verification\n'
+            >&2 'printf' '\033[33mz4m\033[0m: install \033[32mgh\033[0m or explicitly set \033[1mZ4M_ALLOW_CHECKSUM_ONLY_RELEASES=1\033[0m\n'
+            'exit' '1'
+          fi
+        elif '[' "$v" '=' 'main' ']' && '[' '-z' "${Z4M_UNVERIFIED_WARNING_SHOWN-}" ']'; then
+          >&2 'printf' '\033[33mz4m\033[0m: \033[33mwarning\033[0m: development channel is not release-verified\n'
+          'export' Z4M_UNVERIFIED_WARNING_SHOWN='1'
+        fi
+
+        # sc/supply-chain does not exist yet during bootstrap, so the archive
+        # safety check is inlined here. The two awk programs are kept textually
+        # identical and test/bootstrap_duplication.zsh fails if they drift.
+        if ! 'command' 'tar' '-tzf' "$tmpdir"/snapshot.tar.gz >"$tmpdir"/snapshot.list 2>'/dev/null' ||
+           ! 'command' 'tar' '-tvzf' "$tmpdir"/snapshot.tar.gz >"$tmpdir"/snapshot.verbose 2>'/dev/null' ||
+           ! 'command' 'awk' '
+             BEGIN { safe = 1 }
+             /^\// { safe = 0 }
+             {
+               count = split($0, parts, "/")
+               for (i = 1; i <= count; i++) {
+                 if (parts[i] == "..") {
+                   safe = 0
+                 }
+               }
+             }
+             END { exit safe ? 0 : 1 }
+           ' "$tmpdir"/snapshot.list ||
+           ! 'command' 'awk' '
+             BEGIN { safe = 1 }
+             substr($0, 1, 1) == "h" { safe = 0 }
+             substr($0, 1, 1) == "l" {
+               marker = " -> "
+               offset = index($0, marker)
+               if (!offset) {
+                 safe = 0
+                 next
+               }
+               target = substr($0, offset + length(marker))
+               if (index(target, marker)) {
+                 safe = 0
+                 next
+               }
+               if (target ~ /^\//) {
+                 safe = 0
+                 next
+               }
+               count = split(target, parts, "/")
+               for (i = 1; i <= count; i++) {
+                 if (parts[i] == "..") {
+                   safe = 0
+                 }
+               }
+             }
+             END { exit safe ? 0 : 1 }
+           ' "$tmpdir"/snapshot.verbose; then
+          >&2 'printf' '\033[33mz4m\033[0m: unsafe archive content for \033[31m%s\033[0m\n' "$url"
+          'exit' '1'
+        fi
         'command' 'tar' '-C' "$tmpdir" '-xzf' "$tmpdir"/snapshot.tar.gz || 'exit'
       fi
 
@@ -354,6 +527,9 @@ if '[' '-n' "${_z4m_bootstrap-}" ']'; then
           'command' 'rm' '-f' -- "$package_dir"/"$overlay".zwc || 'exit'
         done
       fi
+
+      '[' '-d' "$package_dir" ']' || 'exit'
+      'printf' '%s\n' "$v" >"$package_dir"/.z4m-source-ref || 'exit'
 
       if '[' '-e' "$Z4M"/.updating ']'; then
         if '[' '-z' "${Z4M_UPDATING-}" ']'; then
@@ -422,21 +598,30 @@ if '[' '-n' "${ZSH_VERSION-}" ']' && command -v 'z4m' >'/dev/null' 2>&1; then
 fi
 if '[' '-n' "$Z4M" '-a' '-z' "${Z4M##/*}" '-a' '-r' "$Z4M"/z4m.zsh ']'; then
   >&2 'printf' '\n'
-  >&2 'printf' 'If nothing helps and you are about to give up:\n'
+  >&2 'printf' 'Preserve the current cache before a clean reinstall:\n'
   >&2 'printf' '\n'
-  >&2 'printf' '  \033[35m# nuke the entire site from orbit\033[0m\n'
-  >&2 'printf' '  \033[4;32msudo\033[0m \033[32mrm\033[0m -rf -- \033[4;33m"%s"\033[0m\n' "$Z4M"
+  >&2 'printf' '  \033[32mmv\033[0m -- \033[4;33m"%s"\033[0m \033[4;33m"%s.failed.$$"\033[0m\n' "$Z4M" "$Z4M"
 fi
 if command -v 'curl' >'/dev/null' 2>&1; then
   >&2 'printf' '\n'
-  >&2 'printf' 'Give up and start over:\n'
+  >&2 'printf' 'Download, verify, and run the stable installer:\n'
   >&2 'printf' '\n'
-  >&2 'printf' '  \033[32msh\033[0m -c \033[33m"\033[0m$(\033[32mcurl\033[0m -fsSL \033[4mhttps://raw.githubusercontent.com/arcthur/zsh4monkey/main/install\033[0m)\033[33m"\033[0m\n'
+  >&2 'printf' '  z4m_installer=$(\033[32mmktemp\033[0m)\n'
+  >&2 'printf' '  \033[32mcurl\033[0m -fsSLo "$z4m_installer" \033[4mhttps://github.com/arcthur/zsh4monkey/releases/latest/download/install\033[0m\n'
+  >&2 'printf' '  \033[32mgh\033[0m attestation verify "$z4m_installer" --repo arcthur/zsh4monkey \\\n'
+  >&2 'printf' '    --signer-workflow arcthur/zsh4monkey/.github/workflows/release.yml\n'
+  >&2 'printf' '  \033[32msh\033[0m "$z4m_installer"\n'
+  >&2 'printf' '  \033[32mrm\033[0m -f -- "$z4m_installer"\n'
 elif command -v 'wget' >'/dev/null' 2>&1; then
   >&2 'printf' '\n'
-  >&2 'printf' 'Give up and start over:\n'
+  >&2 'printf' 'Download, verify, and run the stable installer:\n'
   >&2 'printf' '\n'
-  >&2 'printf' '  \033[32msh\033[0m -c \033[33m"\033[0m$(\033[32mwget\033[0m -O- \033[4mhttps://raw.githubusercontent.com/arcthur/zsh4monkey/main/install\033[0m)\033[33m"\033[0m\n'
+  >&2 'printf' '  z4m_installer=$(\033[32mmktemp\033[0m)\n'
+  >&2 'printf' '  \033[32mwget\033[0m -O "$z4m_installer" \033[4mhttps://github.com/arcthur/zsh4monkey/releases/latest/download/install\033[0m\n'
+  >&2 'printf' '  \033[32mgh\033[0m attestation verify "$z4m_installer" --repo arcthur/zsh4monkey \\\n'
+  >&2 'printf' '    --signer-workflow arcthur/zsh4monkey/.github/workflows/release.yml\n'
+  >&2 'printf' '  \033[32msh\033[0m "$z4m_installer"\n'
+  >&2 'printf' '  \033[32mrm\033[0m -f -- "$z4m_installer"\n'
 fi
 
 >&2 'printf' '\n'

@@ -82,8 +82,11 @@ See [keybindings.md](keybindings.md) for key binding reference.
 | `:z4m:autosuggestions:ai token-budget-per-day` | int | `300000` | Approximate per-day token budget |
 | `:z4m:autosuggestions:ai rewrite-enabled` | bool | `yes` | Enable manual AI rewrite lane (`Ctrl+O`, no input prefix required) |
 | `:z4m:autosuggestions:ai rewrite-key` | string | `^O` | ZLE key sequence used to trigger manual AI rewrite |
-| `:z4m:autosuggestions:ai intent-command-enabled` | bool | `yes` | Enable `z4m ai \"...\"` intent command lane |
+| `:z4m:autosuggestions:ai intent-command-enabled` | bool | `yes` | Enable the `z4m ai "..."` intent command lane |
 | `:z4m:autosuggestions:ai prompt-extend` | string | empty | Extra instruction appended to AI system prompt |
+| `:z4m:autosuggestions:ai context-pwd-enabled` | bool | `no` | Send the current working directory to manual/intent requests |
+| `:z4m:autosuggestions:ai context-project-enabled` | bool | `no` | Send project type, Git state, and top-level names to manual/intent requests |
+| `:z4m:autosuggestions:ai context-output-enabled` | bool | `no` | Send sanitized terminal output to manual/intent requests |
 | `:z4m:autosuggestions:ai context-output-lines` | int | `40` | Max lines captured from terminal output context |
 | `:z4m:autosuggestions:ai context-output-max-chars` | int | `2000` | Max chars kept from terminal output context |
 | `:z4m:autosuggestions:ai proxy-enabled` | bool | `no` | Enable tmux pane proxy fallback for output context |
@@ -91,17 +94,9 @@ See [keybindings.md](keybindings.md) for key binding reference.
 Autosuggestions are built into z4m. No installation is required.
 If `:z4m:autosuggestions:ai enabled` is `yes`, the API key environment variable must be set.
 
-Context policy is fixed in code:
-
-- project context is only used for manual rewrite and intent command lanes;
-- output context is only used for manual rewrite and intent command lanes;
-- output source is fixed to `tmux capture-pane -> proxy tail` (no kitty branch).
-
-The following legacy styles are now ignored (safe no-op):
-
-- `:z4m:autosuggestions:ai context-project-enabled`
-- `:z4m:autosuggestions:ai context-output-enabled`
-- `:z4m:autosuggestions:ai context-output-source`
+The command buffer or intent query is always sent when an AI request is
+triggered. PWD, project metadata, command history, and terminal output are
+separate opt-ins. Output capture uses `tmux capture-pane -> proxy tail`.
 
 Example:
 
@@ -129,11 +124,68 @@ zstyle ':z4m:autosuggestions:ai' rewrite-key '^O'
 # Intent command lane
 zstyle ':z4m:autosuggestions:ai' intent-command-enabled yes
 
+# Optional context sharing (all default to no)
+zstyle ':z4m:autosuggestions:ai' context-pwd-enabled no
+zstyle ':z4m:autosuggestions:ai' context-project-enabled no
+zstyle ':z4m:autosuggestions:ai' context-output-enabled no
+
 # Optional output-context proxy (tmux-only, default off)
 zstyle ':z4m:autosuggestions:ai' proxy-enabled no
 ```
 
 See [autosuggest.md](autosuggest.md) for runtime flow, lane design, and diagnostics details.
+
+## Dependency Integrity
+
+Built-in dependencies and the bundled Oh My Zsh example are resolved through
+`dependencies.lock` using an exact commit and SHA-256 digest. Custom GitHub
+repositories require both:
+
+```zsh
+zstyle ':z4m:owner/project' sha256 '<sha256>'
+z4m install owner/project@0123456789abcdef0123456789abcdef01234567
+```
+
+For temporary compatibility with legacy mutable plugin declarations:
+
+```zsh
+zstyle ':z4m:security' allow-unverified-downloads yes
+```
+
+This opt-out permits mutable and unverified code downloads and is not
+recommended for persistent configuration.
+
+During framework updates, an already-installed legacy unpinned plugin is copied
+forward without contacting the network, with a migration warning. This keeps
+existing shells usable while avoiding a new mutable download; pin the plugin to
+an exact commit and digest to resume verified updates.
+
+Stable bootstrap and update require GitHub CLI for artifact attestation
+verification and bind accepted provenance to
+`arcthur/zsh4monkey/.github/workflows/release.yml`. Public attestations can
+normally be read anonymously; if GitHub requests credentials or the anonymous
+API limit is exhausted, run `gh auth login` or set `GH_TOKEN`. Environments
+that cannot run GitHub CLI may set `Z4M_ALLOW_CHECKSUM_ONLY_RELEASES=1` before
+sourcing `.zshenv`. The adjacent checksum ships from the same host as the
+archive, so this drops the only independent anchor and falls back to
+trust-on-first-use; see [SECURITY.md](../SECURITY.md#release-trust-model).
+
+## Update Channel
+
+The default channel is `development` for installations that currently track
+`main`, and `stable` for versioned installations.
+
+```zsh
+zstyle ':z4m:update' channel stable
+```
+
+Supported values:
+
+- `stable`: resolve the latest versioned release and require checksum plus
+  GitHub artifact-attestation verification;
+- `development`: follow mutable `main` with an explicit warning;
+- `pinned`: retain the ref already present in `Z4M_URL`; versioned refs keep
+  release verification, while `main` remains unverified.
 
 ## Highlighting
 

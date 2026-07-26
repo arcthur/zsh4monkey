@@ -34,7 +34,7 @@ Intent command lane (z4m ai "...")
 |------|-------------|---------|----------------|
 | `autosuggest_fallback` | Internal fetch cycle, only in `passive`/`auto` mode | Fallback suggestion when local lanes miss and signal is strong | Writes suggestion overlay only |
 | `manual_rewrite` | `z4m-autosuggest-ai-trigger` (`Ctrl+O` by default) | Rewrite/extend current buffer | No input prefix required; provider `+` -> overlay, `=` -> replace `BUFFER` |
-| `intent_command` | `z4m ai "<query>"` | Convert natural language intent into one command | Queues result via `print -z` |
+| `intent_command` | `z4m ai "<query>"` | Convert natural language intent into one command | Queues interactively; prints non-interactively |
 
 ## Key Bindings and Entry Points
 
@@ -42,7 +42,7 @@ Intent command lane (z4m ai "...")
 |---------------|--------|
 | `Alt+M` | Accept current autosuggestion |
 | `Ctrl+O` | Trigger manual AI rewrite lane |
-| `z4m ai "<query>"` | Intent command lane |
+| `z4m ai [--print\|--json\|--queue] "<query>"` | Intent command lane with explicit output mode |
 | `z4m ai proxy status|on|off` | Manage tmux output-context proxy (v1) |
 | `z4m autosuggest status|doctor|events|reset` | Diagnostics and state inspection |
 
@@ -77,8 +77,12 @@ z4m ai "query"
   -> submit intent_command request
   -> harvest response (+/= protocol)
   -> return one command line
-  -> print -z (queued, not executed)
+  -> queue interactively or print non-interactively (never executed)
 ```
+
+Use `--print` for a plain command, `--json` for structured output, or
+`--queue` to require interactive queueing. The default is queueing in an
+interactive shell and plain stdout in a non-interactive shell.
 
 ## AI Response Protocol
 
@@ -90,14 +94,20 @@ Provider output must be exactly one protocol line:
 
 Any other output is rejected as `invalid_protocol`. The automatic fallback lane treats `!no_suggestion` as a silent no-op.
 
-## Context Strategy (Built-in)
+## Data Egress and Context
 
-Context policy is fixed in code:
+The command buffer or intent query is required request data. Every additional
+context source defaults to off:
 
-- Project context: only enabled for `manual_rewrite` and `intent_command`.
-- Output context: only enabled for `manual_rewrite` and `intent_command`.
-- Output source: fixed chain `tmux capture-pane -> proxy tail`.
-- Kitty-specific branch: not implemented.
+- PWD: `context-pwd-enabled`
+- Project metadata and top-level names: `context-project-enabled`
+- Sanitized terminal output: `context-output-enabled`
+- Command history: enabled only when `history-lines` is greater than zero
+
+Project and output context are limited to `manual_rewrite` and
+`intent_command`. Output capture uses `tmux capture-pane -> proxy tail`.
+Secret redaction is defense in depth and cannot guarantee that arbitrary
+credentials are removed; review these opt-ins against the configured provider.
 
 If context capture fails, request continues without output context (safe degradation).
 
@@ -132,14 +142,13 @@ export DEEPSEEK_API_KEY='your-token'
 zstyle ':z4m:autosuggestions:ai' mode manual
 zstyle ':z4m:autosuggestions:ai' rewrite-key '^O'
 zstyle ':z4m:autosuggestions:ai' intent-command-enabled yes
+zstyle ':z4m:autosuggestions:ai' context-pwd-enabled no
+zstyle ':z4m:autosuggestions:ai' context-project-enabled no
+zstyle ':z4m:autosuggestions:ai' context-output-enabled no
 zstyle ':z4m:autosuggestions:ai' proxy-enabled no
 ```
 
-Legacy context toggles are ignored (safe no-op):
-
-- `:z4m:autosuggestions:ai context-project-enabled`
-- `:z4m:autosuggestions:ai context-output-enabled`
-- `:z4m:autosuggestions:ai context-output-source`
+`context-output-source` remains unsupported; the source chain is fixed.
 
 ## Diagnostics and Observability
 

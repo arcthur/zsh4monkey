@@ -515,7 +515,7 @@ function -z4m-cmd-install() {
   fi
 
   # Allow both user/repo format and simple names for built-in packages.
-  local -a builtin_pkgs=(eza bat fd rg zoxide fzf carapace atuin)
+  local -a builtin_pkgs=(eza bat fd rg zoxide fzf carapace atuin powerlevel10k tmux)
   local pattern="(([^/]##/)##[^/]##|${(j:|:)builtin_pkgs})"
   local invalid=("${(@)args:#$~pattern}")
   if (( $#invalid )); then

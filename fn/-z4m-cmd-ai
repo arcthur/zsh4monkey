@@ -4,12 +4,24 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
   -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
 function -z4m-cmd-ai-usage() {
-  print -Pru2 -- 'Usage: %F{2}z4m%f %Bai%b <query>'
+  print -Pru2 -- 'Usage: %F{2}z4m%f %Bai%b [--print|--json|--queue] <query>'
   print -Pru2 -- '       %F{2}z4m%f %Bai%b proxy [status|on|off]'
   print -Pru2 -- ''
   print -Pru2 -- 'Examples:'
   print -Pru2 -- '  z4m ai "find largest files under current dir"'
   print -Pru2 -- '  z4m ai proxy status'
+}
+
+function -z4m-cmd-ai-json-escape() {
+  REPLY=$1
+  REPLY=${REPLY//\\/\\\\}
+  REPLY=${REPLY//\"/\\\"}
+  REPLY=${REPLY//$'\n'/\\n}
+  REPLY=${REPLY//$'\r'/\\r}
+  REPLY=${REPLY//$'\t'/\\t}
+  REPLY=${REPLY//$'\b'/\\b}
+  REPLY=${REPLY//$'\f'/\\f}
+  REPLY=${REPLY//[[:cntrl:]]/}
 }
 
 function -z4m-cmd-ai-load-runtime() {
@@ -103,7 +115,34 @@ if [[ $1 == (--help|-h|help) ]]; then
   return 0
 fi
 
+local output_mode=queue
+local -i output_mode_explicit=0
+case $1 in
+  --print)
+    output_mode=print
+    output_mode_explicit=1
+    shift
+    ;;
+  --json)
+    output_mode=json
+    output_mode_explicit=1
+    shift
+    ;;
+  --queue)
+    output_mode=queue
+    output_mode_explicit=1
+    shift
+    ;;
+esac
+if (( ! output_mode_explicit )) && [[ ! -o interactive ]]; then
+  output_mode=print
+fi
+
 if [[ $1 == proxy ]]; then
+  if (( output_mode_explicit )); then
+    print -Pru2 -- '%F{3}z4m%f: output modes are not supported for %Bai proxy%b'
+    return 1
+  fi
   shift
   local proxy_subcmd=${1-status}
   [[ $# -gt 0 ]] && shift
@@ -148,5 +187,20 @@ if [[ -z $command_line ]]; then
   return 1
 fi
 
-print -z -- "$command_line"
-print -Pr -- '%F{3}z4m%f: AI command queued to ZLE buffer (not executed)'
+case $output_mode in
+  print)
+    print -r -- "$command_line"
+    ;;
+  json)
+    -z4m-cmd-ai-json-escape "$command_line"
+    print -r -- "{\"command\":\"$REPLY\",\"executed\":false}"
+    ;;
+  queue)
+    if [[ ! -o interactive ]]; then
+      print -Pru2 -- '%F{3}z4m%f: %B--queue%b requires an interactive shell'
+      return 1
+    fi
+    print -z -- "$command_line"
+    print -Pr -- '%F{3}z4m%f: AI command queued to ZLE buffer (not executed)'
+    ;;
+esac

@@ -5,9 +5,41 @@
 | Command | Description |
 |---------|-------------|
 | `z4m init` | Initialize zsh (called in .zshrc) |
-| `z4m update` | Update z4m and z4m-managed packages |
+| `z4m update [--no-restart]` | Update z4m and managed packages; optionally return without restarting |
 | `z4m version` | Show version information |
 | `z4m help [cmd]` | Show help for command |
+
+Versioned installations use the stable release channel by default. Stable
+bootstrap and update require GitHub CLI for artifact attestation verification;
+verification is restricted to the repository's release workflow. Public
+attestations normally work anonymously; use `gh auth login` or `GH_TOKEN` if
+GitHub requests credentials or the anonymous API limit is exhausted. `main`
+remains an explicitly unverified development channel.
+
+The standalone installer supports both interactive setup and a declarative
+automation mode:
+
+```shell
+sh install --non-interactive \
+  --keyboard pc --editor emacs --tmux no --direnv no \
+  --existing backup --no-bootstrap
+```
+
+Existing files default to `backup`; `delete` and `fail` are explicit
+alternatives. Non-interactive mode does not bootstrap a new shell unless
+`--bootstrap` is supplied. Cache and startup-file replacements are staged as
+one transaction; handled activation failures restore the previous cache and
+startup files.
+
+| Installer option | Meaning |
+|------------------|---------|
+| `--non-interactive` | Disable prompts and use explicit or documented default values |
+| `--keyboard mac\|pc` | Select the keyboard layout |
+| `--editor emacs\|vi` | Select editor keybindings |
+| `--tmux yes\|no` | Enable or disable automatic tmux startup |
+| `--direnv yes\|no` | Enable or disable direnv integration |
+| `--existing backup\|delete\|fail` | Choose how existing startup files are handled |
+| `--bootstrap` / `--no-bootstrap` | Start initialization immediately or stop after writing files |
 
 ## Plugin Management
 
@@ -103,7 +135,7 @@ See [keybindings.md](keybindings.md) for available widgets.
 | Command | Description |
 |---------|-------------|
 | `z4m debug <subcommand>` | Debug utilities (mode, tracing, info) |
-| `z4m bench [n]` | Benchmark startup time (n iterations) |
+| `z4m bench [n] [--json] [--timeout seconds]` | Measure time to the first fully initialized prompt in a PTY |
 | `z4m time <cmd>` | Time command execution |
 | `z4m tty-wait -t <seconds> -p <pattern>` | Wait for terminal size to match a `LINES COLUMNS` pattern (non-tmux) |
 | `z4m env` | Show z4m environment variables |
@@ -113,14 +145,15 @@ See [keybindings.md](keybindings.md) for available widgets.
 
 | Command | Description |
 |---------|-------------|
-| `z4m ai "<query>"` | Generate one command from natural language and queue it for review (`print -z`) |
+| `z4m ai [--print\|--json\|--queue] "<query>"` | Generate one reviewable command; non-interactive calls print instead of queueing |
 | `z4m ai proxy [status\|on\|off]` | Manage tmux-only output-context proxy (optional) |
 | `z4m autosuggest [status\|doctor\|events\|reset]` | Inspect autosuggest/AI lane status, checks, and events |
 
 ### Benchmark Example
 
 ```bash
-z4m bench 10  # Average of 10 startup times
+z4m bench 10
+z4m bench 20 --json
 ```
 
 ### Debug Example
@@ -160,7 +193,7 @@ See [recovery.md](recovery.md) for details.
 
 | Command | Description |
 |---------|-------------|
-| `z4m-defer <cmd>` | Defer command until after prompt |
+| `z4m-defer <cmd> [arg ...]` | Defer an argv-preserving command until after prompt |
 
 ### Usage
 
@@ -168,8 +201,13 @@ Place after `z4m init`:
 
 ```zsh
 z4m-defer source ~/.local/share/slow-plugin/plugin.zsh
-z4m-defer eval "$(slow-tool init zsh)"
+z4m-defer eval 'eval "$(slow-tool init zsh)"'
 ```
+
+Arguments are retained exactly as passed. String evaluation only occurs when
+`eval` is explicitly supplied as the deferred command. Quote command
+substitutions that must run later; an unquoted or double-quoted substitution is
+expanded by the caller before `z4m-defer` can enqueue it.
 
 ### Caveats
 

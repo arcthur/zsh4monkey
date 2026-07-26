@@ -40,6 +40,7 @@ touch -- \
   "$src/node_modules/pkg/index.js" \
   "$src/src/keep.js" \
   "$src/src/skip.log" || exit 1
+command ln -s -- keep.txt "$src/link" || exit 1
 
 if ! -z4m-copy-path-with-excludes "$src" "$dst" preserve $'*.tmp\n.git\nnode_modules\nsrc/*.log'; then
   print -ru2 -- 'copy helper failed'
@@ -53,6 +54,21 @@ assert_missing "$dst/skip.tmp" 'exclude basename pattern'
 assert_missing "$dst/.git" 'exclude dotdir basename pattern'
 assert_missing "$dst/node_modules" 'exclude directory basename pattern'
 assert_missing "$dst/src/skip.log" 'exclude relative path pattern'
+if [[ ! -L $dst/link ]]; then
+  print -ru2 -- 'preserve mode did not retain a symbolic link'
+  ((failures++))
+fi
+
+follow_dst=$tmpdir/follow-dst
+if ! -z4m-copy-path-with-excludes "$src" "$follow_dst" follow $'*.tmp\n.git\nnode_modules\nsrc/*.log'; then
+  print -ru2 -- 'copy helper follow mode failed'
+  exit 1
+fi
+assert_exists "$follow_dst/link" 'materialized symbolic-link target'
+if [[ -L $follow_dst/link || $(<$follow_dst/link) != '' ]]; then
+  print -ru2 -- 'follow mode did not materialize a symbolic-link target'
+  ((failures++))
+fi
 
 if (( failures )); then
   exit 1

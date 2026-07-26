@@ -454,17 +454,19 @@ else
 fi
 
 {
-  local -a indices send_to send_from send_exclude
+  local -a indices send_to send_to_expression send_from send_exclude
   local -i index=0
   for src in ${(k)z4m_ssh_send_files}; do
     send_from+=($src)
     send_exclude+=('')
     send_to+=(${z4m_ssh_send_files[$src]})
+    send_to_expression+=(1)
   done
   for index in {1..$#z4m_ssh_extra_send_from}; do
     send_from+=(${z4m_ssh_extra_send_from[index]})
     send_to+=(${z4m_ssh_extra_send_to[index]})
     send_exclude+=(${z4m_ssh_extra_send_exclude[index]})
+    send_to_expression+=(0)
   done
 
   for index in {1..$#send_from}; do
@@ -475,7 +477,7 @@ fi
     [[ -e $src ]] || continue
 
     if [[ -n $exclude_blob ]]; then
-      -z4m-copy-path-with-excludes "$src" "$archive_path" preserve "$exclude_blob" || return
+      -z4m-copy-path-with-excludes "$src" "$archive_path" follow "$exclude_blob" || return
       [[ -e $archive_path || -L $archive_path ]] || continue
       indices+=($index)
       continue
@@ -490,7 +492,7 @@ fi
       print -Pru2 -- "%F{3}z4m%f: cannot send file: %F{1}${src//\%/%%}%f"
       return 1
     fi
-    zf_ln -s -- $target $archive_path || return
+    command cp -RLp -- $target $archive_path || return
     indices+=($index)
   done
 
@@ -508,9 +510,21 @@ fi
   script=${script//'^SSH_HOST^'/${(qq)z4m_ssh_host}}
   script=${script//'^SSH_CLIENT^'/${(qq)z4m_ssh_client}}
   script=${script//'^PRELUDE^'/${(F)z4m_ssh_prelude}}
-  script=${script//'^SEND_TO^'/${(j: :)send_to}}
+  local -a send_to_tokens
+  for index in {1..$#send_to}; do
+    if (( send_to_expression[index] )); then
+      send_to_tokens+=(${send_to[index]})
+    else
+      send_to_tokens+=(${(qq)send_to[index]})
+    fi
+  done
+  script=${script//'^SEND_TO^'/${(j: :)send_to_tokens}}
   script=${script//'^RUN^'/${(F)z4m_ssh_run}}
-  script=${script//'^DUMP_POS^'/${(r:8:: :)${#script}}}
+  if ! -z4m-ssh-payload-offset "$script"; then
+    print -Pru2 -- "%F{3}z4m%f: ssh bootstrap payload has an unusable size"
+    return 1
+  fi
+  script=${script//'^DUMP_POS^'/$REPLY}
 
   print -r -- $script >$tmpdir/script || return
 
@@ -523,7 +537,7 @@ fi
   (( ${#tar_x_opt} )) || tar_x_opt=()
 
   if (( $#indices )); then
-    COPYFILE_DISABLE=1 command tar -C $tmpdir $tar_c_opt -czhf - -- $indices >>$tmpdir/script || return
+    COPYFILE_DISABLE=1 command tar -C $tmpdir $tar_c_opt -czf - -- $indices >>$tmpdir/script || return
   fi
 
   local -a ssh_front upload_args exec_args
@@ -531,30 +545,36 @@ fi
   upload_args=("${ssh_front[@]}" -T "${@[pos[1],-1]}")
   exec_args=("${ssh_front[@]}" -t "${@[pos[1],-1]}")
 
-  local remote_script=.z4m-ssh.${(%):-%n}.$sysparams[pid].$EPOCHSECONDS.$RANDOM
-  local remote_script_exec=${(qq)remote_script}
-  local cmd="test -w /tmp && cat >/tmp/$remote_script && echo 1 && exit"
-  cmd+=" || "
-  cmd+="test ! -e /tmp/$remote_script && cat >~/$remote_script && echo 2"
+  local cmd='
+umask 077
+base=${TMPDIR:-/tmp}
+if test ! -d "$base" || test ! -w "$base"; then
+  base=$HOME
+fi
+command -v mktemp >/dev/null 2>&1 || exit 1
+remote_script=$(mktemp "$base/z4m-ssh.XXXXXXXXXX") || exit 1
+if cat >"$remote_script" && chmod 600 "$remote_script"; then
+  printf "__Z4M_REMOTE_SCRIPT__%s\n" "$remote_script"
+else
+  rc=$?
+  rm -f -- "$remote_script"
+  exit "$rc"
+fi'
 
   local loc
   loc=$("${z4m_ssh_command[@]}" "${upload_args[@]}" $cmd <$tmpdir/script) || return
 
-  case ${loc//[[:space:]]} in
-    1)
-      remote_script="/tmp/$remote_script"
-      remote_script_exec=${(qq)remote_script}
-      ;;
-    2)
-      remote_script_exec='$HOME/'${(qq)remote_script}
-      ;;
-    *)
-      print -Pru2 -- "%F{3}z4m%f: failed to upload bootstrap script"
-      return 1
-      ;;
-  esac
+  local line remote_script=
+  for line in ${(f)loc}; do
+    [[ $line == __Z4M_REMOTE_SCRIPT__/* ]] || continue
+    remote_script=${line#__Z4M_REMOTE_SCRIPT__}
+  done
+  if [[ $remote_script != /* || $remote_script == *[$'\r\n\t']* ]]; then
+    print -Pru2 -- "%F{3}z4m%f: failed to create secure remote bootstrap file"
+    return 1
+  fi
 
-  local remote_exec=${(qq)z4m_ssh_interpreter}' '$remote_script_exec
+  local remote_exec=${(qq)z4m_ssh_interpreter}' '${(qq)remote_script}
 
   TERM=${term:-$TERM} "${z4m_ssh_command[@]}" "${exec_args[@]}" "$remote_exec"
 } always {

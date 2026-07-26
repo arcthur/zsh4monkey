@@ -874,6 +874,10 @@ function -z4m-post-init() {
 precmd_functions=(-z4m-post-init $precmd_functions)
 [[ -e $Z4M/welcome ]] && precmd_functions+=(-z4m-welcome)
 
+if [[ -n ${Z4M_BENCHMARK_MARKER-} ]]; then
+  precmd_functions+=(-z4m-benchmark-precmd)
+fi
+
 # === Vi Mode Support ===
 # Load vi mode module (defines all vi mode functions)
 autoload -Uz -- -z4m-init-vi-mode

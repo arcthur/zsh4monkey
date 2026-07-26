@@ -1,0 +1,65 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install test dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y jq zsh
+
+      - name: Install test dependencies
+        if: runner.os == 'macOS'
+        run: brew install jq zsh
+
+      - name: Check shell syntax
+        run: |
+          for file in main.zsh .zshrc .zshrc.mac fn/*; do
+            case "$file" in
+              *.zwc) continue ;;
+            esac
+            zsh -n "$file"
+          done
+          for file in .zshenv install z4m.zsh sc/exec-zsh-i sc/setup sc/ssh-bootstrap sc/supply-chain tools/build-release tools/verify-dependencies tools/version-tag; do
+            sh -n "$file"
+          done
+
+      - name: Run Zsh tests
+        run: |
+          for test_file in test/*.zsh; do
+            zsh "$test_file"
+          done
+
+      - name: Run Python tests
+        run: python3 test/benchmark_startup.py
+
+      - name: Exercise release packaging
+        if: runner.os == 'Linux'
+        run: |
+          sh tools/build-release "$(sh tools/version-tag)" "$RUNNER_TEMP/release"
+          cd "$RUNNER_TEMP/release"
+          sha256sum -c SHA256SUMS
+
+  dependency-integrity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Verify locked dependency artifacts
+        run: sh tools/verify-dependencies

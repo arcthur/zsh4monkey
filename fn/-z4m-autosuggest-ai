@@ -28,6 +28,9 @@ function -z4m-autosuggest-ai-ensure() {
   : ${_z4m_autosuggest_ai_state[configured_rewrite_key]:=^O}
   : ${_z4m_autosuggest_ai_state[configured_intent_command_enabled]:=1}
   : ${_z4m_autosuggest_ai_state[configured_prompt_extend]:=}
+  : ${_z4m_autosuggest_ai_state[configured_context_pwd_enabled]:=0}
+  : ${_z4m_autosuggest_ai_state[configured_context_project_enabled]:=0}
+  : ${_z4m_autosuggest_ai_state[configured_context_output_enabled]:=0}
   : ${_z4m_autosuggest_ai_state[configured_context_output_lines]:=40}
   : ${_z4m_autosuggest_ai_state[configured_context_output_max_chars]:=2000}
   : ${_z4m_autosuggest_ai_state[configured_proxy_enabled]:=0}
@@ -126,7 +129,14 @@ function -z4m-autosuggest-ai-project-context-ttl-ms() {
 }
 
 function -z4m-autosuggest-ai-context-policy() {
-  REPLY=project:manual_intent,output:manual_intent,source:tmux_then_proxy
+  local pwd_policy=off project_policy=off output_policy=off
+  (( ${_z4m_autosuggest_ai_state[configured_context_pwd_enabled]:-0} )) &&
+    pwd_policy=all
+  (( ${_z4m_autosuggest_ai_state[configured_context_project_enabled]:-0} )) &&
+    project_policy=manual_intent
+  (( ${_z4m_autosuggest_ai_state[configured_context_output_enabled]:-0} )) &&
+    output_policy=manual_intent
+  REPLY="pwd:${pwd_policy},project:${project_policy},output:${output_policy},source:tmux_then_proxy"
 }
 
 function -z4m-autosuggest-ai-json-escape() {
@@ -575,9 +585,9 @@ function -z4m-autosuggest-ai-proxy-tail() {
   local log_file=
   if [[ -n $pane ]]; then
     -z4m-autosuggest-ai-proxy-log-path "$pane"
-    [[ -r $REPLY ]] && log_file=$REPLY
-  fi
-  if [[ -z $log_file ]]; then
+    [[ -r $REPLY ]] || return 1
+    log_file=$REPLY
+  else
     local -a latest=($dir/*.log(N.om[1]))
     (( ${#latest} )) || return 1
     log_file=$latest[1]
@@ -726,6 +736,7 @@ function -z4m-autosuggest-ai-read-config() {
   local -i max_input_tokens=384 max_output_tokens=96 history_lines=0
   local -i budget_per_minute=12000 budget_per_day=300000
   local -i rewrite_enabled=1 intent_command_enabled=1 proxy_enabled=0
+  local -i context_pwd_enabled=0 context_project_enabled=0 context_output_enabled=0
   local rewrite_key='^O'
   local prompt_extend=
   local -i context_output_lines=40 context_output_max_chars=2000
@@ -861,6 +872,30 @@ function -z4m-autosuggest-ai-read-config() {
 
   zstyle -s :z4m:autosuggestions:ai prompt-extend prompt_extend || prompt_extend=
 
+  if zstyle -s :z4m:autosuggestions:ai context-pwd-enabled value; then
+    if -z4m-autosuggest-ai-parse-bool "$value"; then
+      context_pwd_enabled=$REPLY
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid context-pwd-enabled=${value}; forcing no"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai context-project-enabled value; then
+    if -z4m-autosuggest-ai-parse-bool "$value"; then
+      context_project_enabled=$REPLY
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid context-project-enabled=${value}; forcing no"
+    fi
+  fi
+
+  if zstyle -s :z4m:autosuggestions:ai context-output-enabled value; then
+    if -z4m-autosuggest-ai-parse-bool "$value"; then
+      context_output_enabled=$REPLY
+    else
+      -z4m-autosuggest-ai-log warn ai-config "invalid context-output-enabled=${value}; forcing no"
+    fi
+  fi
+
   if zstyle -s :z4m:autosuggestions:ai context-output-lines value; then
     if [[ $value == <-> ]] && (( value > 0 )); then
       context_output_lines=$value
@@ -906,9 +941,14 @@ function -z4m-autosuggest-ai-read-config() {
   _z4m_autosuggest_ai_state[configured_rewrite_key]=$rewrite_key
   _z4m_autosuggest_ai_state[configured_intent_command_enabled]=$intent_command_enabled
   _z4m_autosuggest_ai_state[configured_prompt_extend]=$prompt_extend
+  _z4m_autosuggest_ai_state[configured_context_pwd_enabled]=$context_pwd_enabled
+  _z4m_autosuggest_ai_state[configured_context_project_enabled]=$context_project_enabled
+  _z4m_autosuggest_ai_state[configured_context_output_enabled]=$context_output_enabled
   _z4m_autosuggest_ai_state[configured_context_output_lines]=$context_output_lines
   _z4m_autosuggest_ai_state[configured_context_output_max_chars]=$context_output_max_chars
   _z4m_autosuggest_ai_state[configured_proxy_enabled]=$proxy_enabled
+  -z4m-autosuggest-ai-context-policy
+  _z4m_autosuggest_ai_state[context_policy]=$REPLY
 
   local api_key=${(P)api_key_env-}
   local -i api_key_present=$(( ${#api_key} > 0 ? 1 : 0 ))
@@ -1105,6 +1145,7 @@ function -z4m-autosuggest-ai-sanitize-output() {
 function -z4m-autosuggest-ai-output-context() {
   local mode=${1-}
   local pane=${2-}
+  (( ${_z4m_autosuggest_ai_state[configured_context_output_enabled]:-0} )) || return 1
   [[ $mode == manual_rewrite || $mode == intent_command ]] || return 1
 
   local -i max_lines=${_z4m_autosuggest_ai_state[configured_context_output_lines]:-40}
@@ -1199,7 +1240,12 @@ function -z4m-autosuggest-ai-build-payload() {
   fi
 
   user_prompt+=$'\nENV:\n'
-  user_prompt+="PWD: $PWD"$'\n'
+  if [[ $mode != autosuggest_fallback ]] &&
+     (( ${_z4m_autosuggest_ai_state[configured_context_pwd_enabled]:-0} )); then
+    user_prompt+="PWD: $PWD"$'\n'
+  else
+    user_prompt+=$'PWD: <not-shared>\n'
+  fi
 
   local buffer_hint=command_prefix
   if [[ -z $buffer ]]; then
@@ -1224,7 +1270,8 @@ function -z4m-autosuggest-ai-build-payload() {
   -z4m-autosuggest-ai-buffer-meta "$buffer"
   [[ -n $REPLY ]] && user_prompt+=$'\n'"$REPLY"$'\n'
 
-  if [[ $mode != autosuggest_fallback ]]; then
+  if [[ $mode != autosuggest_fallback ]] &&
+     (( ${_z4m_autosuggest_ai_state[configured_context_project_enabled]:-0} )); then
     -z4m-autosuggest-ai-project-context "$mode"
     [[ -n $REPLY ]] && user_prompt+=$'\n'"$REPLY"$'\n'
   fi
@@ -2156,6 +2203,9 @@ function -z4m-autosuggest-ai-status() {
   print -r -- "ai_rewrite_key=${_z4m_autosuggest_ai_state[configured_rewrite_key]-^O}"
   print -r -- "ai_intent_command_enabled=${_z4m_autosuggest_ai_state[configured_intent_command_enabled]:-1}"
   print -r -- "ai_prompt_extend=${prompt_extend}"
+  print -r -- "ai_context_pwd_enabled=${_z4m_autosuggest_ai_state[configured_context_pwd_enabled]:-0}"
+  print -r -- "ai_context_project_enabled=${_z4m_autosuggest_ai_state[configured_context_project_enabled]:-0}"
+  print -r -- "ai_context_output_enabled=${_z4m_autosuggest_ai_state[configured_context_output_enabled]:-0}"
   print -r -- "ai_context_output_lines=${_z4m_autosuggest_ai_state[configured_context_output_lines]:-40}"
   print -r -- "ai_context_output_max_chars=${_z4m_autosuggest_ai_state[configured_context_output_max_chars]:-2000}"
   -z4m-autosuggest-ai-context-policy

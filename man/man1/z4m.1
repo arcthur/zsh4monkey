@@ -1,6 +1,6 @@
 .\" z4m - zsh4monkey shell configuration framework
 .\" Keep in sync with fn/-z4m-cmd-help
-.Dd December 30, 2025
+.Dd July 26, 2026
 .Dt Z4M 1
 .Os
 .Sh NAME
@@ -15,7 +15,7 @@
 is a modern, feature-rich Zsh configuration framework that provides:
 .Bl -bullet -compact
 .It
-Zero-config excellence with sub-50ms startup
+Measured startup behavior with PTY-based readiness benchmarks
 .It
 Syntax highlighting and smart autosuggestions
 .It
@@ -37,13 +37,31 @@ Initialize Zsh.
 Should be called exactly once from
 .Pa ~/.zshrc .
 This sets up completion, keybindings, prompt, and all features.
-.It Cm update
+.It Cm update Op Fl n | Fl -no-restart
 Update
 .Nm zsh4monkey
-and all installed dependencies including fzf, powerlevel10k,
-built-in zsh-autosuggestions, and built-in fast-syntax-highlighting.
-.It Cm install Oo Fl r | Fl -resolve Oc Ar user/project Ns Op @ Ns Ar branch
+and managed remote dependencies.
+Bundled components update with the framework.
+System package-manager tools such as
+.Cm fzf
+are detected but not upgraded.
+Versioned installations follow the stable release channel by default.
+Stable bootstrap and update require
+.Cm gh
+to verify GitHub artifact attestations from the repository release workflow.
+Installations from
+.Cm main
+follow the development channel.
+Use
+.Fl n
+or
+.Fl -no-restart
+to return to the caller after a successful update.
+.It Cm install Oo Fl r | Fl -resolve Oc Ar user/project Ns Op @ Ns Ar ref
 Register GitHub project(s) or built-in packages in the install queue.
+Custom projects require an immutable commit and a matching
+.Cm sha256
+style unless unverified downloads are explicitly enabled.
 Use
 .Fl r
 to resolve the queue immediately.
@@ -116,10 +134,22 @@ Enable tracing for function
 .It Cm status
 Show current debug status
 .El
-.It Cm bench Op Ar count
-Measure shell startup time.
+.It Cm bench Op Ar count Op Fl -json Op Fl -timeout Ar seconds
+Measure interactive shell time-to-ready through a pseudo-terminal.
 Default: 10 iterations.
-Reports min, max, and average startup time.
+Reports p50, p95, min, max, and mean startup time as text, or as structured
+output when
+.Fl -json
+is supplied.
+.It Cm ai Oo Fl -print | Fl -json | Fl -queue Oc Ar query
+Generate one command from natural-language intent without executing it.
+Interactive calls queue the command for review by default; non-interactive
+calls print it.
+Use
+.Fl -queue
+to require interactive queueing.
+.It Cm ai Cm proxy Oo status | on | off Oc
+Inspect or control the optional tmux output-context proxy.
 .It Cm autosuggest Oo status | doctor | events | reset Oc Op Ar options
 Inspect and control the autosuggestions subsystem.
 .Bl -tag -width "events --tail N" -compact
@@ -129,7 +159,7 @@ Also includes AI lane model configuration and token budget counters.
 .It Cm doctor Op Fl -json Op Fl -no-init
 Run autosuggest consistency checks.
 Exit codes: 0 (healthy), 1 (warnings/degraded), 2 (errors).
-.It Cm events Op Fl -tail Ar N Oc Op Fl -json
+.It Cm events Oo Fl -tail Ar N Oc Op Fl -json
 Show recent autosuggest lifecycle events (init/fetch/reset/degrade).
 .It Cm reset Op Fl -json
 Reset autosuggest runtime state without changing configuration.
@@ -142,7 +172,7 @@ Show configured backend, active backend, lifecycle state, and vendor metadata.
 .It Cm doctor Op Fl -json Op Fl -no-init
 Run highlight consistency checks.
 Exit codes: 0 (healthy), 1 (warnings/degraded), 2 (errors).
-.It Cm events Op Fl -tail Ar N Oc Op Fl -json
+.It Cm events Oo Fl -tail Ar N Oc Op Fl -json
 Show recent highlight lifecycle events (init/render/degrade/reset).
 .It Cm reset Op Fl -json
 Reset highlight caches and runtime state without changing configuration.
@@ -254,10 +284,11 @@ Initialize zsh (in .zshrc):
 z4m init
 .Ed
 .Pp
-Install a plugin from GitHub:
+Register managed dependencies:
 .Bd -literal -offset indent
-z4m install romkatv/powerlevel10k
-z4m install ohmyzsh/ohmyzsh@master
+z4m install powerlevel10k
+zstyle ':z4m:owner/project' sha256 '<sha256>'
+z4m install owner/project@0123456789abcdef0123456789abcdef01234567
 .Ed
 .Pp
 SSH with teleportation:
@@ -290,11 +321,11 @@ Toggle Vi mode:
 z4m vi-mode toggle
 .Ed
 .Sh SEE ALSO
-.Xr z4m-ssh 1 ,
-.Xr z4m-bindkey 1 ,
-.Xr zsh 1 ,
+.Xr fzf 1 ,
 .Xr tmux 1 ,
-.Xr fzf 1
+.Xr z4m-bindkey 1 ,
+.Xr z4m-ssh 1 ,
+.Xr zsh 1
 .Sh AUTHORS
 .An arcthur
 .Sh BUGS

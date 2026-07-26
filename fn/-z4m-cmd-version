@@ -144,6 +144,22 @@ fi
 if (( check_update )); then
   print -Pr -- ""
   print -Pr -- "%F{3}z4m%f: checking for updates..."
-  print -Pr -- ""
-  print -Pr -- "  Run %Bz4m update%b to update all components"
+  if -z4m-resolve-update-url; then
+    local current_ref=${Z4M_URL:t}
+    local target_ref=${REPLY:t}
+    print -Pr -- ""
+    print -Pr -- "  %Bcurrent ref%b: $current_ref"
+    print -Pr -- "  %Btarget ref%b:  $target_ref"
+    if [[ $target_ref == main ]]; then
+      print -Pr -- "  %Bstatus%b:      mutable development target; run %Bz4m update%b to refresh"
+    elif [[ $current_ref == $target_ref ]]; then
+      print -Pr -- "  %Bstatus%b:      current channel target is installed"
+    else
+      print -Pr -- "  %Bstatus%b:      run %Bz4m update%b to install $target_ref"
+    fi
+  else
+    print -Pr -- ""
+    print -Pru2 -- "  %F{1}unable to resolve update channel%f"
+    return 1
+  fi
 fi

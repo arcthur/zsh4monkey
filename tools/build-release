@@ -1,0 +1,90 @@
+#!/bin/sh
+
+set -eu
+
+tag=${1-}
+output_directory=${2-}
+repository="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+
+case "$tag" in
+  v[0-9]*) ;;
+  *)
+    >&2 printf 'usage: tools/build-release <version-tag> <output-directory>\n'
+    exit 1
+    ;;
+esac
+
+if [ -z "$output_directory" ]; then
+  >&2 printf 'usage: tools/build-release <version-tag> <output-directory>\n'
+  exit 1
+fi
+
+expected_tag="$(command sh "$repository/tools/version-tag")"
+
+if [ "$tag" != "$expected_tag" ]; then
+  >&2 printf 'tag %s does not match version %s\n' "$tag" "$expected_tag"
+  exit 1
+fi
+
+case "$output_directory" in
+  /*) ;;
+  *) output_directory="$repository/$output_directory" ;;
+esac
+
+mkdir -p -- "$output_directory"
+archive="$output_directory/zsh4monkey-$tag.tar.gz"
+checksum="$archive.sha256"
+release_installer="$output_directory/install"
+checksums="$output_directory/SHA256SUMS"
+
+for output in "$archive" "$checksum" "$release_installer" "$checksums"; do
+  if [ -e "$output" ]; then
+    >&2 printf 'refusing to overwrite release output: %s\n' "$output"
+    exit 1
+  fi
+done
+
+temporary_directory="$(mktemp -d)"
+cleanup() {
+  trap - EXIT HUP INT TERM
+  rm -rf -- "$temporary_directory"
+}
+trap 'cleanup; exit 129' HUP
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap cleanup EXIT
+
+package_name="zsh4monkey-$tag"
+package_directory="$temporary_directory/$package_name"
+mkdir -p -- "$package_directory"
+git -C "$repository" archive --format=tar HEAD |
+  tar -C "$package_directory" -xf -
+
+source_date_epoch="$(git -C "$repository" show -s --format=%ct HEAD)"
+tar -C "$temporary_directory" \
+  --sort=name \
+  --mtime="@$source_date_epoch" \
+  --owner=0 \
+  --group=0 \
+  --numeric-owner \
+  -cf - "$package_name" |
+  gzip -n >"$archive"
+
+z4m_sha256="$(sha256sum "$package_directory/z4m.zsh" | awk '{ print $1 }')"
+zshenv_sha256="$(sha256sum "$package_directory/.zshenv" | awk '{ print $1 }')"
+zshrc_sha256="$(sha256sum "$package_directory/.zshrc" | awk '{ print $1 }')"
+zshrc_mac_sha256="$(sha256sum "$package_directory/.zshrc.mac" | awk '{ print $1 }')"
+sed \
+  -e "s/^z4m_default_install_ref='main'$/z4m_default_install_ref='$tag'/" \
+  -e "s/^z4m_default_z4m_sha256=''$/z4m_default_z4m_sha256='$z4m_sha256'/" \
+  -e "s/^z4m_default_zshenv_sha256=''$/z4m_default_zshenv_sha256='$zshenv_sha256'/" \
+  -e "s/^z4m_default_zshrc_sha256=''$/z4m_default_zshrc_sha256='$zshrc_sha256'/" \
+  -e "s/^z4m_default_zshrc_mac_sha256=''$/z4m_default_zshrc_mac_sha256='$zshrc_mac_sha256'/" \
+  "$package_directory/install" >"$release_installer"
+chmod 755 "$release_installer"
+
+sha256sum "$archive" | awk '{ print $1 }' >"$checksum"
+(
+  cd -- "$output_directory"
+  sha256sum "$(basename -- "$archive")" "$(basename -- "$release_installer")"
+) >"$checksums"

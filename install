@@ -9,6 +9,142 @@ fi
 platform="$('command' 'uname' '-sm')"
 platform="$('printf' '%s' "$platform" | 'command' 'tr' '[A-Z]' '[a-z]')"
 
+z4m_default_install_ref='main'
+z4m_default_z4m_sha256=''
+z4m_default_zshenv_sha256=''
+z4m_default_zshrc_sha256=''
+z4m_default_zshrc_mac_sha256=''
+z4m_install_ref="${Z4M_INSTALL_REF:-$z4m_default_install_ref}"
+non_interactive='0'
+keyboard=''
+editor_mode=''
+tmux=''
+direnv=''
+existing_action='backup'
+existing_option_set='0'
+bootstrap_mode='auto'
+
+# Line prefixes the .zshrc rewrites anchor on. They must stay in sync with the
+# shipped .zshrc and .zshrc.mac, so every anchor is verified right after the
+# download and every rewrite verifies its own result. A renamed comment then
+# fails loudly instead of silently dropping configuration.
+zshrc_anchor_keyboard='# Keyboard type:'
+zshrc_anchor_direnv='# Enable direnv'
+zshrc_anchor_repositories='# Register additional Git repositories from GitHub.'
+
+usage() {
+  'cat' <<'EOF'
+Usage: install [options]
+
+Options:
+  --non-interactive           Install without a TTY
+  --keyboard mac|pc           Select keyboard layout
+  --editor emacs|vi           Select editor keybindings
+  --tmux yes|no               Enable or disable automatic tmux
+  --direnv yes|no             Enable or disable direnv integration
+  --existing backup|delete|fail
+                              Handle existing Zsh startup files
+  --bootstrap                 Bootstrap Zsh after installing
+  --no-bootstrap              Finish after writing the installation
+  -h, --help                  Show this help
+EOF
+}
+
+while '[' "$#" '-gt' '0' ']'; do
+  case "$1" in
+    --non-interactive)
+      non_interactive='1'
+      'shift'
+      ;;
+    --keyboard|--editor|--tmux|--direnv|--existing)
+      option=$1
+      'shift'
+      if '[' "$#" '-eq' '0' ']'; then
+        >&2 'printf' '\033[33mz4m\033[0m: missing value for %s\n' "$option"
+        'exit' '1'
+      fi
+      case "$option" in
+        --keyboard) keyboard=$1 ;;
+        --editor) editor_mode=$1 ;;
+        --tmux) tmux=$1 ;;
+        --direnv) direnv=$1 ;;
+        --existing) existing_action=$1; existing_option_set='1' ;;
+      esac
+      'shift'
+      ;;
+    --bootstrap)
+      bootstrap_mode='yes'
+      'shift'
+      ;;
+    --no-bootstrap)
+      bootstrap_mode='no'
+      'shift'
+      ;;
+    -h|--help)
+      'usage'
+      'exit' '0'
+      ;;
+    *)
+      >&2 'printf' '\033[33mz4m\033[0m: unknown option: \033[31m%s\033[0m\n' "$1"
+      'usage' >&2
+      'exit' '1'
+      ;;
+  esac
+done
+
+case "$z4m_install_ref" in
+  ''|*[!A-Za-z0-9._-]*)
+    >&2 'printf' '\033[33mz4m\033[0m: invalid install ref: \033[31m%s\033[0m\n' "$z4m_install_ref"
+    'exit' '1'
+    ;;
+esac
+if '[' "$z4m_install_ref" '!=' "$z4m_default_install_ref" ']' &&
+   '[' '-n' "$z4m_default_z4m_sha256" ']'; then
+  >&2 'printf' '\033[33mz4m\033[0m: release installer ref cannot be overridden\n'
+  'exit' '1'
+fi
+
+verify_sha256() {
+  file=$1
+  expected=$2
+  label=$3
+  '[' '-n' "$expected" ']' || return 0
+
+  if command -v 'sha256sum' >'/dev/null' 2>&1; then
+    actual="$('command' 'sha256sum' "$file")"
+    actual="${actual%% *}"
+  elif command -v 'shasum' >'/dev/null' 2>&1; then
+    actual="$('command' 'shasum' '-a' '256' "$file")"
+    actual="${actual%% *}"
+  elif command -v 'openssl' >'/dev/null' 2>&1; then
+    actual="$('command' 'openssl' 'dgst' '-sha256' "$file")"
+    actual="${actual##* }"
+  else
+    >&2 'printf' '\033[33mz4m\033[0m: SHA-256 tool required to verify %s\n' "$label"
+    return 1
+  fi
+
+  actual="$('printf' '%s' "$actual" | 'command' 'tr' '[A-F]' '[a-f]')"
+  if '[' "$actual" '!=' "$expected" ']'; then
+    >&2 'printf' '\033[33mz4m\033[0m: SHA-256 verification failed for \033[31m%s\033[0m\n' "$label"
+    return 1
+  fi
+}
+
+require_zshrc_anchor() {
+  if ! 'command' 'grep' '-Fq' "$1" "$zshrc"; then
+    >&2 'printf' '\033[33mz4m\033[0m: downloaded \033[31m.zshrc\033[0m is missing anchor: \033[31m%s\033[0m\n' "$1"
+    'exit' '1'
+  fi
+}
+
+require_zshrc_line() {
+  if ! 'command' 'grep' '-Fq' "$1" "$zshrc"; then
+    >&2 'printf' '\033[33mz4m\033[0m: generated \033[31m.zshrc\033[0m is missing: \033[31m%s\033[0m\n' "$1"
+    'exit' '1'
+  fi
+}
+
 case "$platform" in
   'darwin arm64');;
   'darwin x86_64');;
@@ -25,9 +161,9 @@ case "$platform" in
 esac
 
 if command -v 'curl' >'/dev/null' 2>&1; then
-  fetch='command curl -fsSLo'
+  fetch='command curl --connect-timeout 10 --max-time 120 --retry 2 -fsSLo'
 elif command -v 'wget' >'/dev/null' 2>&1; then
-  fetch='command wget -O'
+  fetch='command wget --timeout=120 --tries=2 -O'
 else
   >&2 'printf' '\033[33mz4m\033[0m: please install \033[32mcurl\033[0m or \033[32mwget\033[0m\n'
   'exit' '1'
@@ -48,34 +184,146 @@ if '[' "$euid" '=' '0' ']'; then
   fi
 fi
 
-if '[' '!' '-t' '0' ']'; then
-  >&2 'printf' '\033[33mz4m\033[0m: standard input is not a \033[1mTTY\033[0m\n'
-  'exit' '1'
+if '[' "$non_interactive" '=' '1' ']'; then
+  case "$keyboard" in
+    '') case "$platform" in darwin*) keyboard='mac' ;; *) keyboard='pc' ;; esac ;;
+    mac|pc) ;;
+    *) >&2 'printf' '\033[33mz4m\033[0m: invalid keyboard: \033[31m%s\033[0m\n' "$keyboard"; 'exit' '1' ;;
+  esac
+  case "$editor_mode" in
+    '') editor_mode='emacs' ;;
+    emacs|vi) ;;
+    *) >&2 'printf' '\033[33mz4m\033[0m: invalid editor: \033[31m%s\033[0m\n' "$editor_mode"; 'exit' '1' ;;
+  esac
+  case "$tmux" in
+    '') tmux='no' ;;
+    yes|no) ;;
+    *) >&2 'printf' '\033[33mz4m\033[0m: invalid tmux value: \033[31m%s\033[0m\n' "$tmux"; 'exit' '1' ;;
+  esac
+  case "$direnv" in
+    '') direnv='no' ;;
+    yes|no) ;;
+    *) >&2 'printf' '\033[33mz4m\033[0m: invalid direnv value: \033[31m%s\033[0m\n' "$direnv"; 'exit' '1' ;;
+  esac
+  case "$existing_action" in
+    backup|delete|fail) ;;
+    *) >&2 'printf' '\033[33mz4m\033[0m: invalid existing-files action: \033[31m%s\033[0m\n' "$existing_action"; 'exit' '1' ;;
+  esac
+  '[' "$bootstrap_mode" '!=' 'auto' ']' || bootstrap_mode='no'
+  saved_tty_settings=''
+else
+  if '[' -n "$keyboard$editor_mode$tmux$direnv" ']' ||
+     '[' "$existing_option_set" '=' '1' ']'; then
+    >&2 'printf' '\033[33mz4m\033[0m: configuration options require --non-interactive\n'
+    'exit' '1'
+  fi
+  if '[' '!' '-t' '0' ']'; then
+    >&2 'printf' '\033[33mz4m\033[0m: standard input is not a \033[1mTTY\033[0m\n'
+    'exit' '1'
+  fi
+  if '[' '!' '-t' '1' ']'; then
+    >&2 'printf' '\033[33mz4m\033[0m: standard output is not a \033[1mTTY\033[0m\n'
+    'exit' '1'
+  fi
+  if '[' '!' '-t' '2' ']'; then
+    >&2 'printf' '\033[33mz4m\033[0m: standard error is not a \033[1mTTY\033[0m\n'
+    'exit' '1'
+  fi
+  '[' "$bootstrap_mode" '!=' 'auto' ']' || bootstrap_mode='yes'
+  saved_tty_settings="$('command' 'stty' '-g')"
 fi
-
-if '[' '!' '-t' '1' ']'; then
-  >&2 'printf' '\033[33mz4m\033[0m: standard output is not a \033[1mTTY\033[0m\n'
-  'exit' '1'
-fi
-
-if '[' '!' '-t' '2' ']'; then
-  >&2 'printf' '\033[33mz4m\033[0m: standard error is not a \033[1mTTY\033[0m\n'
-  'exit' '1'
-fi
-
-saved_tty_settings="$('command' 'stty' '-g')"
 
 zshenv=''
 zshrc=''
 z4m=''
+install_started='0'
+install_committed='0'
+startup_rollback=''
+startup_installed=''
+cache_stage=''
+cache_rollback=''
+cache_activated='0'
+cache_old_moved='0'
+
+rollback_install() {
+  rollback_ok='1'
+
+  if '[' '-n' "$startup_installed" ']'; then
+    (
+      'cd' "$HOME" &&
+        'command' 'rm' '-f' '--' $startup_installed
+    ) || rollback_ok='0'
+  fi
+
+  if '[' '-n' "$startup_rollback" ']' && '[' '-d' "$startup_rollback" ']'; then
+    for rollback_name in $rcs; do
+      if '[' '-e' "$startup_rollback/$rollback_name" ']' ||
+         '[' '-L' "$startup_rollback/$rollback_name" ']'; then
+        if '[' '-e' "$HOME/$rollback_name" ']' ||
+           '[' '-L' "$HOME/$rollback_name" ']'; then
+          rollback_ok='0'
+          continue
+        fi
+        'command' 'mv' '--' "$startup_rollback/$rollback_name" "$HOME/$rollback_name" ||
+          rollback_ok='0'
+      fi
+    done
+  fi
+
+  if '[' "$cache_activated" '=' '1' ']'; then
+    'command' 'rm' '-rf' '--' "$Z4M" || rollback_ok='0'
+    cache_activated='0'
+  fi
+  if '[' "$cache_old_moved" '=' '1' ']' &&
+     { '[' '-e' "$cache_rollback" ']' || '[' '-L' "$cache_rollback" ']'; }; then
+    if '[' '-e' "$Z4M" ']' || '[' '-L' "$Z4M" ']'; then
+      rollback_ok='0'
+    elif 'command' 'mv' '--' "$cache_rollback" "$Z4M"; then
+      cache_old_moved='0'
+    else
+      rollback_ok='0'
+    fi
+  fi
+
+  '[' "$rollback_ok" '=' '1' ']'
+}
 
 cleanup() {
   'trap' '-' 'INT' 'TERM' 'EXIT'
-  'command' 'rm' '-f' '--' "$zshenv" "$zshrc" "${zshrc:+$zshrc.bak}" "$z4m"
-  'command' 'stty' "$saved_tty_settings"
+  cleanup_ok='1'
+  if '[' "$install_started" '=' '1' ']' &&
+     '[' "$install_committed" '!=' '1' ']' &&
+     ! 'rollback_install'; then
+    cleanup_ok='0'
+    >&2 'printf' '\033[33mz4m\033[0m: install rollback incomplete; preserving transaction state\n'
+    '[' '-z' "$startup_rollback" ']' ||
+      >&2 'printf' '\033[33mz4m\033[0m: startup backup: \033[31m%s\033[0m\n' "$startup_rollback"
+    '[' '-z' "$cache_rollback" ']' ||
+      >&2 'printf' '\033[33mz4m\033[0m: cache backup: \033[31m%s\033[0m\n' "$cache_rollback"
+  fi
+  'command' 'rm' '-f' '--' "$zshenv" "${zshenv:+$zshenv.bak}" "$zshrc" "${zshrc:+$zshrc.bak}" "$z4m"
+  if '[' "$cleanup_ok" '=' '1' ']'; then
+    '[' '-z' "$cache_stage" ']' || 'command' 'rm' '-rf' '--' "$cache_stage"
+    '[' '-z' "$startup_rollback" ']' || 'command' 'rm' '-rf' '--' "$startup_rollback"
+    if '[' "$cache_old_moved" '!=' '1' ']'; then
+      '[' '-z' "$cache_rollback" ']' || 'command' 'rm' '-rf' '--' "$cache_rollback"
+    fi
+  fi
+  if '[' '-n' "$saved_tty_settings" ']'; then
+    'command' 'stty' "$saved_tty_settings"
+  fi
+  '[' "$cleanup_ok" '=' '1' ']'
 }
 
-'trap' 'cleanup' 'INT' 'TERM' 'EXIT'
+on_exit() {
+  exit_status=$?
+  'cleanup' || exit_status='1'
+  'exit' "$exit_status"
+}
+
+'trap' 'cleanup; exit 130' 'INT'
+'trap' 'cleanup; exit 143' 'TERM'
+'trap' 'on_exit' 'EXIT'
 
 lf='
 '
@@ -93,6 +341,20 @@ read_choice() {
   '[' "$choice" '=' "$lf" ] || 'echo'
 }
 
+if '[' "$non_interactive" '=' '1' ']'; then
+  case "$keyboard" in
+    mac)
+      bs_key='Delete'
+      zshrc_suffix='.mac'
+      ;;
+    pc)
+      bs_key='Backspace'
+      zshrc_suffix=''
+      ;;
+  esac
+  case "$tmux" in yes) tmux='1' ;; no) tmux='0' ;; esac
+  case "$direnv" in yes) direnv='1' ;; no) direnv='0' ;; esac
+else
 >&2 'printf' 'Greetings, Money!\n'
 >&2 'printf' '\n'
 >&2 'printf' 'What kind of \033[1mkeyboard\033[0m are you using?\n'
@@ -215,6 +477,7 @@ while 'true'; do
     ;;
   esac
 done
+fi
 
 rcs=''
 
@@ -223,7 +486,11 @@ for f in ~/'.zshenv' ~/'.zshenv.zwc'     \
          ~/'.zshrc' ~/'.zshrc.zwc'       \
          ~/'.zlogin' ~/'.zlogin.zwc'     \
          ~/'.zlogout' ~/'.zlogout.zwc'; do
-  if '[' '-e' "$f" ']'; then
+  if '[' '-d' "$f" ']' && '[' '!' '-L' "$f" ']'; then
+    >&2 'printf' '\033[33mz4m\033[0m: refusing directory-valued startup path: \033[31m%s\033[0m\n' "$f"
+    'exit' '1'
+  fi
+  if '[' '-e' "$f" ']' || '[' '-L' "$f" ']'; then
     rcs="$rcs ${f##*/}"
   fi
 done
@@ -242,42 +509,57 @@ if '[' '-n' "$rcs" ']'; then
     done
     backup_dir="$backup_dir.$i"
   fi
-  >&2 'printf' '\n'
-  >&2 'printf' 'You have the following Zsh \033[1mstartup files\033[0m:\n'
-  >&2 'printf' '\n'
-  for f in $rcs; do
-    >&2 'printf' '    \033[4m~/%s\033[0m\n' "$f"
-  done
-  >&2 'printf' '\n'
-  >&2 'printf' 'What should I do with them?\n'
-  >&2 'printf' '\n'
-  >&2 'printf' '  \033[1m(1)\033[0m  Move them to \033[4m~/%s\033[0m. \033[1mRecommended\033[0m.\n' "$backup_dir"
-  >&2 'printf' '  \033[1m(2)\033[0m  Delete them.\n'
-  >&2 'printf' '  \033[1m(q)\033[0m  Quit and do nothing.\n'
-  >&2 'printf' '\n'
-  while 'true'; do
-    >&2 'printf' '\033[1mChoice [12q]:\033[0m '
-    'read_choice'
-    case "$choice" in
-      '1')
+  if '[' "$non_interactive" '=' '1' ']'; then
+    case "$existing_action" in
+      backup)
         backup_dir="$HOME/$backup_dir"
-        'break'
-      ;;
-      '2')
+        ;;
+      delete)
         backup_dir=''
-        'break'
-      ;;
-      'q'|'Q')
+        ;;
+      fail)
+        >&2 'printf' '\033[33mz4m\033[0m: existing Zsh startup files found; refusing non-interactive replacement\n'
         'exit' '1'
-      ;;
-      "$lf")
-      ;;
-      *)
-        >&2 'printf' '\033[33mz4m\033[0m: invalid choice: \033[31m%s\033[0m\n' "$choice"
-      ;;
+        ;;
     esac
-  done
-  >&2 'printf' '\n'
+  else
+    >&2 'printf' '\n'
+    >&2 'printf' 'You have the following Zsh \033[1mstartup files\033[0m:\n'
+    >&2 'printf' '\n'
+    for f in $rcs; do
+      >&2 'printf' '    \033[4m~/%s\033[0m\n' "$f"
+    done
+    >&2 'printf' '\n'
+    >&2 'printf' 'What should I do with them?\n'
+    >&2 'printf' '\n'
+    >&2 'printf' '  \033[1m(1)\033[0m  Move them to \033[4m~/%s\033[0m. \033[1mRecommended\033[0m.\n' "$backup_dir"
+    >&2 'printf' '  \033[1m(2)\033[0m  Delete them.\n'
+    >&2 'printf' '  \033[1m(q)\033[0m  Quit and do nothing.\n'
+    >&2 'printf' '\n'
+    while 'true'; do
+      >&2 'printf' '\033[1mChoice [12q]:\033[0m '
+      'read_choice'
+      case "$choice" in
+        '1')
+          backup_dir="$HOME/$backup_dir"
+          'break'
+        ;;
+        '2')
+          backup_dir=''
+          'break'
+        ;;
+        'q'|'Q')
+          'exit' '1'
+        ;;
+        "$lf")
+        ;;
+        *)
+          >&2 'printf' '\033[33mz4m\033[0m: invalid choice: \033[31m%s\033[0m\n' "$choice"
+        ;;
+      esac
+    done
+    >&2 'printf' '\n'
+  fi
 fi
 
 if command -v 'mktemp' >'/dev/null' 2>&1; then
@@ -290,7 +572,7 @@ else
   z4m="$HOME"/.z4m.tmp."$$"
 fi
 
-url='https://raw.githubusercontent.com/arcthur/zsh4monkey/main'
+url="https://raw.githubusercontent.com/arcthur/zsh4monkey/$z4m_install_ref"
 
 >&2 'printf' '\n'
 >&2 'printf' 'Setting up \033[33mZsh for Monkey\033[0m...\n'
@@ -303,6 +585,7 @@ if ! err="$($fetch "$z4m" '--' "$url"/z4m.zsh 2>&1)"; then
   'command' 'rm' '-rf' '--' "$z4m" 2>'/dev/null'
   'exit' '1'
 fi
+verify_sha256 "$z4m" "$z4m_default_z4m_sha256" 'z4m.zsh' || 'exit' '1'
 
 >&2 'printf' '\033[33mz4m\033[0m: generating \033[4m~/.zshenv\033[0m\n'
 if ! err="$($fetch "$zshenv" '--' "$url"/.zshenv 2>&1)"; then
@@ -310,6 +593,24 @@ if ! err="$($fetch "$zshenv" '--' "$url"/.zshenv 2>&1)"; then
   >&2 'printf' '\033[33mz4m\033[0m: failed to download \033[31m%s\033[0m\n' "$url"/.zshenv
   'exit' '1'
 fi
+verify_sha256 "$zshenv" "$z4m_default_zshenv_sha256" '.zshenv' || 'exit' '1'
+if ! 'command' 'sed' \
+    -e "s|^: \"\\\${Z4M_URL:=.*}\"$|: \"\\\${Z4M_URL:=https://raw.githubusercontent.com/arcthur/zsh4monkey/$z4m_install_ref}\"|" \
+    -e "s|^Z4M_BOOTSTRAP_SHA256=.*$|Z4M_BOOTSTRAP_SHA256='$z4m_default_z4m_sha256'|" \
+    "$zshenv" >"$zshenv.bak"; then
+  >&2 'printf' '\033[33mz4m\033[0m: failed to pin install ref in \033[31m.zshenv\033[0m\n'
+  'exit' '1'
+fi
+if ! 'command' 'grep' '-Fqx' \
+      ": \"\${Z4M_URL:=https://raw.githubusercontent.com/arcthur/zsh4monkey/$z4m_install_ref}\"" \
+      "$zshenv.bak" ||
+   ! 'command' 'grep' '-Fqx' \
+      "Z4M_BOOTSTRAP_SHA256='$z4m_default_z4m_sha256'" \
+      "$zshenv.bak"; then
+  >&2 'printf' '\033[33mz4m\033[0m: generated \033[31m.zshenv\033[0m is missing release pins\n'
+  'exit' '1'
+fi
+'command' 'mv' '--' "$zshenv.bak" "$zshenv"
 
 >&2 'printf' '\033[33mz4m\033[0m: generating \033[4m~/.zshrc\033[0m\n'
 if ! err="$($fetch "$zshrc" '--' "$url"/.zshrc"$zshrc_suffix" 2>&1)"; then
@@ -317,52 +618,137 @@ if ! err="$($fetch "$zshrc" '--' "$url"/.zshrc"$zshrc_suffix" 2>&1)"; then
   >&2 'printf' '\033[33mz4m\033[0m: failed to download \033[31m%s\033[0m\n' "$url"/.zshrc"$zshrc_suffix"
   'exit' '1'
 fi
+if '[' "$zshrc_suffix" '=' '.mac' ']'; then
+  verify_sha256 "$zshrc" "$z4m_default_zshrc_mac_sha256" '.zshrc.mac' || 'exit' '1'
+else
+  verify_sha256 "$zshrc" "$z4m_default_zshrc_sha256" '.zshrc' || 'exit' '1'
+fi
+
+'require_zshrc_anchor' "$zshrc_anchor_keyboard"
+'require_zshrc_anchor' "$zshrc_anchor_direnv"
+'require_zshrc_anchor' "$zshrc_anchor_repositories"
 
 if '[' "$tmux" '=' '1' ']'; then
-  'command' 'awk' "/Mark up shell's output/ {print \"# Start tmux if not already in tmux.\"; print \"zstyle ':z4m:' start-tmux command tmux -u new -A -D -t z4m\"; print \"\"; print \"# Whether to move prompt to the bottom when zsh starts and on Ctrl+L.\"; print \"zstyle ':z4m:' prompt-at-bottom 'no'\"; print \"\"} 1" "$zshrc" >"$zshrc.bak"
+  'command' 'awk' '-v' "anchor=$zshrc_anchor_direnv" "index(\$0, anchor) == 1 {print \"# Start tmux if not already in tmux.\"; print \"zstyle ':z4m:' start-tmux command tmux -u new -A -D -t z4m\"; print \"\"; print \"# Whether to move prompt to the bottom when zsh starts and on Ctrl+L.\"; print \"zstyle ':z4m:' prompt-at-bottom 'no'\"; print \"\"} 1" "$zshrc" >"$zshrc.bak"
 else
-  'command' 'awk' "/Mark up shell's output/ {print \"# Don't start tmux.\"; print \"zstyle ':z4m:' start-tmux       no\"; print \"\"} 1" "$zshrc" >"$zshrc.bak"
+  'command' 'awk' '-v' "anchor=$zshrc_anchor_direnv" "index(\$0, anchor) == 1 {print \"# Don't start tmux.\"; print \"zstyle ':z4m:' start-tmux no\"; print \"\"} 1" "$zshrc" >"$zshrc.bak"
 fi
 'command' 'mv' '--' "$zshrc.bak" "$zshrc"
+'require_zshrc_line' "zstyle ':z4m:' start-tmux"
 
 if '[' "$direnv" '=' '1' ']'; then
   'command' 'sed' '-i.bak' '-E' "/direnv.*enable/ s/'no'/'yes'/" "$zshrc"
   'command' 'rm' '-f' '--' "$zshrc".bak
+  'require_zshrc_line' "zstyle ':z4m:direnv' enable 'yes'"
 fi
 
 if '[' "$editor_mode" '=' 'vi' ']'; then
-  'command' 'awk' "/Keyboard type/ {print; getline; print; print \"\"; print \"# Editor mode: 'emacs' (default) or 'vi'.\"; print \"zstyle ':z4m:' editor-mode 'vi'\"; next} 1" "$zshrc" >"$zshrc.bak"
+  'command' 'awk' '-v' "anchor=$zshrc_anchor_keyboard" "index(\$0, anchor) == 1 {print; getline; print; print \"\"; print \"# Editor mode: 'emacs' (default) or 'vi'.\"; print \"zstyle ':z4m:' editor-mode 'vi'\"; next} 1" "$zshrc" >"$zshrc.bak"
   'command' 'mv' '--' "$zshrc.bak" "$zshrc"
+  'require_zshrc_line' "zstyle ':z4m:' editor-mode 'vi'"
 fi
 
 if '[' '-r' '/proc/version' ']' && 'command' 'grep' '-q' '[Mm]icrosoft' '/proc/version' 2>'/dev/null'; then
-  'command' 'awk' "/Clone additional Git repositories from GitHub/ {print \"# Start ssh-agent if it's not running yet.\"; print \"zstyle ':z4m:ssh-agent:' start yes\"; print \"\"} 1" "$zshrc" >"$zshrc.bak"
+  'command' 'awk' '-v' "anchor=$zshrc_anchor_repositories" "index(\$0, anchor) == 1 {print \"# Start ssh-agent if it's not running yet.\"; print \"zstyle ':z4m:ssh-agent:' start yes\"; print \"\"} 1" "$zshrc" >"$zshrc.bak"
   'command' 'mv' '--' "$zshrc.bak" "$zshrc"
+  'require_zshrc_line' "zstyle ':z4m:ssh-agent:' start yes"
 fi
 
 Z4M="${XDG_CACHE_HOME:-$HOME/.cache}/zsh4monkey"
+case "$Z4M" in
+  /*) ;;
+  *)
+    >&2 'printf' '\033[33mz4m\033[0m: cache path must be absolute: \033[31m%s\033[0m\n' "$Z4M"
+    'exit' '1'
+    ;;
+esac
 
 'umask' 'o-w'
 
-'command' 'rm' '-rf' '--' "$Z4M"
-'command' 'mkdir' '-p' -- "$Z4M"
+cache_parent=${Z4M%/*}
+'[' '-n' "$cache_parent" ']' || cache_parent='/'
+'command' 'mkdir' '-p' -- "$cache_parent" || 'exit'
+if command -v 'mktemp' >'/dev/null' 2>&1; then
+  cache_stage="$('command' 'mktemp' '-d' "$cache_parent"/.z4m-install-new.XXXXXXXXXX)" ||
+    'exit'
+else
+  cache_stage="$cache_parent/.z4m-install-new.$$"
+  'command' 'rm' '-rf' '--' "$cache_stage" || 'exit'
+  'command' 'mkdir' '--' "$cache_stage" || 'exit'
+fi
+'command' 'mv' '--' "$z4m" "$cache_stage/z4m.zsh" || 'exit'
+z4m=''
+'printf' '%s\n' "$backup_dir" >"$cache_stage/welcome" || 'exit'
 
 if '[' '-n' "$backup_dir" ']'; then
-  'command' 'mkdir' '-p' '--' "$backup_dir"
-  ('cd' && 'command' 'cp' '-p' '--' $rcs "$backup_dir"/) || 'exit'
+  'command' 'mkdir' '-p' '--' "$backup_dir" || 'exit'
+  ('cd' && 'command' 'cp' '-Pp' '--' $rcs "$backup_dir"/) || 'exit'
 fi
 
 if '[' '-n' "$rcs" ']'; then
-  ('cd' && 'command' 'rm' '-f' '--' $rcs ) || 'exit'
+  if command -v 'mktemp' >'/dev/null' 2>&1; then
+    startup_rollback="$('command' 'mktemp' '-d' "$HOME"/.z4m-install-old.XXXXXXXXXX)" ||
+      'exit'
+  else
+    startup_rollback="$HOME/.z4m-install-old.$$"
+    'command' 'rm' '-rf' '--' "$startup_rollback" || 'exit'
+    'command' 'mkdir' '--' "$startup_rollback" || 'exit'
+  fi
 fi
 
-'command' 'mv' '--' "$zshenv" ~/'.zshenv'
-'command' 'mv' '--' "$zshrc" ~/'.zshrc'
-'command' 'mv' '--' "$z4m" "$Z4M"/z4m.zsh
+if '[' '-e' "$Z4M" ']' || '[' '-L' "$Z4M" ']'; then
+  if command -v 'mktemp' >'/dev/null' 2>&1; then
+    cache_rollback="$('command' 'mktemp' '-d' "$cache_parent"/.z4m-install-old.XXXXXXXXXX)" ||
+      'exit'
+    'command' 'rmdir' '--' "$cache_rollback" || 'exit'
+  else
+    cache_rollback="$cache_parent/.z4m-install-old.$$"
+    'command' 'rm' '-rf' '--' "$cache_rollback" || 'exit'
+  fi
+fi
 
-'printf' '%s\n' "$backup_dir" >"$Z4M"/welcome
+install_started='1'
+
+if '[' '-n' "$startup_rollback" ']'; then
+  for startup_name in $rcs; do
+    'command' 'mv' '--' "$HOME/$startup_name" "$startup_rollback/$startup_name" ||
+      'exit'
+  done
+fi
+
+if '[' '-n' "$cache_rollback" ']'; then
+  'command' 'mv' '--' "$Z4M" "$cache_rollback" || 'exit'
+  cache_old_moved='1'
+fi
+'command' 'mv' '--' "$cache_stage" "$Z4M" || 'exit'
+cache_stage=''
+cache_activated='1'
+
+'command' 'mv' '--' "$zshenv" "$HOME/.zshenv" || 'exit'
+zshenv=''
+startup_installed='.zshenv'
+'command' 'mv' '--' "$zshrc" "$HOME/.zshrc" || 'exit'
+zshrc=''
+startup_installed="$startup_installed .zshrc"
+
+install_committed='1'
+cache_activated='0'
+if '[' "$cache_old_moved" '=' '1' ']' &&
+   'command' 'rm' '-rf' '--' "$cache_rollback"; then
+  cache_old_moved='0'
+fi
+if '[' "$cache_old_moved" '=' '1' ']' ; then
+  >&2 'printf' '\033[33mz4m\033[0m: installation complete; old cache preserved at \033[31m%s\033[0m\n' "$cache_rollback"
+fi
+'command' 'rm' '-rf' '--' "$startup_rollback" 2>'/dev/null' || :
+startup_rollback=''
 
 'cleanup'
+
+if '[' "$bootstrap_mode" '=' 'no' ']'; then
+  >&2 'printf' '\033[33mz4m\033[0m: installation complete; start an interactive zsh to bootstrap\n'
+  'exit' '0'
+fi
 
 >&2 'printf' '\033[33mz4m\033[0m: bootstrapping \033[32mzsh\033[0m environment\n'
 

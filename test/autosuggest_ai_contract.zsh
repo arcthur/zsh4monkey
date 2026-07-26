@@ -68,9 +68,9 @@ extract_user_prompt() {
 -z4m-autosuggest-ai-read-config
 assert_eq manual "${_z4m_autosuggest_ai_state[configured_mode]}" 'default ai mode'
 assert_eq 0 "${_z4m_autosuggest_ai_state[configured_history_lines]}" 'default ai history lines'
-assert_eq project:manual_intent,output:manual_intent,source:tmux_then_proxy "${_z4m_autosuggest_ai_state[context_policy]}" 'ai context policy'
+assert_eq pwd:off,project:off,output:off,source:tmux_then_proxy "${_z4m_autosuggest_ai_state[context_policy]}" 'ai context policy'
 assert_ok 'context policy helper' -z4m-autosuggest-ai-context-policy
-assert_eq project:manual_intent,output:manual_intent,source:tmux_then_proxy "$REPLY" 'context policy helper value'
+assert_eq pwd:off,project:off,output:off,source:tmux_then_proxy "$REPLY" 'context policy helper value'
 assert_no_function -z4m-autosuggest-ai-allow-empty-p 'empty autosuggest fallback gate'
 
 histfile=$(command mktemp "${TMPDIR:-/tmp}/z4m-ai-history.XXXXXXXXXX") || exit 1
@@ -95,8 +95,61 @@ payload=$REPLY
 user_prompt=$(extract_user_prompt "$payload")
 
 assert_contains 'HISTORY (most recent first):' "$user_prompt" 'manual history context'
+assert_contains 'PWD: <not-shared>' "$user_prompt" 'manual pwd privacy default'
+assert_not_contains 'PROJECT_CONTEXT:' "$user_prompt" 'manual project privacy default'
 assert_not_contains 'history-secret-value' "$user_prompt" 'manual history redaction'
 assert_contains 'API_KEY=***REDACTED***' "$user_prompt" 'manual history redaction marker'
+
+zstyle ':z4m:autosuggestions:ai' context-pwd-enabled yes
+zstyle ':z4m:autosuggestions:ai' context-project-enabled yes
+-z4m-autosuggest-ai-read-config
+-z4m-autosuggest-ai-build-payload 'print ok' default manual_rewrite ''
+user_prompt=$(extract_user_prompt "$REPLY")
+assert_contains "PWD: $PWD" "$user_prompt" 'manual pwd opt-in'
+assert_contains 'PROJECT_CONTEXT:' "$user_prompt" 'manual project opt-in'
+
+proxy_test_dir=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-ai-proxy.XXXXXXXXXX") || exit 1
+saved_z4m=$Z4M
+Z4M=$proxy_test_dir
+mkdir -p -- "$Z4M/cache/ai-context/proxy"
+print -r -- cross-pane-private-output >"$Z4M/cache/ai-context/proxy/_1.log"
+assert_fail 'known pane never falls back to another pane log' \
+  -z4m-autosuggest-ai-proxy-tail '%2' 40
+assert_ok 'unknown pane may use latest proxy log' \
+  -z4m-autosuggest-ai-proxy-tail '' 40
+assert_contains cross-pane-private-output "$REPLY" 'unknown pane latest proxy log'
+Z4M=$saved_z4m
+command rm -rf -- "$proxy_test_dir"
+
+function -z4m-autosuggest-ai-capture-pane() {
+  REPLY=$'visible-output\nTOKEN=output-secret-value'
+  return 0
+}
+
+function -z4m-autosuggest-ai-proxy-effective-p() {
+  return 1
+}
+
+-z4m-autosuggest-ai-build-payload 'print ok' default autosuggest_fallback ''
+user_prompt=$(extract_user_prompt "$REPLY")
+assert_contains 'PWD: <not-shared>' "$user_prompt" 'fallback pwd remains private after opt-in'
+assert_not_contains 'OUTPUT_CONTEXT:' "$user_prompt" 'fallback output remains private'
+assert_not_contains 'output-secret-value' "$user_prompt" 'fallback captured output remains private'
+
+zstyle ':z4m:autosuggestions:ai' context-output-enabled yes
+-z4m-autosuggest-ai-read-config
+-z4m-autosuggest-ai-build-payload 'print ok' default manual_rewrite ''
+user_prompt=$(extract_user_prompt "$REPLY")
+assert_contains 'OUTPUT_CONTEXT:' "$user_prompt" 'manual output opt-in'
+assert_contains 'visible-output' "$user_prompt" 'manual captured output'
+assert_not_contains 'output-secret-value' "$user_prompt" 'manual output redaction'
+assert_contains 'TOKEN=***REDACTED***' "$user_prompt" 'manual output redaction marker'
+
+zstyle ':z4m:autosuggestions:ai' context-output-enabled invalid
+-z4m-autosuggest-ai-read-config
+-z4m-autosuggest-ai-build-payload 'print ok' default intent_command 'show status'
+user_prompt=$(extract_user_prompt "$REPLY")
+assert_not_contains 'OUTPUT_CONTEXT:' "$user_prompt" 'invalid output opt-in falls back to private'
 
 saved_path=$PATH
 PATH=${TMPDIR:-/tmp}/z4m-no-perl-path

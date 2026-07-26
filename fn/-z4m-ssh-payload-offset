@@ -1,0 +1,25 @@
+#!/usr/bin/env zsh
+#
+# Compute the archive offset for a rendered ssh bootstrap script.
+#
+# Usage:
+#   -z4m-ssh-payload-offset <script containing the ^DUMP_POS^ placeholder>
+#
+# The remote extracts the appended archive with `tail -c +N`, so N is a byte
+# offset. ${#script} counts characters under a multibyte locale, and the host,
+# the remote destinations and the propagated env values can all be non-ASCII,
+# so the size is measured with multibyte disabled.
+#
+# The 10-byte placeholder is replaced by an 8-byte field and `print` appends one
+# newline, so the pre-substitution byte size is exactly the 1-based offset of the
+# archive. Both -z4m-cmd-ssh and the integration test render through this
+# function so the offset cannot be derived two different ways.
+
+emulate -L zsh -o typeset_silent -o no_multibyte -o no_aliases
+
+(( ARGC == 1 )) || return 1
+
+local -i size=${#1}
+(( size > 0 && size < 100000000 )) || return 1
+
+REPLY=${(r:8:: :)size}

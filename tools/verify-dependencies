@@ -1,0 +1,55 @@
+#!/bin/sh
+
+set -eu
+
+repository="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+lock_file="$repository/dependencies.lock"
+temporary_directory="$(mktemp -d)"
+
+cleanup() {
+  trap - EXIT HUP INT TERM
+  rm -rf -- "$temporary_directory"
+}
+
+trap 'cleanup; exit 129' HUP
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap cleanup EXIT
+
+. "$repository/sc/supply-chain"
+
+while IFS='|' read -r name ref expected url; do
+  case "$name" in
+    ''|'#'*) continue ;;
+  esac
+
+  if ! _z4m_dependency_get "$lock_file" "$name"; then
+    >&2 printf 'invalid dependency lock entry: %s\n' "$name"
+    exit 1
+  fi
+
+  output="$temporary_directory/${name##*/}"
+  printf 'verifying %s at %s\n' "$name" "$ref"
+  if command -v curl >'/dev/null' 2>&1; then
+    command curl --retry 3 --connect-timeout 10 --max-time 120 -fsSL -- "$url" >"$output"
+  elif command -v wget >'/dev/null' 2>&1; then
+    command wget -O "$output" -- "$url"
+  else
+    >&2 printf 'curl or wget is required\n'
+    exit 1
+  fi
+
+  if ! _z4m_verify_sha256 "$output" "$expected"; then
+    >&2 printf 'digest mismatch for %s\n' "$name"
+    exit 1
+  fi
+
+  case "$url" in
+    *.tar.gz)
+      if ! _z4m_archive_safe_p "$output"; then
+        >&2 printf 'unsafe archive paths for %s\n' "$name"
+        exit 1
+      fi
+      ;;
+  esac
+done <"$lock_file"

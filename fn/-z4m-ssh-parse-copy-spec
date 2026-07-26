@@ -59,6 +59,7 @@ eval "$reply_remote_name=()"
 
   [[ -n $dest ]] || return 1
   [[ $dest != *$'\n'* && $dest != *$'\t'* ]] || return 1
+  [[ $dest != *//* ]] || return 1
   local part
   local -a parts=(${(s:/:)dest})
   for part in $parts; do

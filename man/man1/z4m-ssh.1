@@ -1,13 +1,14 @@
 .\" z4m-ssh - SSH with zsh4monkey teleportation
 .\" Keep in sync with fn/-z4m-cmd-ssh and config.md
-.Dd December 29, 2024
+.Dd July 26, 2026
 .Dt Z4M-SSH 1
 .Os
 .Sh NAME
-.Nm z4m ssh
+.Nm z4m-ssh
 .Nd SSH with zsh4monkey teleportation
 .Sh SYNOPSIS
-.Nm z4m ssh
+.Nm z4m
+.Cm ssh
 .Op Ar ssh-options
 .Oo Ar user Ns @ Oc Ns Ar hostname
 .Sh DESCRIPTION
@@ -20,6 +21,13 @@ The teleportation system:
 .Bl -bullet -compact
 .It
 Uploads a fresh runtime snapshot for the current session
+.It
+Stages every destination on its target filesystem and commits the complete set
+with rollback on handled bootstrap failures.
+An untrappable process or host failure during commit can require manual
+recovery from adjacent
+.Pa .z4m-ssh.*
+directories
 .It
 Starts an interactive remote
 .Xr zsh 1
@@ -83,7 +91,8 @@ zstyle ':z4m:ssh:*' send-extra-files \
 .Pp
 Each
 .Cm send-extra-files
-entry is a single copy spec. Supported forms are a plain local source path,
+entry is a single copy spec.
+Supported forms are a plain local source path,
 .Cm --dest
 to override the remote path for one resolved source, and
 .Cm --glob
@@ -105,10 +114,14 @@ Remote destinations must not contain
 or
 .Ql ..
 path segments.
+Repeated
+.Ql /
+separators are also rejected.
 .Pp
 Exclude patterns without
 .Ql /
-match basenames. Patterns with
+match basenames.
+Patterns with
 .Ql /
 match relative paths inside the copied tree.
 .Ss Environment Configuration
@@ -176,6 +189,15 @@ zstyle ':z4m:ssh:oldserver' term 'screen-256color'
 # Custom ssh command
 zstyle ':z4m:ssh:*' ssh-command command ssh
 .Ed
+.Sh FILES
+.Bl -tag -width Ds
+.It Pa ~/.ssh/config
+SSH client configuration; ProxyJump directives are honored.
+.It Pa ~/.ssh/known_hosts
+Known host keys.
+.It Pa ~/.ssh/s/
+ControlMaster socket directory for connection sharing.
+.El
 .Sh EXAMPLES
 Basic connection:
 .Bd -literal -offset indent
@@ -221,20 +243,11 @@ Inline autosuggestions are disabled in SSH sessions to avoid remote TTY redraw
 corruption.
 Syntax highlighting is disabled in SSH sessions to avoid remote TTY redraw
 corruption.
-Simplified prompt is used in SSH sessions to avoid remote prompt redraw
+A simplified prompt is used in SSH sessions to avoid remote prompt redraw
 corruption.
-.Sh FILES
-.Bl -tag -width Ds
-.It Pa ~/.ssh/config
-SSH client configuration, ProxyJump directives are honored.
-.It Pa ~/.ssh/known_hosts
-Known host keys.
-.It Pa ~/.ssh/s/
-ControlMaster socket directory for connection sharing.
-.El
 .Sh SEE ALSO
-.Xr z4m 1 ,
 .Xr ssh 1 ,
+.Xr z4m 1 ,
 .Xr ssh_config 5
 .Sh AUTHORS
 .An arcthur

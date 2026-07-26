@@ -3,11 +3,11 @@
 # z4m-defer: Queue commands for deferred execution after prompt display
 #
 # Usage:
-#   z4m-defer <command>
+#   z4m-defer <command> [arg ...]
 #
 # Example:
 #   z4m-defer source ~/.local/share/slow-plugin/plugin.zsh
-#   z4m-defer eval "$(slow-tool init zsh)"
+#   z4m-defer eval 'eval "$(slow-tool init zsh)"'
 #
 # Benefits:
 #   - User sees prompt immediately
@@ -19,10 +19,52 @@
 
 emulate -L zsh -o typeset_silent -o extended_glob
 
-(( $# )) || return 0
-
 # Initialize queue on first call
 (( ${+_z4m_defer_queue} )) || typeset -ga _z4m_defer_queue=()
+(( ${+_z4m_defer_next_id} )) || typeset -gi _z4m_defer_next_id=0
+
+if (( ! ${+functions[_z4m_defer_enqueue]} )); then
+  function _z4m_defer_enqueue() {
+    emulate -L zsh -o typeset_silent
+    (( $# )) || return 1
+
+    local -i id=$(( ++_z4m_defer_next_id ))
+    local parameter=_z4m_defer_argv_$id
+    typeset -ga "$parameter"
+    set -A "$parameter" "$@"
+    _z4m_defer_queue+=($id)
+  }
+fi
+
+if (( ! ${+functions[_z4m_defer_run_queue]} )); then
+  function _z4m_defer_run_queue() {
+    emulate -L zsh -o typeset_silent
+
+    local -a pending=("${_z4m_defer_queue[@]}")
+    _z4m_defer_queue=()
+
+    local -i id rc overall_rc=0
+    local parameter
+    local -a argv
+    for id in $pending; do
+      parameter=_z4m_defer_argv_$id
+      argv=("${(@P)parameter}")
+      unset "$parameter"
+      (( $#argv )) || continue
+
+      "${argv[@]}" &>/dev/null
+      rc=$?
+      if (( rc )); then
+        overall_rc=$rc
+        print -Pru2 -- "%F{3}z4m%f: deferred command failed (%F{1}$rc%f): %B${argv[1]//\%/%%}%b"
+      fi
+    done
+
+    return $overall_rc
+  }
+fi
+
+(( $# )) || return 0
 
 # Deferred execution handler
 if (( ! ${+functions[_z4m_defer_execute]} )); then
@@ -36,11 +78,7 @@ if (( ! ${+functions[_z4m_defer_execute]} )); then
     unset _z4m_defer_fd
 
     # Execute all queued commands
-    local cmd
-    for cmd in "${_z4m_defer_queue[@]}"; do
-      eval "$cmd" &>/dev/null || true
-    done
-    _z4m_defer_queue=()
+    _z4m_defer_run_queue || true
 
     # Redraw prompt (syntax highlighting may have loaded)
     [[ -o zle ]] && zle && zle reset-prompt 2>/dev/null
@@ -48,7 +86,7 @@ if (( ! ${+functions[_z4m_defer_execute]} )); then
 fi
 
 # Add command to queue
-_z4m_defer_queue+=("$*")
+_z4m_defer_enqueue "$@" || return
 
 # Schedule execution if not already scheduled
 if [[ ! -v _z4m_defer_fd ]]; then
@@ -58,10 +96,6 @@ if [[ ! -v _z4m_defer_fd ]]; then
   else
     # Fallback: immediate execution if sysopen unavailable
     unset _z4m_defer_fd
-    local cmd
-    for cmd in "${_z4m_defer_queue[@]}"; do
-      eval "$cmd" || true
-    done
-    _z4m_defer_queue=()
+    _z4m_defer_run_queue || true
   fi
 fi

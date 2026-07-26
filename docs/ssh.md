@@ -8,8 +8,10 @@ When you run `z4m ssh host`, z4m:
 
 1. Resolves host-scoped SSH styles
 2. Bundles the current z4m runtime, installed z4m-managed packages, and shell dotfiles
-3. Uploads that bundle to the remote host in one shot
-4. Starts an interactive remote `zsh` using the uploaded runtime
+3. Uploads that bundle through a mode-`0600` remote temporary file
+4. Stages every destination on its target filesystem
+5. Commits the staged set with rollback on handled bootstrap failures
+6. Starts an interactive remote `zsh` using the uploaded runtime
 
 `z4m ssh` no longer uses incremental sync, file retrieval, or output-stream control markers. Once bootstrap finishes, the session is handed directly to the remote shell.
 
@@ -73,8 +75,15 @@ Behavior notes:
 - If a local source is outside `$HOME` but inside `$ZDOTDIR`, the default remote path is relative to `$ZDOTDIR`
 - Relative remote destinations live under the remote `$HOME`; absolute destinations are preserved as-is
 - Remote destinations must not contain `.` or `..` path segments
+- Remote destinations must not contain repeated `/` separators
 - `--dest` cannot be used with a spec that resolves to multiple local paths
 - `--exclude` applies to directory contents; patterns without `/` match basenames, patterns with `/` match relative paths inside the copied tree
+- Duplicate remote destinations are rejected before deployment
+- Existing destinations remain intact until every replacement has been staged successfully
+- A failure before the global commit marker restores every destination changed by the transaction
+- Multiple destinations cannot be globally atomic across filesystems; an
+  untrappable process kill or host failure during commit can leave adjacent
+  `.z4m-ssh.*` recovery directories for manual inspection
 
 When a spec contains spaces, quote it as a single `zstyle` array element.
 

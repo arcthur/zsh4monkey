@@ -5,7 +5,7 @@ A modern, feature-rich Zsh configuration that just works. Built for developers w
 ## Features
 
 - **Zero-config excellence** - Works great out of the box
-- **Blazing fast** - Sub-50ms startup with [zsh-bench](https://github.com/romkatv/zsh-bench)
+- **Measured startup** - PTY-based time-to-ready benchmarking with p50 and p95 reporting
 - **Syntax highlighting** - Built-in [fast-syntax-highlighting](https://github.com/zdharma-continuum/fast-syntax-highlighting) with 256-color themes
 - **Smart autosuggestions** - Built-in [zsh-autosuggestions](https://github.com/zsh-users/zsh-autosuggestions)
 - **AI assist lanes** - Manual rewrite + natural-language command intent, with optional conservative autosuggest fallback
@@ -21,19 +21,54 @@ A modern, feature-rich Zsh configuration that just works. Built for developers w
 
 ## Quick Start
 
+For a stable, provenance-verified installation:
+
 ```shell
-if command -v curl >/dev/null 2>&1; then
-  sh -c "$(curl -fsSL https://raw.githubusercontent.com/arcthur/zsh4monkey/main/install)"
-else
-  sh -c "$(wget -O- https://raw.githubusercontent.com/arcthur/zsh4monkey/main/install)"
-fi
+z4m_installer=$(mktemp)
+trap 'rm -f -- "$z4m_installer"' EXIT HUP INT TERM
+curl -fsSLo "$z4m_installer" https://github.com/arcthur/zsh4monkey/releases/latest/download/install
+gh attestation verify "$z4m_installer" \
+  --repo arcthur/zsh4monkey \
+  --signer-workflow arcthur/zsh4monkey/.github/workflows/release.yml
+sh "$z4m_installer"
 ```
 
-The installer backs up existing files, guides you through configuration, and sets zsh as your login shell.
+Release installers pin and verify all bootstrap files. Attestation is what makes
+a stable install trustworthy: the `.sha256` sidecar ships from the same host as
+the archive, so it detects transport corruption rather than tampering. Stable
+bootstrap and update therefore require GitHub CLI. Public attestations can
+normally be read without authentication; if GitHub requests credentials or the
+anonymous API limit is exhausted, run `gh auth login` or set `GH_TOKEN`. See
+[SECURITY.md](SECURITY.md) for the full trust model, including what
+`Z4M_ALLOW_CHECKSUM_ONLY_RELEASES=1` actually gives up.
+
+The development channel follows mutable `main` and is intentionally unverified:
+
+```shell
+z4m_installer=$(mktemp)
+trap 'rm -f -- "$z4m_installer"' EXIT HUP INT TERM
+curl -fsSLo "$z4m_installer" https://raw.githubusercontent.com/arcthur/zsh4monkey/main/install
+Z4M_INSTALL_REF=main sh "$z4m_installer"
+```
+
+Interactive installation backs up existing files, guides configuration, and can
+prompt to make the selected zsh binary the login shell during initialization.
+Cache and startup-file activation is transactional, with the previous state
+restored after handled failures. For automation, use the explicit
+non-interactive contract:
+
+```shell
+sh "$z4m_installer" --non-interactive \
+  --keyboard pc --editor emacs --tmux no --direnv no \
+  --existing backup --no-bootstrap
+```
 
 ## Requirements
 
 - **Zsh 5.9+** (installer downloads prebuilt binary if needed)
+- `curl` or `wget`, plus `tar`
+- **GitHub CLI** for stable release provenance verification
+- Python 3 for `z4m bench`
 - Linux or macOS
 
 ## Key Bindings
@@ -57,12 +92,12 @@ The installer backs up existing files, guides you through configuration, and set
 | Command | Description |
 |---------|-------------|
 | `z4m init` | Initialize zsh |
-| `z4m update` | Update z4m and plugins |
+| `z4m update [--no-restart]` | Update z4m and managed dependencies |
 | `z4m install <pkg>` | Register dependency in install queue |
 | `z4m ssh <host>` | SSH with teleportation |
 | `z4m bindkey <widget> <key>` | Bind key |
 | `z4m vi-mode on\|off\|toggle` | Toggle vi mode |
-| `z4m ai "<query>"` | Generate command from natural language (queued, not executed) |
+| `z4m ai [--print\|--json\|--queue] "<query>"` | Generate a reviewable command without executing it |
 | `z4m ai proxy [status\|on\|off]` | Manage tmux output-context proxy (v1, optional) |
 | `z4m autosuggest [status\|doctor\|events\|reset]` | Autosuggestions subsystem diagnostics |
 | `z4m highlight [status|doctor|events|reset]` | Highlight subsystem diagnostics |
@@ -151,12 +186,16 @@ For interactive hosts, `z4m ssh` can also start in a chosen remote directory and
 
 ## Docker
 
-Try without installation:
+Try the explicitly unverified development channel without changing the host:
 
 ```shell
 docker run -e TERM -e COLORTERM -w /root -it --rm alpine sh -uec '
   apk add zsh curl tmux
-  sh -c "$(curl -fsSL https://raw.githubusercontent.com/arcthur/zsh4monkey/main/install)"'
+  curl -fsSLo /tmp/z4m-install https://raw.githubusercontent.com/arcthur/zsh4monkey/main/install
+  Z4M_INSTALL_REF=main sh /tmp/z4m-install --non-interactive \
+    --keyboard pc --editor emacs --tmux no --direnv no \
+    --existing delete --no-bootstrap
+  exec zsh -l'
 ```
 
 ## Updating
@@ -181,8 +220,8 @@ Or manually: delete `~/.zshenv`, `~/.zshrc`, restart terminal, then `rm -rf "${X
 ~/.p10k.zsh         # Prompt configuration
 $Z4M/               # Cache directory (~/.cache/zsh4monkey)
   ├── zsh4monkey/   # Core framework
-  ├── fzf/          # Fuzzy finder
-  ├── powerlevel10k/# Prompt theme
+  ├── fzf/          # Optional fzf integration state
+  ├── powerlevel10k/# Managed prompt theme
   ├── zsh-users/    # Plugins
   └── cache/        # Compiled files
 ```

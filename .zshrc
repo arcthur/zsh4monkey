@@ -26,11 +26,12 @@ zstyle ':z4m:ssh:*'                   enable 'no'
 # enabled hosts.
 zstyle ':z4m:ssh:*' send-extra-files '~/.nanorc' '~/.env.zsh'
 
-# Clone additional Git repositories from GitHub.
+# Register additional Git repositories from GitHub.
 #
-# This doesn't do anything apart from cloning the repository and keeping it
-# up-to-date. Cloned files can be used after `z4m init`. This is just an
-# example. If you don't plan to use Oh My Zsh, delete this line.
+# The built-in example resolves through dependencies.lock to an exact commit and
+# SHA-256 digest. Custom repositories require an exact commit and a configured
+# digest. Installed files can be used after `z4m init`. If you don't plan to use
+# Oh My Zsh, delete this example.
 z4m install ohmyzsh/ohmyzsh || return
 
 # Install CLI tools (eza, bat, fd, rg, zoxide, fzf).
@@ -38,10 +39,10 @@ z4m install ohmyzsh/ohmyzsh || return
 # Disable individual tools with: zstyle ':z4m:eza' enabled no
 z4m install eza bat fd rg zoxide || return
 
-# Install or update core components (fzf, powerlevel10k, etc.) and
-# initialize Zsh. After this point console I/O is unavailable until Zsh
-# is fully initialized. Everything that requires user interaction or can
-# perform network I/O must be done above. Everything else is best done below.
+# Resolve registered managed components, detect optional CLI tools, and
+# initialize Zsh. After this point console I/O is unavailable until Zsh is
+# fully initialized. Everything that requires user interaction or can perform
+# network I/O must be done above. Everything else is best done below.
 z4m init || return
 
 # Extend PATH.

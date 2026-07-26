@@ -4,6 +4,23 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 -z4m-check-core-params || return
 
+# Replacement deletes $Z4M/zsh4monkey, so anything the rollback path needs must
+# be resident before that happens: a lazy autoload would try to read a file that
+# no longer exists exactly when recovery matters. `autoload +X` also reports
+# failure for an already-loaded function, so check the body for the stub rather
+# than trusting its exit status.
+local preload
+for preload in -z4m-recover-update -z4m-error-command; do
+  autoload -Uz +X -- $preload 2>/dev/null
+  if [[ -z ${functions[$preload]-} || ${functions[$preload]} == *'autoload -X'* ]]; then
+    print -Pru2 -- "%F{3}z4m%f: unable to preload %F{1}${preload//\%/%%}%f"
+    return 1
+  fi
+done
+
+local -a no_restart
+zparseopts -D -F -- n=no_restart -no-restart=no_restart || return '_z4m_err()'
+
 if (( ARGC )); then
   print -Pru2 -- '%F{3}z4m%f: unexpected %F{1}update%f argument'
   return '_z4m_err()'
@@ -14,99 +31,164 @@ if (( _z4m_dangerous_root )); then
   return 1
 fi
 
-local old=$Z4M.old.$$
-local new=$Z4M.new.$$
-local guard=$Z4M/.updating
-local -i sync_started=0
-
-function -z4m-cmd-update-write-bootstrap() {
-  print -r -- "#!/usr/bin/env zsh
-# Temporary bootstrap while z4m update syncs files in place.
-emulate -L zsh -o extended_glob -o no_aliases
-[[ -n \${_Z4M_UPDATE_BOOTSTRAP_ACTIVE-} ]] && return 1
-typeset -g _Z4M_UPDATE_BOOTSTRAP_ACTIVE=1
-typeset -g _z4m_update_root=${(q)Z4M}
-typeset -g _z4m_update_guard=${(q)guard}
-typeset -g _z4m_update_backup=${(q)old}
-typeset -i _z4m_update_pid=0
-typeset -i _z4m_update_tries=0
-function _z4m_update_restore() {
-  local entry
-  for entry in \$_z4m_update_root/*(N) \$_z4m_update_root/.[^.](N) \$_z4m_update_root/..?*(N); do
-    [[ \$entry == \$_z4m_update_guard || \$entry == \$_z4m_update_backup ]] && continue
-    command rm -rf -- \"\$entry\" 2>/dev/null || return 1
-  done
-  if [[ -d \$_z4m_update_backup ]]; then
-    for entry in \$_z4m_update_backup/*(N) \$_z4m_update_backup/.[^.](N) \$_z4m_update_backup/..?*(N); do
-      command mv -f -- \"\$entry\" \"\$_z4m_update_root/\${entry:t}\" 2>/dev/null || return 1
-    done
-  fi
-  command rm -f -- \$_z4m_update_guard 2>/dev/null || return 1
-  command rm -rf -- \$_z4m_update_backup 2>/dev/null || true
-}
-if [[ -r \$_z4m_update_guard ]]; then
-  while IFS='=' read -r key value; do
-    case \$key in
-      pid)
-        [[ \$value == <-> ]] && _z4m_update_pid=\$value
-      ;;
-    esac
-  done <\$_z4m_update_guard
-fi
-while [[ -e \$_z4m_update_guard && _z4m_update_tries -lt 1200 ]]; do
-  if (( _z4m_update_pid )) && ! command kill -0 \$_z4m_update_pid 2>/dev/null; then
-    break
-  fi
-  command sleep 0.05 2>/dev/null || break
-  (( ++_z4m_update_tries ))
-done
-if [[ -e \$_z4m_update_guard ]]; then
-  if (( _z4m_update_pid )) &&
-     ! command kill -0 \$_z4m_update_pid 2>/dev/null; then
-    if [[ ! -e \$_z4m_update_backup/zsh4monkey &&
-          -r \$_z4m_update_root/zsh4monkey/main.zsh &&
-          -r \$_z4m_update_backup/z4m.zsh ]]; then
-      command cp -p -- \$_z4m_update_backup/z4m.zsh \$_z4m_update_root/z4m.zsh 2>/dev/null || return 1
-      command rm -f -- \$_z4m_update_guard 2>/dev/null || return 1
-      command rm -rf -- \$_z4m_update_backup 2>/dev/null || true
-    elif ! _z4m_update_restore || [[ ! -r \$_z4m_update_root/z4m.zsh ]]; then
-      builtin unfunction _z4m_update_restore 2>/dev/null || true
-      unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
-        _z4m_update_pid _z4m_update_tries
-      return 1
-    fi
-    builtin unfunction _z4m_update_restore 2>/dev/null || true
-    unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
-      _z4m_update_pid _z4m_update_tries
-    builtin source -- \$_z4m_update_root/z4m.zsh || return
-    return
-  fi
-  builtin unfunction _z4m_update_restore 2>/dev/null || true
-  unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
-    _z4m_update_pid _z4m_update_tries
+local update_url
+if ! -z4m-resolve-update-url; then
+  print -Pru2 -- "%F{3}z4m%f: failed to resolve update channel"
   return 1
 fi
-if [[ -r \$_z4m_update_root/z4m.zsh ]]; then
-  builtin unfunction _z4m_update_restore 2>/dev/null || true
-  unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
-    _z4m_update_pid _z4m_update_tries
-  builtin source -- \$_z4m_update_root/z4m.zsh || return
-  return
+update_url=$REPLY
+print -Pru2 -- "%F{3}z4m%f: update source %B${update_url:t}%b"
+
+local old=$Z4M.old.$sysparams[pid]
+local new=$Z4M.new.$sysparams[pid]
+local guard=$Z4M/.updating
+local recovery_lock=$Z4M/.update-recovery-lock
+local next_bootstrap=$Z4M/.z4m-next-bootstrap
+local temporary_bootstrap=$Z4M/.z4m-update-bootstrap.$sysparams[pid]
+local configured_url=$Z4M_URL
+local state_configured state_effective state_extra
+if [[ -r $Z4M/.update-source ]] &&
+   IFS='|' read -r state_configured state_effective state_extra <$Z4M/.update-source &&
+   [[ -z $state_extra && $state_effective == $Z4M_URL &&
+      $state_configured == https://raw.githubusercontent.com/arcthur/zsh4monkey/* ]]; then
+  configured_url=$state_configured
 fi
-builtin unfunction _z4m_update_restore 2>/dev/null || true
-unset _Z4M_UPDATE_BOOTSTRAP_ACTIVE _z4m_update_root _z4m_update_guard _z4m_update_backup \
-  _z4m_update_pid _z4m_update_tries
-return 1" >$Z4M/z4m.zsh || return
+local -i sync_started=0 guard_owned=0 recovery_lock_owned=0
+
+function -z4m-cmd-update-release-recovery-lock() {
+  (( recovery_lock_owned )) || return 0
+  zf_rm -rf -- $recovery_lock || return
+  recovery_lock_owned=0
+}
+
+function -z4m-cmd-update-acquire-recovery-lock() {
+  local -i tries=0
+  local owner_pid=
+  while (( tries < 40 )); do
+    if zf_mkdir -- $recovery_lock 2>/dev/null; then
+      if ! print -r -- "pid=$sysparams[pid]" >$recovery_lock/owner; then
+        zf_rm -rf -- $recovery_lock 2>/dev/null || true
+        return 1
+      fi
+      recovery_lock_owned=1
+      return 0
+    fi
+
+    owner_pid=
+    local key value
+    if [[ -r $recovery_lock/owner ]]; then
+      while IFS='=' read -r key value; do
+        [[ $key == pid && $value == <-> ]] && owner_pid=$value
+      done <$recovery_lock/owner
+    fi
+    if [[ -n $owner_pid ]] && command kill -0 $owner_pid 2>/dev/null; then
+      print -Pru2 -- "%F{3}z4m%f: update lock recovery is already running with PID %F{1}$owner_pid%f"
+      return 1
+    fi
+    if [[ -z $owner_pid ]] && (( tries < 20 )); then
+      command sleep 0.05 2>/dev/null || return 1
+      (( ++tries ))
+      continue
+    fi
+    zf_rm -rf -- $recovery_lock 2>/dev/null || return 1
+    (( ++tries ))
+  done
+
+  print -Pru2 -- "%F{3}z4m%f: unable to acquire update recovery lock"
+  return 1
+}
+
+function -z4m-cmd-update-write-guard() {
+  {
+    setopt local_options no_clobber
+    print -l -- \
+      "pid=$sysparams[pid]" \
+      "epoch=$EPOCHSECONDS" \
+      "phase=preparing" >$guard
+  } 2>/dev/null
+}
+
+function -z4m-cmd-update-recover-stale() {
+  local stale_pid=$1
+  local stale_old=$Z4M.old.$stale_pid
+  local stale_new=$Z4M.new.$stale_pid
+
+  # The restore algorithm is shared with the temporary bootstrap; see
+  # -z4m-recover-update. Without a backup there is nothing to restore and only
+  # the transaction state has to be cleared.
+  if [[ -d $stale_old ]]; then
+    -z4m-recover-update $Z4M $guard $recovery_lock $stale_old $stale_new
+    return
+  fi
+
+  zf_rm -f -- $guard || return
+  zf_rm -rf -- $stale_old $stale_new || return
+}
+
+function -z4m-cmd-update-acquire-guard() {
+  if -z4m-cmd-update-write-guard; then
+    guard_owned=1
+    return 0
+  fi
+
+  -z4m-cmd-update-acquire-recovery-lock || return
+
+  local existing_pid key value
+  local -i tries=0
+  while (( tries < 20 )); do
+    existing_pid=
+    if [[ -r $guard ]]; then
+      while IFS='=' read -r key value; do
+        [[ $key == pid && $value == <-> ]] && existing_pid=$value
+      done <$guard
+    fi
+    [[ -n $existing_pid ]] && break
+    command sleep 0.05 2>/dev/null || break
+    (( ++tries ))
+  done
+  if [[ -z $existing_pid ]]; then
+    print -Pru2 -- "%F{3}z4m%f: removing incomplete update guard: %F{1}${guard//\%/%%}%f"
+    zf_rm -f -- $guard || {
+      -z4m-cmd-update-release-recovery-lock || true
+      return 1
+    }
+  elif command kill -0 $existing_pid 2>/dev/null; then
+    print -Pru2 -- "%F{3}z4m%f: another update is already running with PID %F{1}$existing_pid%f"
+    -z4m-cmd-update-release-recovery-lock || true
+    return 1
+  else
+    print -Pru2 -- "%F{3}z4m%f: recovering interrupted update from PID %F{1}$existing_pid%f"
+    if ! -z4m-cmd-update-recover-stale $existing_pid; then
+      print -Pru2 -- "%F{3}z4m%f: interrupted update recovery failed"
+      -z4m-cmd-update-release-recovery-lock || true
+      return 1
+    fi
+  fi
+
+  if -z4m-cmd-update-write-guard; then
+    guard_owned=1
+    -z4m-cmd-update-release-recovery-lock || return 1
+    return 0
+  fi
+
+  print -Pru2 -- "%F{3}z4m%f: another update acquired the lock"
+  -z4m-cmd-update-release-recovery-lock || true
+  return 1
 }
 
 {
+  -z4m-cmd-update-acquire-guard || return
+  if [[ -r $next_bootstrap ]]; then
+    -z4m-mv $next_bootstrap $Z4M/z4m.zsh || return
+  fi
   zf_rm -rf -- $old $new   || return
-  zf_rm -f -- $guard       || return
+  zf_rm -f -- $temporary_bootstrap || return
   zf_mkdir -p -- $old $new || return
   command cp -p -- $Z4M/z4m.zsh $new/z4m.zsh || return
   print -n >$new/.updating || return
 
-  Z4M_UPDATING=$Z4M Z4M=$new </dev/null >/dev/null $_z4m_exe -ic '
+  Z4M_URL=$update_url Z4M_UPDATE_SOURCE_URL=$update_url \
+    Z4M_UPDATING=$Z4M Z4M=$new </dev/null >/dev/null $_z4m_exe -ic '
     (( $? )) && "exit" "1"
     "builtin" "emulate" "zsh" "-o" "no_aliases"
     [[ $Z4M == '${(q)new}' ]] || exit 0
@@ -132,47 +214,79 @@ return 1" >$Z4M/z4m.zsh || return
   zf_rm -- $new/.updating                            || return
   zf_rm -f -- $new/.last-init-failed                 # Clear transient init failures from temp shell
   zf_rm -f -- $new/.safe-mode                        # Clear any safe-mode marker
-  print -l -- \
-    "pid=$sysparams[pid]" \
-    "epoch=$EPOCHSECONDS" \
-    "backup=$old" >$guard || return
-  command cp -p -- $Z4M/z4m.zsh $old/z4m.zsh || return
-  -z4m-cmd-update-write-bootstrap || return
-  if [[ -e $Z4M/zsh4monkey ]]; then
-    sync_started=1
-    -z4m-mv $Z4M/zsh4monkey $old/zsh4monkey || return
-  fi
-
+  # The hidden-entry pattern needs its trailing star: the cache carries
+  # multi-character dotfiles such as .update-source and .last-init-failed, and
+  # a snapshot that silently omits them cannot restore the transaction state.
   local entry
-  for entry in $Z4M/*(N) $Z4M/.[^.](N) $Z4M/..?*(N); do
-    [[ $entry == $guard || $entry == $Z4M/z4m.zsh || $entry == $Z4M/zsh4monkey || $entry == $old ]] && continue
-    -z4m-mv $entry $old/${entry:t} || return
+  for entry in $Z4M/*(N) $Z4M/.[^.]*(N) $Z4M/..?*(N); do
+    [[ $entry == $guard || $entry == $recovery_lock ]] && continue
+    command cp -RP -- $entry $old/${entry:t} || return
   done
-  for entry in $new/*(N) $new/.[^.](N) $new/..?*(N); do
+  [[ -r $old/z4m.zsh && -r $old/zsh4monkey/main.zsh ]] || return 1
+  -z4m-write-update-bootstrap \
+    $temporary_bootstrap $Z4M $guard $old $new $next_bootstrap || return
+  -z4m-mv $temporary_bootstrap $Z4M/z4m.zsh || return
+  sync_started=1
+
+  for entry in $Z4M/*(N) $Z4M/.[^.]*(N) $Z4M/..?*(N); do
+    [[ $entry == $guard || $entry == $recovery_lock ||
+       $entry == $Z4M/z4m.zsh ]] && continue
+    zf_rm -rf -- $entry || return
+  done
+  for entry in $new/*(N) $new/.[^.]*(N) $new/..?*(N); do
     [[ $entry == $new/z4m.zsh ]] && continue
     -z4m-mv $entry $Z4M/${entry:t} || return
   done
-  -z4m-mv $new/z4m.zsh $Z4M/z4m.zsh || return
+  -z4m-mv $new/z4m.zsh $next_bootstrap || return
+  print -r -- "$configured_url|$update_url" >$Z4M/.update-source.$$ || return
+  -z4m-mv $Z4M/.update-source.$$ $Z4M/.update-source || return
   zf_rm -f -- $guard || return
+  guard_owned=0
   sync_started=0
+  -z4m-mv $next_bootstrap $Z4M/z4m.zsh || return
 } always {
   local -i rc=$?
+  local -i rollback_failed=0
   if (( rc )) && (( sync_started )); then
-    local entry
-    for entry in $Z4M/*(N) $Z4M/.[^.](N) $Z4M/..?*(N); do
-      [[ $entry == $guard || $entry == $old ]] && continue
-      zf_rm -rf -- $entry 2>/dev/null || true
-    done
-    for entry in $old/*(N) $old/.[^.](N) $old/..?*(N); do
-      -z4m-mv $entry $Z4M/${entry:t} 2>/dev/null || true
-    done
+    if -z4m-cmd-update-recover-stale $sysparams[pid]; then
+      guard_owned=0
+      sync_started=0
+    else
+      rollback_failed=1
+    fi
   fi
-  zf_rm -f -- $guard 2>/dev/null || true
+  if (( guard_owned )) && (( ! rollback_failed || ! sync_started )); then
+    local owner_pid key value
+    if [[ -r $guard ]]; then
+      while IFS='=' read -r key value; do
+        [[ $key == pid && $value == <-> ]] && owner_pid=$value
+      done <$guard
+    fi
+    if [[ $owner_pid == $sysparams[pid] ]]; then
+      zf_rm -f -- $guard 2>/dev/null || rollback_failed=1
+    else
+      rollback_failed=1
+    fi
+  fi
+  if (( recovery_lock_owned )) &&
+     ! -z4m-cmd-update-release-recovery-lock 2>/dev/null; then
+    rollback_failed=1
+  fi
+  if (( rollback_failed )); then
+    print -Pru2 -- "%F{3}z4m%f: update rollback incomplete; preserving recovery state"
+    print -Pru2 -- "%F{3}z4m%f: backup: %B${old//\%/%%}%b"
+    print -Pru2 -- "%F{3}z4m%f: guard: %B${guard//\%/%%}%b"
+  fi
   if (( rc )); then
     -z4m-error-command update
   fi
-  unset "functions[-z4m-cmd-update-write-bootstrap]"
-  zf_rm -rf -- $old $new || return
+  unset "functions[-z4m-cmd-update-acquire-guard]" \
+    "functions[-z4m-cmd-update-acquire-recovery-lock]" \
+    "functions[-z4m-cmd-update-recover-stale]" \
+    "functions[-z4m-cmd-update-write-guard]" \
+    "functions[-z4m-cmd-update-release-recovery-lock]"
+  (( rollback_failed )) ||
+    zf_rm -rf -- $old $new $temporary_bootstrap || return
 }
 
 print -Pru2 -- "%F{3}z4m%f: %Bupdate successful%b"
@@ -180,6 +294,10 @@ print -Pru2 -- "%F{3}z4m%f: %Bupdate successful%b"
 # Final cleanup: ensure no stale state markers exist before restarting
 # This catches any markers created after the initial cleanup (e.g., by late init failures)
 zf_rm -f -- $Z4M/.last-init-failed $Z4M/.safe-mode 2>/dev/null
+
+if (( $#no_restart )) || [[ ! -o interactive || ! -t 0 || ! -t 1 ]]; then
+  return 0
+fi
 
 print -Pru2 -- "%F{3}z4m%f: restarting %F{2}zsh%f"
 if [[ -o zle ]]; then
