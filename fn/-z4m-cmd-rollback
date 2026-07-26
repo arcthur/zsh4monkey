@@ -1,0 +1,115 @@
+#!/usr/bin/env zsh
+#
+# z4m rollback - switch back to the previously installed framework version
+#
+# Usage:
+#   z4m rollback [--list]
+#
+# Rolling back is the same single-symlink switch that `z4m update` performs, so
+# it neither downloads nor rebuilds anything. How many versions remain available
+# is controlled by `zstyle ':z4m:update' keep-versions`.
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+-z4m-check-core-params || return
+
+local -a list_only
+zparseopts -D -F -- l=list_only -list=list_only || return '_z4m_err()'
+
+if (( ARGC )); then
+  print -Pru2 -- '%F{3}z4m%f: unexpected %F{1}rollback%f argument'
+  return '_z4m_err()'
+fi
+
+if (( _z4m_dangerous_root )); then
+  print -Pru2 -- "%F{3}z4m%f: refusing to %Brollback%b as %F{1}root%f"
+  return 1
+fi
+
+if [[ ! -d $Z4M/versions || ! -L $Z4M/current ]]; then
+  print -Pru2 -- "%F{3}z4m%f: this cache predates the versioned layout"
+  print -Pru2 -- "%F{3}z4m%f: run %Bz4m update%b once to adopt it"
+  return 1
+fi
+
+local active
+active=$(command readlink -- $Z4M/current) || return 1
+active=${active#versions/}
+
+# Newest first, so the first entry that is not active is the rollback target.
+local -a available=($Z4M/versions/*(N/om:t))
+if (( ! $#available )); then
+  print -Pru2 -- "%F{3}z4m%f: no installed versions found"
+  return 1
+fi
+
+function -z4m-cmd-rollback-describe() {
+  local name=$1
+  local ref= version=
+  [[ -r $Z4M/versions/$name/zsh4monkey/.z4m-source-ref ]] &&
+    IFS= read -r ref <$Z4M/versions/$name/zsh4monkey/.z4m-source-ref
+  [[ -r $Z4M/versions/$name/zsh4monkey/version ]] &&
+    IFS= read -r version <$Z4M/versions/$name/zsh4monkey/version
+  REPLY=${ref:-unknown}
+  [[ -n $version ]] && REPLY+=" ($version)"
+}
+
+{
+  if (( $#list_only )); then
+    print -Pr -- '%F{3}z4m%f: installed versions'
+    local name
+    for name in $available; do
+      -z4m-cmd-rollback-describe $name
+      if [[ $name == $active ]]; then
+        print -Pr -- "  %F{2}*%f ${name}  ${REPLY}"
+      else
+        print -Pr -- "    ${name}  ${REPLY}"
+      fi
+    done
+    return 0
+  fi
+
+  local target=
+  local name
+  for name in $available; do
+    [[ $name == $active ]] && continue
+    target=$name
+    break
+  done
+
+  if [[ -z $target ]]; then
+    print -Pru2 -- "%F{3}z4m%f: no earlier version to roll back to"
+    print -Pru2 -- "%F{3}z4m%f: see %Bz4m rollback --list%b"
+    return 1
+  fi
+
+  if [[ ! -r $Z4M/versions/$target/zsh4monkey/sc/activate-version ]]; then
+    print -Pru2 -- "%F{3}z4m%f: version %F{1}$target%f is not usable"
+    return 1
+  fi
+
+  -z4m-cmd-rollback-describe $target
+  print -Pru2 -- "%F{3}z4m%f: rolling back to %B${REPLY}%b"
+
+  # Activate from the target's own copy: it is the framework that will be
+  # running afterwards, so it is also the one whose activation semantics apply.
+  command sh $Z4M/versions/$target/zsh4monkey/sc/activate-version \
+    $Z4M $target || return
+} always {
+  unset "functions[-z4m-cmd-rollback-describe]"
+}
+
+zf_rm -f -- $Z4M/.last-init-failed $Z4M/.safe-mode 2>/dev/null
+
+print -Pru2 -- "%F{3}z4m%f: %Brollback successful%b"
+
+if [[ ! -o interactive || ! -t 0 || ! -t 1 ]]; then
+  return 0
+fi
+
+print -Pru2 -- "%F{3}z4m%f: restarting %F{2}zsh%f"
+if [[ -o zle ]]; then
+  exec -- $_z4m_exe -i || return
+else
+  exec -- $_z4m_exe -i --no-zle || return
+fi

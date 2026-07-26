@@ -10,8 +10,10 @@ local local_zdotdir=${2:-${ZDOTDIR:-$HOME}}
 -z4m-expand-user-path-has-dot-segments() {
   emulate -L zsh -o no_aliases
 
-  local path=$1 segment
-  local -a parts=(${(s:/:)path})
+  # Not `local path`: path is tied to PATH, so declaring it locally replaces the
+  # command search path for the whole function body.
+  local candidate=$1 segment
+  local -a parts=(${(s:/:)candidate})
   for segment in $parts; do
     [[ $segment == '.' || $segment == '..' ]] && return 0
   done

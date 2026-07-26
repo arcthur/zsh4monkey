@@ -13,14 +13,14 @@ fpath=($PWD/fn $fpath)
 autoload -Uz -- -z4m-ssh-payload-offset || exit 1
 
 assert_file_content() {
-  local path=$1 expected=$2 name=$3
+  local target=$1 expected=$2 name=$3
   local actual
-  if [[ ! -f $path ]]; then
-    print -ru2 -- "missing file for $name: $path"
+  if [[ ! -f $target ]]; then
+    print -ru2 -- "missing file for $name: $target"
     (( ++failures ))
     return
   fi
-  actual=$(<$path)
+  actual=$(<$target)
   if [[ $actual != $expected ]]; then
     print -ru2 -- "unexpected content for $name: expected=$expected actual=$actual"
     (( ++failures ))

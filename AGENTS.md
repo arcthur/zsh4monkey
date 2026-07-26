@@ -73,7 +73,7 @@ done
 
 # Check POSIX bootstrap syntax
 for file in .zshenv install z4m.zsh sc/exec-zsh-i sc/setup \
-  sc/ssh-bootstrap sc/supply-chain; do
+  sc/ssh-bootstrap sc/supply-chain sc/activate-version sc/prune-versions; do
   sh -n "$file"
 done
 
@@ -137,6 +137,7 @@ man -l man/man1/z4m.1
 - **Cross-Platform Compatibility** - Supports multiple architectures (darwin x86_64/arm64, linux x86_64/aarch64/armv*)
 - **One-Shot Deployment** - Uploads a fresh runtime snapshot without requiring git, zsh, or sudo on the remote
 - **Transactional Replacement** - Stages destinations per filesystem and rolls back handled commit failures
+- **Flat Remote Layout** - Teleported caches use the flat layout; the versioned layout is adopted on the remote's first `z4m update`
 - **Failure Boundaries** - Documents that untrappable process or host failure can leave `.z4m-ssh.*` recovery directories
 
 ### Recovery and Safety
@@ -144,7 +145,8 @@ man -l man/man1/z4m.1
 - **Recovery Shell** - Minimal emergency environment for debugging and recovery
 - **Failure Markers** - Tracks initialization failures via `$Z4M/.last-init-failed` marker
 - **Recovery Commands** - Specialized functions: `z4m-safe-exit`, `z4m-safe-edit`, `z4m-safe-diagnose`
-- **Update Recovery** - `fn/-z4m-recover-update` is the only restore/roll-forward implementation; `z4m update` and the generated temporary bootstrap both call it so the two paths cannot drift
+- **Atomic Activation** - The framework is versioned under `$Z4M/versions/` and reached through the `current` symlink; `sc/activate-version` is the only switch point, shared by bootstrap, `z4m update`, and `z4m rollback`
+- **No Repair Path** - A failed update leaves `$Z4M` untouched rather than needing recovery, so there is no update guard/backup/temporary-bootstrap machinery to keep correct
 
 ### Intentional Duplication
 Bootstrap code runs before `$Z4M` exists, so a few checks are necessarily

@@ -37,7 +37,7 @@ jobs:
             esac
             zsh -n "$file"
           done
-          for file in .zshenv install z4m.zsh sc/exec-zsh-i sc/setup sc/ssh-bootstrap sc/supply-chain tools/build-release tools/verify-dependencies tools/version-tag; do
+          for file in .zshenv install z4m.zsh sc/exec-zsh-i sc/setup sc/ssh-bootstrap sc/supply-chain sc/activate-version sc/prune-versions tools/build-release tools/verify-dependencies tools/version-tag; do
             sh -n "$file"
           done
 

@@ -6,6 +6,7 @@
 |---------|-------------|
 | `z4m init` | Initialize zsh (called in .zshrc) |
 | `z4m update [--no-restart]` | Update z4m and managed packages; optionally return without restarting |
+| `z4m rollback [--list]` | Switch back to the previously installed version, or list installed versions |
 | `z4m version` | Show version information |
 | `z4m help [cmd]` | Show help for command |
 
@@ -15,6 +16,13 @@ verification is restricted to the repository's release workflow. Public
 attestations normally work anonymously; use `gh auth login` or `GH_TOKEN` if
 GitHub requests credentials or the anonymous API limit is exhausted. `main`
 remains an explicitly unverified development channel.
+
+The framework is installed under `$Z4M/versions/` and reached through the
+`current` symlink, so an update builds its candidate aside and activates it with
+a single atomic switch: an update that fails at any point leaves the running
+installation untouched, and a shell started during an update keeps using the
+active version instead of waiting. `z4m rollback` points that same switch at the
+previous version, which costs one symlink write and no network access.
 
 The standalone installer supports both interactive setup and a declarative
 automation mode:

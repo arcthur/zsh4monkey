@@ -187,6 +187,19 @@ Supported values:
 - `pinned`: retain the ref already present in `Z4M_URL`; versioned refs keep
   release verification, while `main` remains unverified.
 
+## Version Retention
+
+Updating keeps the previous framework version so `z4m rollback` has a target.
+
+```zsh
+zstyle ':z4m:update' keep-versions 2
+```
+
+The value counts retained versions in total, including the active one, and is
+clamped to at least 1. Versions live under `$Z4M/versions/`; only the framework
+is versioned, so retaining more of them costs little. `z4m rollback --list`
+shows what is currently available.
+
 ## Highlighting
 
 | Style | Type | Default | Description |

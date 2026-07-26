@@ -561,12 +561,12 @@ function -z4m-autosuggest-ai-proxy-write-log() {
   -z4m-autosuggest-ai-proxy-dir
   local dir=$REPLY
   command mkdir -p -- "$dir" 2>/dev/null || return 1
-  command chmod 700 -- "$dir" 2>/dev/null || true
+  command chmod 700 "$dir" 2>/dev/null || true
 
   -z4m-autosuggest-ai-proxy-log-path "$pane"
   local log_file=$REPLY
   print -r -- "$sanitized" >| "$log_file" || return 1
-  command chmod 600 -- "$log_file" 2>/dev/null || true
+  command chmod 600 "$log_file" 2>/dev/null || true
 
   _z4m_autosuggest_ai_state[proxy_last_path]=$log_file
   _z4m_autosuggest_ai_state[proxy_last_updated]=${EPOCHSECONDS:-0}
@@ -676,7 +676,7 @@ function -z4m-autosuggest-ai-proxy-control() {
         REPLY='failed to create proxy directory'
         return 1
       }
-      command chmod 700 -- "$dir" 2>/dev/null || true
+      command chmod 700 "$dir" 2>/dev/null || true
 
       -z4m-autosuggest-ai-proxy-flag-path "$pane"
       local flag_file=$REPLY
@@ -686,7 +686,7 @@ function -z4m-autosuggest-ai-proxy-control() {
         REPLY='failed to write proxy flag'
         return 1
       }
-      command chmod 600 -- "$flag_file" 2>/dev/null || true
+      command chmod 600 "$flag_file" 2>/dev/null || true
 
       local -i lines=${_z4m_autosuggest_ai_state[configured_context_output_lines]:-40}
       local captured=

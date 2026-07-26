@@ -8,6 +8,7 @@ _z4m_commands() {
   commands=(
     'init:Initialize zsh (call once from .zshrc)'
     'update:Update z4m and managed dependencies'
+    'rollback:Switch back to the previously installed version'
     'install:Register a managed dependency'
     'source:Source a zsh script file'
     'compile:Compile zsh script to zwc'

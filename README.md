@@ -6,6 +6,7 @@ A modern, feature-rich Zsh configuration that just works. Built for developers w
 
 - **Zero-config excellence** - Works great out of the box
 - **Measured startup** - PTY-based time-to-ready benchmarking with p50 and p95 reporting
+- **Atomic updates** - Versioned installs activated by one symlink switch, with `z4m rollback`
 - **Syntax highlighting** - Built-in [fast-syntax-highlighting](https://github.com/zdharma-continuum/fast-syntax-highlighting) with 256-color themes
 - **Smart autosuggestions** - Built-in [zsh-autosuggestions](https://github.com/zsh-users/zsh-autosuggestions)
 - **AI assist lanes** - Manual rewrite + natural-language command intent, with optional conservative autosuggest fallback
@@ -93,6 +94,7 @@ sh "$z4m_installer" --non-interactive \
 |---------|-------------|
 | `z4m init` | Initialize zsh |
 | `z4m update [--no-restart]` | Update z4m and managed dependencies |
+| `z4m rollback [--list]` | Switch back to the previously installed version |
 | `z4m install <pkg>` | Register dependency in install queue |
 | `z4m ssh <host>` | SSH with teleportation |
 | `z4m bindkey <widget> <key>` | Bind key |

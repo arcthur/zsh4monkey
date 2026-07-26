@@ -1,0 +1,108 @@
+#!/bin/sh
+#
+# Point the z4m cache at a version directory with a single atomic rename.
+#
+# Usage:
+#   activate-version <z4m-root> <version-directory-name>
+#
+# Layout produced:
+#
+#   $Z4M/current      -> versions/<name>        the only switch point
+#   $Z4M/z4m.zsh      -> current/z4m.zsh        so ~/.zshenv never changes
+#   $Z4M/z4m.zsh.zwc  -> current/z4m.zsh.zwc
+#   $Z4M/zsh4monkey   -> current/zsh4monkey     so $Z4M/zsh4monkey/... keeps working
+#
+# Every link is created under a temporary name and moved into place, so a shell
+# starting concurrently observes either the previous version or the new one and
+# never a partially replaced framework. Link targets are relative, which keeps
+# the cache valid if $Z4M is moved.
+#
+# A pre-existing real file or directory (the flat layout used by older installs
+# and by ssh bootstrap) is moved aside before the link lands, because renaming a
+# symlink onto a populated directory would nest it instead of replacing it.
+#
+# Both the sh bootstrap in z4m.zsh and `z4m update` invoke this script, so the
+# activation sequence exists exactly once.
+
+set -ue
+
+root=${1-}
+name=${2-}
+
+if [ -z "$root" ] || [ -z "$name" ]; then
+  >&2 printf '\033[33mz4m\033[0m: usage: activate-version <root> <version-name>\n'
+  exit 1
+fi
+
+case "$root" in
+  /*) ;;
+  *)
+    >&2 printf '\033[33mz4m\033[0m: cache path must be absolute: \033[31m%s\033[0m\n' "$root"
+    exit 1
+    ;;
+esac
+
+case "$name" in
+  ''|.|..|*/*|*[!A-Za-z0-9._-]*)
+    >&2 printf '\033[33mz4m\033[0m: unsafe version name: \033[31m%s\033[0m\n' "$name"
+    exit 1
+    ;;
+esac
+
+if [ ! -d "$root/versions/$name" ]; then
+  >&2 printf '\033[33mz4m\033[0m: no such version: \033[31m%s\033[0m\n' "$name"
+  exit 1
+fi
+
+if [ ! -r "$root/versions/$name/zsh4monkey/main.zsh" ] ||
+   [ ! -r "$root/versions/$name/z4m.zsh" ]; then
+  >&2 printf '\033[33mz4m\033[0m: incomplete version: \033[31m%s\033[0m\n' "$name"
+  exit 1
+fi
+
+displaced=''
+
+# `ln -sfn` rather than a staged link plus `mv`: mv resolves a destination that
+# is a symlink to a directory and would move the new link *inside* the old
+# version, and BSD mv has no -T to suppress that. GNU ln -f performs the
+# replacement through rename(2); BSD ln unlinks and recreates, leaving a window
+# of two syscalls rather than the whole extraction.
+relink() {
+  relink_name=$1
+  relink_target=$2
+
+  if [ -L "$root/$relink_name" ]; then
+    if relink_current="$(command readlink -- "$root/$relink_name" 2>/dev/null)"; then
+      if [ "$relink_current" = "$relink_target" ]; then
+        return 0
+      fi
+    fi
+  elif [ -d "$root/$relink_name" ]; then
+    # Flat layout: ln refuses to replace a real directory, so move it aside and
+    # drop it only once every link is in place.
+    command mv -f -- "$root/$relink_name" "$root/.z4m-replaced.$relink_name.$$" || return 1
+    displaced="$displaced $root/.z4m-replaced.$relink_name.$$"
+  fi
+
+  command ln -sfn -- "$relink_target" "$root/$relink_name"
+}
+
+if [ -e "$root/current" ] && [ ! -L "$root/current" ]; then
+  >&2 printf '\033[33mz4m\033[0m: refusing to replace non-symlink: \033[31m%s\033[0m\n' "$root/current"
+  exit 1
+fi
+
+# The switch itself. Everything after this point only makes the stable entry
+# points follow it, and each of those is idempotent.
+relink current "versions/$name" || exit 1
+relink zsh4monkey current/zsh4monkey || exit 1
+# z4m.zsh.zwc is relinked even though the new version may not carry one: `z4m
+# compile` replaces this name with a real file, and leaving that file in place
+# would offer the previous version's bytecode alongside the new source. A link
+# that dangles is simply ignored by zsh, so resetting it is what invalidates it.
+relink z4m.zsh.zwc current/z4m.zsh.zwc || exit 1
+relink z4m.zsh current/z4m.zsh || exit 1
+
+for replaced in $displaced; do
+  command rm -rf -- "$replaced" 2>/dev/null || :
+done

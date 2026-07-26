@@ -11,17 +11,17 @@ autoload -Uz -- -z4m-copy-path-with-excludes
 typeset -gi failures=0
 
 assert_exists() {
-  local path=$1 label=$2
-  if [[ ! -e $path ]]; then
-    print -ru2 -- "$label: missing [$path]"
+  local target=$1 label=$2
+  if [[ ! -e $target ]]; then
+    print -ru2 -- "$label: missing [$target]"
     ((failures++))
   fi
 }
 
 assert_missing() {
-  local path=$1 label=$2
-  if [[ -e $path ]]; then
-    print -ru2 -- "$label: unexpected path [$path]"
+  local target=$1 label=$2
+  if [[ -e $target ]]; then
+    print -ru2 -- "$label: unexpected path [$target]"
     ((failures++))
   fi
 }

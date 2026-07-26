@@ -45,9 +45,9 @@ fi
 command find "$self" -name '*.zwc' -exec rm -f -- '{}' '+'               || exit
 
 command mkdir -p -- "$new"/bin "$new"/fn "$new"/cache/ohmyzsh "$new"/tmp || exit
-if [ ! -L "$new"/z4m.zsh ]; then
-  command cp -f -- "$self"/../z4m.zsh "$new"/                            || exit
-fi
+# The bootstrap entry point is not copied here. sc/activate-version turns
+# "$new"/z4m.zsh into a link to the activated version, and overwriting it at
+# this point would rewrite the very file the calling sh is still reading.
 if [ ! -e "$new"/cache/last-update-ts ]; then
   echo -n >"$new"/cache/last-update-ts                                   || exit
 fi

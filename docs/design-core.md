@@ -89,28 +89,60 @@ z4m uses a few recurring strategies:
 - Built-in remote dependencies resolve through `dependencies.lock` to exact
   commits and SHA-256 digests. Custom repositories require the same immutable
   ref and digest contract unless the compatibility opt-out is enabled.
-- `z4m update` builds a complete candidate tree before replacing the active
-  cache. A guard serializes updates, while a temporary bootstrap and immutable
-  backup snapshot provide idempotent recovery if replacement or rollback is
-  interrupted.
 
-Replacement is not atomic: between clearing `$Z4M` and moving the candidate in,
-the cache is incomplete. Everything else in the update path exists to make that
-window survivable — the guard, the recovery lock, the backup snapshot, and the
-temporary `z4m.zsh` that a shell entering the window will load instead of the
-framework.
+## Cache Layout
 
-Recovery therefore has exactly one implementation, `fn/-z4m-recover-update`.
-Both callers use it: `z4m update` for in-process rollback and stale-transaction
-cleanup, and the temporary bootstrap, which autoloads it from the backup
-snapshot (falling back to the active tree once replacement has completed). It
-either restores the backup or, when the new tree is already in place and only
-the entry point is missing, rolls forward. Keeping it in one file is what
-prevents the two paths from drifting into different notions of "recovered".
+The framework is versioned and immutable; everything else in `$Z4M` is
+mutable runtime state that belongs to the machine.
 
-A content-addressed layout — versioned directories plus an atomic `current`
-symlink, with state separated from code — would remove the window rather than
-guard it. That is a deliberate future direction, not the current model.
+```
+$Z4M/
+  current      -> versions/<ref>.<id>   the only switch point
+  z4m.zsh      -> current/z4m.zsh       stable entry point for ~/.zshenv
+  z4m.zsh.zwc  -> current/z4m.zsh.zwc
+  zsh4monkey   -> current/zsh4monkey    stable path for $Z4M/zsh4monkey/...
+  versions/<ref>.<id>/{z4m.zsh,zsh4monkey}
+  <plugin dirs>                          packages, replaced individually
+  cache/ stickycache/ tmp/ bin/ fn/      runtime state
+```
+
+Two consequences follow from the indirection:
+
+- `~/.zshenv` and the ~60 references to `$Z4M/zsh4monkey/...` never change,
+  because those paths keep resolving; only what they resolve *to* changes.
+- Packages stay at `$Z4M/<name>`, which is the path `z4m load ohmyzsh/ohmyzsh`
+  expands to. They are user-visible API and are deliberately not versioned.
+
+## Update and Rollback
+
+`sc/activate-version` is the single switch point, invoked by the sh bootstrap in
+`z4m.zsh`, by `z4m update`, and by `z4m rollback`, so the activation sequence
+exists exactly once. It replaces `current` with `ln -sfn`, which GNU coreutils
+implements through `rename(2)`; `mv` is unusable here because it resolves a
+destination that is a symlink to a directory and BSD `mv` has no `-T`.
+
+`z4m update`:
+
+1. builds the candidate in a throwaway cache next to `$Z4M`;
+2. rehearses it with a full `zsh -ic`, so only a cache that reached a prompt
+   can ever be activated;
+3. moves the candidate's version directory into `$Z4M/versions/`;
+4. switches `current`;
+5. replaces packages one at a time and prunes old versions.
+
+Nothing in that sequence produces a state that needs repairing. A failure before
+step 4 leaves `$Z4M` untouched; a failure after it leaves a complete, working
+version active. That is why there is no guard-plus-backup-plus-temporary-
+bootstrap machinery: it existed to survive a window that no longer exists.
+Startup does not wait for a concurrent update either — the active version stays
+usable for the whole operation.
+
+`z4m rollback` is the same switch pointed at the previous version, so it costs
+one symlink write and no network access. `zstyle ':z4m:update' keep-versions`
+decides how many stay available (default 2).
+
+The flat layout produced by older installs and by `z4m ssh` remains a valid
+state: it starts normally, and the first `z4m update` migrates it.
 
 See [SECURITY.md](../SECURITY.md) for the release trust boundary and
 [config.md](config.md) for channel and dependency configuration.
@@ -137,8 +169,10 @@ Safety:
 - `fn/-z4m-safe-mode-init`
 - `fn/-z4m-recovery-shell`
 - `fn/-z4m-show-failure-log`
-- `fn/-z4m-recover-update`: the single update restore/roll-forward implementation
-  shared by `z4m update` and the temporary bootstrap
+- `sc/activate-version`: the single switch point of the versioned layout, shared
+  by the sh bootstrap, `z4m update`, and `z4m rollback`
+- `sc/prune-versions`: version retention, keeping the active version and the
+  rollback target
 
 Performance primitives:
 

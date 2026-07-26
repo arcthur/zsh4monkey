@@ -1,0 +1,59 @@
+#!/bin/sh
+#
+# Drop version directories that are no longer worth keeping.
+#
+# Usage:
+#   prune-versions <z4m-root> [keep]
+#
+# The version `current` points at is always kept, plus the most recently created
+# ones up to `keep` total, so a rollback target survives. Abandoned staging
+# directories are removed unconditionally: they are only ever named while a
+# bootstrap or update is assembling a candidate, and a live one is protected by
+# the caller holding it, not by this script.
+#
+# Pruning never fails the operation that triggered it. A version directory that
+# cannot be removed is disk usage, not a correctness problem.
+
+set -u
+
+root=${1-}
+keep=${2-2}
+
+[ -n "$root" ] || exit 0
+[ -d "$root/versions" ] || exit 0
+
+case "$keep" in
+  ''|*[!0-9]*) keep=2 ;;
+esac
+[ "$keep" -ge 1 ] || keep=1
+
+current=''
+if [ -L "$root/current" ]; then
+  current="$(command readlink -- "$root/current" 2>/dev/null || printf '')"
+  current=${current#versions/}
+fi
+
+# The active version does not consume the allowance, so `keep` counts total
+# retained versions rather than rollback targets on top of the active one.
+allowance=$keep
+if [ -n "$current" ]; then
+  allowance=$((keep - 1))
+  [ "$allowance" -ge 0 ] || allowance=0
+fi
+
+kept=0
+for entry in $(command ls -t -- "$root/versions" 2>/dev/null); do
+  case "$entry" in
+    ''|.|..) continue ;;
+  esac
+  [ -d "$root/versions/$entry" ] || continue
+  [ "$entry" = "$current" ] && continue
+
+  if [ "$kept" -lt "$allowance" ]; then
+    kept=$((kept + 1))
+    continue
+  fi
+  command rm -rf -- "$root/versions/$entry" 2>/dev/null || :
+done
+
+exit 0

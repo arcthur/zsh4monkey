@@ -142,34 +142,10 @@ if '[' '-n' "${ZSH_VERSION-}" ']'; then
   fi
 fi
 
-if '[' '-z' "${Z4M_UPDATING-}" '-a' '-n' "${Z4M-}" '-a' '-z' "${Z4M##/*}" '-a' '-e' "$Z4M"/.updating ']'; then
-  'unset' '_z4m_update_pid'
-  if '[' '-r' "$Z4M"/.updating ']'; then
-    while 'IFS'='=' 'read' '-r' '_z4m_update_key' '_z4m_update_value'; do
-      case "$_z4m_update_key" in
-        'pid')
-          case "$_z4m_update_value" in
-            (''|*[!0-9]*) ;;
-            (*) _z4m_update_pid="$_z4m_update_value" ;;
-          esac
-        ;;
-      esac
-    done <"$Z4M"/.updating
-    'unset' '_z4m_update_key' '_z4m_update_value'
-  fi
-  _z4m_wait='0'
-  while '[' "$_z4m_wait" '-lt' '400' '-a' '-e' "$Z4M"/.updating ']'; do
-    if '[' '-n' "${_z4m_update_pid-}" ']'; then
-      if ! 'command' 'kill' '-0' "$_z4m_update_pid" 2>'/dev/null'; then
-        'command' 'rm' '-f' '--' "$Z4M"/.updating 2>'/dev/null'
-        'break'
-      fi
-    fi
-    'command' 'sleep' '0.05' 2>'/dev/null' || 'break'
-    _z4m_wait="$((_z4m_wait + 1))"
-  done
-  'unset' '_z4m_wait' '_z4m_update_pid'
-fi
+# A concurrent update no longer makes this cache unusable: the candidate is
+# built elsewhere and enters through one symlink swap, so a shell starting
+# during an update simply keeps running the version that is still active. There
+# is nothing to wait for.
 
 if '[' '-n' "${Z4M_UPDATE_SOURCE_URL-}" ']'; then
   Z4M_URL=$Z4M_UPDATE_SOURCE_URL
@@ -341,12 +317,16 @@ if '[' '-n' "${_z4m_bootstrap-}" ']'; then
       fi
     fi
 
-    dir="$Z4M"/zsh4monkey
+    # Candidates are assembled under versions/ and activated with a single
+    # rename, so a shell starting concurrently never observes a half-replaced
+    # framework. See sc/activate-version for the layout this produces.
+    versions_dir="$Z4M"/versions
+    'command' 'mkdir' '-p' '--' "$versions_dir" || 'exit'
 
     if command -v 'mktemp' >'/dev/null' 2>&1; then
-      tmpdir="$('command' 'mktemp' '-d' "$dir".XXXXXXXXXX)"
+      tmpdir="$('command' 'mktemp' '-d' "$versions_dir"/.staging.XXXXXXXXXX)"
     else
-      tmpdir="$dir".tmp."$$"
+      tmpdir="$versions_dir"/.staging."$$"
       'command' 'rm' '-rf' '--' "$tmpdir" || 'exit'
       'command' 'mkdir' '--' "$tmpdir"    || 'exit'
     fi
@@ -538,12 +518,30 @@ if '[' '-n' "${_z4m_bootstrap-}" ']'; then
           >&2 'printf' 'Change \033[32mzsh\033[0m startup files to keep \033[1mZ4M_UPDATING\033[0m intact.\n'
           'exit' '1'
         fi
-        "sh" "$tmpdir"/zsh4monkey-"$v"/sc/setup '-n' "$Z4M" '-o' "$Z4M_UPDATING" || 'exit'
+        "sh" "$package_dir"/sc/setup '-n' "$Z4M" '-o' "$Z4M_UPDATING" || 'exit'
       else
-        "sh" "$tmpdir"/zsh4monkey-"$v"/sc/setup '-n' "$Z4M"                      || 'exit'
+        "sh" "$package_dir"/sc/setup '-n' "$Z4M"                      || 'exit'
       fi
-      'command' 'rm' '-rf' '--' "$dir"                          || 'exit'
-      'command' 'mv' '-f' '--' "$tmpdir"/zsh4monkey-"$v" "$dir" || 'exit'
+
+      # Assemble the candidate under its final name, then hand the switch to
+      # sc/activate-version. Until that rename lands, nothing outside versions/
+      # has been touched, so a failure here leaves the running install intact.
+      if command -v 'mktemp' >'/dev/null' 2>&1; then
+        version_dir="$('command' 'mktemp' '-d' "$versions_dir"/"$v".XXXXXXXXXX)" || 'exit'
+      else
+        version_dir="$versions_dir"/"$v"."$$"
+        'command' 'rm' '-rf' '--' "$version_dir" || 'exit'
+        'command' 'mkdir' '--' "$version_dir"    || 'exit'
+      fi
+      # BSD chmod treats -- as a file name, so the separator is omitted here.
+      'command' 'chmod' '755' "$version_dir"                          || 'exit'
+      'command' 'mv' '-f' '--' "$package_dir" "$version_dir"/zsh4monkey || 'exit'
+      'command' 'cp' '-p' '--' \
+        "$version_dir"/zsh4monkey/z4m.zsh "$version_dir"/z4m.zsh      || 'exit'
+
+      "sh" "$version_dir"/zsh4monkey/sc/activate-version \
+        "$Z4M" "${version_dir##*/}" || 'exit'
+      "sh" "$version_dir"/zsh4monkey/sc/prune-versions "$Z4M" 2 || :
     )
 
     ret="$?"

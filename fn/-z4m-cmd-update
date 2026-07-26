@@ -4,20 +4,6 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 -z4m-check-core-params || return
 
-# Replacement deletes $Z4M/zsh4monkey, so anything the rollback path needs must
-# be resident before that happens: a lazy autoload would try to read a file that
-# no longer exists exactly when recovery matters. `autoload +X` also reports
-# failure for an already-loaded function, so check the body for the stub rather
-# than trusting its exit status.
-local preload
-for preload in -z4m-recover-update -z4m-error-command; do
-  autoload -Uz +X -- $preload 2>/dev/null
-  if [[ -z ${functions[$preload]-} || ${functions[$preload]} == *'autoload -X'* ]]; then
-    print -Pru2 -- "%F{3}z4m%f: unable to preload %F{1}${preload//\%/%%}%f"
-    return 1
-  fi
-done
-
 local -a no_restart
 zparseopts -D -F -- n=no_restart -no-restart=no_restart || return '_z4m_err()'
 
@@ -37,14 +23,23 @@ if ! -z4m-resolve-update-url; then
   return 1
 fi
 update_url=$REPLY
-print -Pru2 -- "%F{3}z4m%f: update source %B${update_url:t}%b"
+# The ref becomes a directory name under versions/. The pinned channel returns
+# whatever Z4M_URL holds, so validate here rather than relying on the check
+# inside sc/activate-version, which only runs after the directory is created.
+local update_ref=${update_url:t}
+if [[ -z $update_ref || $update_ref == (.|..) || $update_ref == *[^A-Za-z0-9._-]* ]]; then
+  print -Pru2 -- "%F{3}z4m%f: unsafe update ref: %F{1}${update_ref//\%/%%}%f"
+  return 1
+fi
+print -Pru2 -- "%F{3}z4m%f: update source %B$update_ref%b"
 
-local old=$Z4M.old.$sysparams[pid]
-local new=$Z4M.new.$sysparams[pid]
+# The candidate is built in a throwaway cache and only ever enters $Z4M through
+# sc/activate-version, which swaps a single symlink. Nothing here has to undo a
+# partially replaced framework, because no such state is ever created: a failure
+# before activation leaves $Z4M untouched, and a failure after it leaves a
+# complete, working version in place.
+local staging=$Z4M.staging.$sysparams[pid]
 local guard=$Z4M/.updating
-local recovery_lock=$Z4M/.update-recovery-lock
-local next_bootstrap=$Z4M/.z4m-next-bootstrap
-local temporary_bootstrap=$Z4M/.z4m-update-bootstrap.$sysparams[pid]
 local configured_url=$Z4M_URL
 local state_configured state_effective state_extra
 if [[ -r $Z4M/.update-source ]] &&
@@ -53,76 +48,15 @@ if [[ -r $Z4M/.update-source ]] &&
       $state_configured == https://raw.githubusercontent.com/arcthur/zsh4monkey/* ]]; then
   configured_url=$state_configured
 fi
-local -i sync_started=0 guard_owned=0 recovery_lock_owned=0
-
-function -z4m-cmd-update-release-recovery-lock() {
-  (( recovery_lock_owned )) || return 0
-  zf_rm -rf -- $recovery_lock || return
-  recovery_lock_owned=0
-}
-
-function -z4m-cmd-update-acquire-recovery-lock() {
-  local -i tries=0
-  local owner_pid=
-  while (( tries < 40 )); do
-    if zf_mkdir -- $recovery_lock 2>/dev/null; then
-      if ! print -r -- "pid=$sysparams[pid]" >$recovery_lock/owner; then
-        zf_rm -rf -- $recovery_lock 2>/dev/null || true
-        return 1
-      fi
-      recovery_lock_owned=1
-      return 0
-    fi
-
-    owner_pid=
-    local key value
-    if [[ -r $recovery_lock/owner ]]; then
-      while IFS='=' read -r key value; do
-        [[ $key == pid && $value == <-> ]] && owner_pid=$value
-      done <$recovery_lock/owner
-    fi
-    if [[ -n $owner_pid ]] && command kill -0 $owner_pid 2>/dev/null; then
-      print -Pru2 -- "%F{3}z4m%f: update lock recovery is already running with PID %F{1}$owner_pid%f"
-      return 1
-    fi
-    if [[ -z $owner_pid ]] && (( tries < 20 )); then
-      command sleep 0.05 2>/dev/null || return 1
-      (( ++tries ))
-      continue
-    fi
-    zf_rm -rf -- $recovery_lock 2>/dev/null || return 1
-    (( ++tries ))
-  done
-
-  print -Pru2 -- "%F{3}z4m%f: unable to acquire update recovery lock"
-  return 1
-}
+local -i guard_owned=0
 
 function -z4m-cmd-update-write-guard() {
   {
     setopt local_options no_clobber
     print -l -- \
       "pid=$sysparams[pid]" \
-      "epoch=$EPOCHSECONDS" \
-      "phase=preparing" >$guard
+      "epoch=$EPOCHSECONDS" >$guard
   } 2>/dev/null
-}
-
-function -z4m-cmd-update-recover-stale() {
-  local stale_pid=$1
-  local stale_old=$Z4M.old.$stale_pid
-  local stale_new=$Z4M.new.$stale_pid
-
-  # The restore algorithm is shared with the temporary bootstrap; see
-  # -z4m-recover-update. Without a backup there is nothing to restore and only
-  # the transaction state has to be cleared.
-  if [[ -d $stale_old ]]; then
-    -z4m-recover-update $Z4M $guard $recovery_lock $stale_old $stale_new
-    return
-  fi
-
-  zf_rm -f -- $guard || return
-  zf_rm -rf -- $stale_old $stale_new || return
 }
 
 function -z4m-cmd-update-acquire-guard() {
@@ -131,73 +65,60 @@ function -z4m-cmd-update-acquire-guard() {
     return 0
   fi
 
-  -z4m-cmd-update-acquire-recovery-lock || return
-
+  # The guard is a plain mutex now. There is no transaction to recover, so a
+  # guard whose owner is gone can simply be taken over.
   local existing_pid key value
-  local -i tries=0
-  while (( tries < 20 )); do
-    existing_pid=
-    if [[ -r $guard ]]; then
-      while IFS='=' read -r key value; do
-        [[ $key == pid && $value == <-> ]] && existing_pid=$value
-      done <$guard
-    fi
-    [[ -n $existing_pid ]] && break
-    command sleep 0.05 2>/dev/null || break
-    (( ++tries ))
-  done
-  if [[ -z $existing_pid ]]; then
-    print -Pru2 -- "%F{3}z4m%f: removing incomplete update guard: %F{1}${guard//\%/%%}%f"
-    zf_rm -f -- $guard || {
-      -z4m-cmd-update-release-recovery-lock || true
-      return 1
-    }
-  elif command kill -0 $existing_pid 2>/dev/null; then
-    print -Pru2 -- "%F{3}z4m%f: another update is already running with PID %F{1}$existing_pid%f"
-    -z4m-cmd-update-release-recovery-lock || true
-    return 1
-  else
-    print -Pru2 -- "%F{3}z4m%f: recovering interrupted update from PID %F{1}$existing_pid%f"
-    if ! -z4m-cmd-update-recover-stale $existing_pid; then
-      print -Pru2 -- "%F{3}z4m%f: interrupted update recovery failed"
-      -z4m-cmd-update-release-recovery-lock || true
-      return 1
-    fi
+  if [[ -r $guard ]]; then
+    while IFS='=' read -r key value; do
+      [[ $key == pid && $value == <-> ]] && existing_pid=$value
+    done <$guard
   fi
+  if [[ -n $existing_pid ]] && command kill -0 $existing_pid 2>/dev/null; then
+    print -Pru2 -- "%F{3}z4m%f: another update is already running with PID %F{1}$existing_pid%f"
+    return 1
+  fi
+  if [[ -n $existing_pid ]]; then
+    print -Pru2 -- "%F{3}z4m%f: taking over the guard of exited PID %F{1}$existing_pid%f"
+  else
+    print -Pru2 -- "%F{3}z4m%f: removing incomplete update guard"
+  fi
+  zf_rm -f -- $guard || return 1
 
   if -z4m-cmd-update-write-guard; then
     guard_owned=1
-    -z4m-cmd-update-release-recovery-lock || return 1
     return 0
   fi
-
-  print -Pru2 -- "%F{3}z4m%f: another update acquired the lock"
-  -z4m-cmd-update-release-recovery-lock || true
+  print -Pru2 -- "%F{3}z4m%f: another update acquired the guard"
   return 1
 }
 
+# Everything the updated cache should keep rather than take from the candidate:
+# runtime state that belongs to this machine, and the layout entries that
+# activation manages.
+local -a preserved=(
+  versions current z4m.zsh z4m.zsh.zwc zsh4monkey
+  cache stickycache tmp bin fn)
+
 {
   -z4m-cmd-update-acquire-guard || return
-  if [[ -r $next_bootstrap ]]; then
-    -z4m-mv $next_bootstrap $Z4M/z4m.zsh || return
-  fi
-  zf_rm -rf -- $old $new   || return
-  zf_rm -f -- $temporary_bootstrap || return
-  zf_mkdir -p -- $old $new || return
-  command cp -p -- $Z4M/z4m.zsh $new/z4m.zsh || return
-  print -n >$new/.updating || return
+  zf_rm -rf -- $staging || return
+  zf_mkdir -p -- $staging || return
+  command cp -p -- $Z4M/z4m.zsh $staging/z4m.zsh || return
+  print -n >$staging/.updating || return
 
+  # Full rehearsal: the candidate cache bootstraps the new framework and
+  # resolves the install queue exactly as a real shell would. Only a cache that
+  # reached a prompt is allowed to become the active one.
   Z4M_URL=$update_url Z4M_UPDATE_SOURCE_URL=$update_url \
-    Z4M_UPDATING=$Z4M Z4M=$new </dev/null >/dev/null $_z4m_exe -ic '
+    Z4M_UPDATING=$Z4M Z4M=$staging </dev/null >/dev/null $_z4m_exe -ic '
     (( $? )) && "exit" "1"
     "builtin" "emulate" "zsh" "-o" "no_aliases"
-    [[ $Z4M == '${(q)new}' ]] || exit 0
+    [[ $Z4M == '${(q)staging}' ]] || exit 0
     print -n >$Z4M/tmp/update-successful' || return
 
-  if [[ ! -e $new/tmp/update-successful ]]; then
+  if [[ ! -e $staging/tmp/update-successful ]]; then
     local home=~
     local zdotdir=${${${(q)ZDOTDIR}/#${(q)home}/'~'}//\%/%%}
-    local z4m=${${${(q)Z4M}/#${(q)home}/'~'}//\%/%%}
     print -Pru2 -- '%F{3}z4m%f: %B$Z4M%b %F{1}does not propagate%f through %U.zshrc%u'
     print -Pru2 -- ''
     print -Pru2 -- 'Change %U'$zdotdir'/.zshrc%u to keep %BZ4M%b intact if already set.'
@@ -210,89 +131,83 @@ function -z4m-cmd-update-acquire-guard() {
     return 1
   fi
 
-  zf_rm -- $new/tmp/update-successful                || return
-  zf_rm -- $new/.updating                            || return
-  zf_rm -f -- $new/.last-init-failed                 # Clear transient init failures from temp shell
-  zf_rm -f -- $new/.safe-mode                        # Clear any safe-mode marker
-  # The hidden-entry pattern needs its trailing star: the cache carries
-  # multi-character dotfiles such as .update-source and .last-init-failed, and
-  # a snapshot that silently omits them cannot restore the transaction state.
-  local entry
-  for entry in $Z4M/*(N) $Z4M/.[^.]*(N) $Z4M/..?*(N); do
-    [[ $entry == $guard || $entry == $recovery_lock ]] && continue
-    command cp -RP -- $entry $old/${entry:t} || return
-  done
-  [[ -r $old/z4m.zsh && -r $old/zsh4monkey/main.zsh ]] || return 1
-  -z4m-write-update-bootstrap \
-    $temporary_bootstrap $Z4M $guard $old $new $next_bootstrap || return
-  -z4m-mv $temporary_bootstrap $Z4M/z4m.zsh || return
-  sync_started=1
+  # Resolve rather than inspect the candidate's layout. When the cache being
+  # upgraded still runs a pre-versioning z4m.zsh, the rehearsal bootstraps with
+  # that older entry point and produces the flat layout; once it runs this
+  # version, the same path is a link into the candidate's own versions/. Taking
+  # the real path covers both, so upgrading never depends on which bootstrap
+  # assembled the candidate.
+  local framework=$staging/zsh4monkey
+  framework=${framework:A}
+  if [[ ! -r $framework/main.zsh || ! -r $framework/z4m.zsh ]]; then
+    print -Pru2 -- "%F{3}z4m%f: candidate did not produce a usable framework"
+    return 1
+  fi
 
-  for entry in $Z4M/*(N) $Z4M/.[^.]*(N) $Z4M/..?*(N); do
-    [[ $entry == $guard || $entry == $recovery_lock ||
-       $entry == $Z4M/z4m.zsh ]] && continue
-    zf_rm -rf -- $entry || return
+  zf_mkdir -p -- $Z4M/versions || return
+  local target_dir
+  if (( $+commands[mktemp] )); then
+    target_dir=$(command mktemp -d -- $Z4M/versions/$update_ref.XXXXXXXXXX) || return
+  else
+    target_dir=$Z4M/versions/$update_ref.$sysparams[pid]
+    zf_rm -rf -- $target_dir || return
+    zf_mkdir -p -- $target_dir || return
+  fi
+  local target_name=${target_dir:t}
+  # mktemp creates the directory 0700; the framework must stay world-readable
+  # like every other path a shell resolves through.
+  command chmod 755 $target_dir || return
+  -z4m-mv $framework $target_dir/zsh4monkey || return
+  command cp -p -- $target_dir/zsh4monkey/z4m.zsh $target_dir/z4m.zsh || return
+
+  command sh $Z4M/versions/$target_name/zsh4monkey/sc/activate-version \
+    $Z4M $target_name || return
+
+  # Past the switch the cache already runs the new framework. Packages are
+  # independent trees, so replacing them one at a time is safe: an interrupted
+  # sweep leaves every individual package intact and the next startup resolves
+  # whatever is still missing.
+  # Visible entries only: every dotfile in the candidate is its own transaction
+  # state (.updating, .replaced.*) and must not reach the active cache.
+  local entry name
+  for entry in $staging/*(N); do
+    name=${entry:t}
+    (( ${preserved[(Ie)$name]} )) && continue
+    if [[ -e $Z4M/$name || -L $Z4M/$name ]]; then
+      -z4m-mv $Z4M/$name $staging/.replaced.$name || return
+    fi
+    -z4m-mv $entry $Z4M/$name || return
   done
-  for entry in $new/*(N) $new/.[^.]*(N) $new/..?*(N); do
-    [[ $entry == $new/z4m.zsh ]] && continue
-    -z4m-mv $entry $Z4M/${entry:t} || return
-  done
-  -z4m-mv $new/z4m.zsh $next_bootstrap || return
+
   print -r -- "$configured_url|$update_url" >$Z4M/.update-source.$$ || return
   -z4m-mv $Z4M/.update-source.$$ $Z4M/.update-source || return
-  zf_rm -f -- $guard || return
-  guard_owned=0
-  sync_started=0
-  -z4m-mv $next_bootstrap $Z4M/z4m.zsh || return
+
+  # Read into a string first: assigning a user-supplied value to an integer
+  # parameter would evaluate it arithmetically and defeat the check below.
+  local keep_setting
+  local -i keep=2
+  if zstyle -s :z4m:update keep-versions keep_setting &&
+     [[ $keep_setting == <-> ]] && (( keep_setting >= 1 )); then
+    keep=$keep_setting
+  fi
+  command sh $Z4M/zsh4monkey/sc/prune-versions $Z4M $keep || true
 } always {
   local -i rc=$?
-  local -i rollback_failed=0
-  if (( rc )) && (( sync_started )); then
-    if -z4m-cmd-update-recover-stale $sysparams[pid]; then
-      guard_owned=0
-      sync_started=0
-    else
-      rollback_failed=1
-    fi
+  if (( guard_owned )); then
+    zf_rm -f -- $guard 2>/dev/null || true
+    guard_owned=0
   fi
-  if (( guard_owned )) && (( ! rollback_failed || ! sync_started )); then
-    local owner_pid key value
-    if [[ -r $guard ]]; then
-      while IFS='=' read -r key value; do
-        [[ $key == pid && $value == <-> ]] && owner_pid=$value
-      done <$guard
-    fi
-    if [[ $owner_pid == $sysparams[pid] ]]; then
-      zf_rm -f -- $guard 2>/dev/null || rollback_failed=1
-    else
-      rollback_failed=1
-    fi
-  fi
-  if (( recovery_lock_owned )) &&
-     ! -z4m-cmd-update-release-recovery-lock 2>/dev/null; then
-    rollback_failed=1
-  fi
-  if (( rollback_failed )); then
-    print -Pru2 -- "%F{3}z4m%f: update rollback incomplete; preserving recovery state"
-    print -Pru2 -- "%F{3}z4m%f: backup: %B${old//\%/%%}%b"
-    print -Pru2 -- "%F{3}z4m%f: guard: %B${guard//\%/%%}%b"
-  fi
+  zf_rm -rf -- $staging 2>/dev/null || true
+  unset "functions[-z4m-cmd-update-acquire-guard]" \
+    "functions[-z4m-cmd-update-write-guard]"
   if (( rc )); then
     -z4m-error-command update
   fi
-  unset "functions[-z4m-cmd-update-acquire-guard]" \
-    "functions[-z4m-cmd-update-acquire-recovery-lock]" \
-    "functions[-z4m-cmd-update-recover-stale]" \
-    "functions[-z4m-cmd-update-write-guard]" \
-    "functions[-z4m-cmd-update-release-recovery-lock]"
-  (( rollback_failed )) ||
-    zf_rm -rf -- $old $new $temporary_bootstrap || return
 }
 
 print -Pru2 -- "%F{3}z4m%f: %Bupdate successful%b"
 
-# Final cleanup: ensure no stale state markers exist before restarting
-# This catches any markers created after the initial cleanup (e.g., by late init failures)
+# Clear stale state markers so the new version starts from a clean slate.
 zf_rm -f -- $Z4M/.last-init-failed $Z4M/.safe-mode 2>/dev/null
 
 if (( $#no_restart )) || [[ ! -o interactive || ! -t 0 || ! -t 1 ]]; then

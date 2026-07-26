@@ -57,6 +57,21 @@ Use
 or
 .Fl -no-restart
 to return to the caller after a successful update.
+The candidate is built outside the active cache and activated by a single
+atomic switch, so an update that fails at any point leaves the running
+installation untouched.
+.It Cm rollback Op Fl l | Fl -list
+Switch back to the previously installed framework version.
+Nothing is downloaded or rebuilt; this is the same atomic switch
+.Cm update
+performs, pointed at the earlier version.
+Use
+.Fl l
+or
+.Fl -list
+to list the installed versions and mark the active one.
+The number of retained versions is controlled by
+.Ic zstyle ':z4m:update' keep-versions .
 .It Cm install Oo Fl r | Fl -resolve Oc Ar user/project Ns Op @ Ns Ar ref
 Register GitHub project(s) or built-in packages in the install queue.
 Custom projects require an immutable commit and a matching

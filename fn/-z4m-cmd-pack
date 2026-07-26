@@ -129,7 +129,11 @@ function -z4m-pack-stage-path() {
       [[ -d $d ]] && z4m_entries+=(${d#$Z4M/})
     done
     if (( $#z4m_entries )); then
-      COPYFILE_DISABLE=1 command tar -C "$Z4M" -czf "$z4m_tar" -- $z4m_entries
+      # -h dereferences: z4m.zsh and zsh4monkey resolve through current/ into a
+      # version directory, and packing the links themselves would produce an
+      # archive of dangling entries. The pack is a flat snapshot by design; the
+      # versioned layout is re-established on first startup.
+      COPYFILE_DISABLE=1 command tar -C "$Z4M" -czhf "$z4m_tar" -- $z4m_entries
     fi
   } 2>/dev/null
 

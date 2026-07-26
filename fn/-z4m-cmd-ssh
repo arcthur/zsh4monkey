@@ -139,7 +139,9 @@ local -r z4m_url=${Z4M_URL:-https://raw.githubusercontent.com/arcthur/zsh4monkey
   for dir in $Z4M/*(N-/); do
     dir=${dir#$Z4M/}
     case $dir in
-      cache|stickycache|tmp|zsh4monkey) continue ;;
+      # versions/ holds every installed framework and current/ resolves into it,
+      # so both would otherwise be teleported as if they were plugins.
+      cache|stickycache|tmp|zsh4monkey|versions|current) continue ;;
     esac
 
     if -z4m-ssh-package-dir-is-root $Z4M/$dir; then
