@@ -36,6 +36,10 @@ if (( ! $#dirstack && (DIRSTACKSIZE || ! $+DIRSTACKSIZE) )); then
   dirstack=($stack)
 fi
 
+# Already the most recent entry: skip the file rewrite, which otherwise happens on
+# every new shell started in the same directory.
+[[ $_z4m_dir_history[1] == $dir ]] && return
+
 local -i pos=$_z4m_dir_history[(ie)$dir]
 _z4m_dir_history[pos]=()
 _z4m_dir_history[1,0]=($dir)

@@ -56,14 +56,16 @@ function -z4m-highlight-fast-apply-theme() {
   fi
 
   target=$FAST_WORK_DIR/current_theme.zsh
-  if command cp -f -- "$resolved" "$target" 2>/dev/null; then
-    command rm -f -- "$target.zwc" 2>/dev/null || true
-    theme_name=${resolved:t:r}
-    theme_source=$resolved
-  else
-    -z4m-highlight-fast-warn-theme-fallback "$requested" "copy failed"
-    return 1
+  # Runs on every startup: rewrite only when the theme changed. $(<file) does not fork.
+  if [[ ! -r $target || "$(<$target)" != "$(<$resolved)" ]]; then
+    if ! command cp -f -- "$resolved" "$target" 2>/dev/null; then
+      -z4m-highlight-fast-warn-theme-fallback "$requested" "copy failed"
+      return 1
+    fi
+    zf_rm -f -- "$target.zwc" 2>/dev/null || true
   fi
+  theme_name=${resolved:t:r}
+  theme_source=$resolved
 
   zstyle :plugin:fast-syntax-highlighting theme "$theme_name"
 
