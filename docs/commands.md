@@ -156,6 +156,7 @@ See [keybindings.md](keybindings.md) for available widgets.
 | `z4m ai [--print\|--json\|--queue] "<query>"` | Generate one reviewable command; non-interactive calls print instead of queueing |
 | `z4m ai proxy [status\|on\|off]` | Manage tmux-only output-context proxy (optional) |
 | `z4m autosuggest [status\|doctor\|events\|reset]` | Inspect autosuggest/AI lane status, checks, and events |
+| `z4m highlight [status\|doctor\|events\|reset]` | Inspect the syntax-highlight backend status, checks, and events |
 
 ### Benchmark Example
 

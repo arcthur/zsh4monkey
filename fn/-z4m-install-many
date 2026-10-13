@@ -88,6 +88,9 @@ local success
     return
   fi
 
+  # Runtime directories are created by bootstrap, but a cache can lose them
+  # (tmp cleaners, manual cleanup); recreate rather than fail the install.
+  zf_mkdir -p -- $Z4M/tmp || return
   if (( $+commands[mktemp] )); then
     success="$(command mktemp -- $Z4M/tmp/install-many.XXXXXXXXXX)" || return
   else

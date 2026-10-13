@@ -12,8 +12,8 @@
 #
 # The 10-byte placeholder is replaced by an 8-byte field and `print` appends one
 # newline, so the pre-substitution byte size is exactly the 1-based offset of the
-# archive. Both -z4m-cmd-ssh and the integration test render through this
-# function so the offset cannot be derived two different ways.
+# archive. -z4m-ssh-render-bootstrap is the only caller, and both -z4m-cmd-ssh
+# and the tests render through it, so the offset is derived in one place.
 
 emulate -L zsh -o typeset_silent -o no_multibyte -o no_aliases
 

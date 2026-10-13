@@ -207,6 +207,12 @@ Measure command execution time with nanosecond precision.
 More accurate than the built-in
 .Cm time
 keyword.
+.It Cm history-debug
+Show the effective history-search wiring: flags, widgets, and key bindings.
+.It Cm tty-wait Fl t Ar seconds Fl p Ar pattern
+Wait until the terminal size matches a
+.Ql LINES COLUMNS
+pattern, or the timeout expires.
 .It Cm recovery
 Enter a minimal recovery shell environment.
 Useful when

@@ -46,7 +46,9 @@ case $channel in
       print -Pru2 -- "%F{3}z4m%f: latest release response has an invalid tag"
       return 1
     fi
-    for component in $version_parts; do
+    # Quoted: an unquoted expansion drops empty elements, so "v2..4" would
+    # skip the emptiness check entirely.
+    for component in "${version_parts[@]}"; do
       if [[ -z $component || $component != <-> ]]; then
         print -Pru2 -- "%F{3}z4m%f: latest release response has an invalid tag"
         return 1

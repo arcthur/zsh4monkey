@@ -433,15 +433,17 @@ function -z4m-cmd-init() {
   () {
     emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
       -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
-    if -z4m-init; then
+    # Capture the status directly: after `if -z4m-init; then ... fi` with the
+    # branch not taken, $? is 0 and the failure would never be recorded.
+    local -i rc=0
+    -z4m-init || rc=$?
+    if (( ! rc )); then
       # Success: clear any failure marker and stale log
       zf_rm -f -- $Z4M/.last-init-failed $Z4M/cache/last-init-failed.log 2>/dev/null
       unset _z4m_init_failed_step _z4m_init_failed_rc
       return 0
     fi
-    # Failure: create marker for next startup
-    local -i rc=$?
-    (( rc )) || return 0
+    # Failure: create marker so the next startup enters safe mode
     local -a lines=(
       "type=init"
       "epoch=$EPOCHSECONDS"
@@ -466,7 +468,7 @@ function -z4m-cmd-init() {
     unset _z4m_init_failed_step _z4m_init_failed_rc
     [[ -e $Z4M/.updating ]] || -z4m-error-command init
     return 1
-  }
+  } || return
   setopt hist_fcntl_lock
 }
 

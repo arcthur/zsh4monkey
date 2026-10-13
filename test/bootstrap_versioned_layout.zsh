@@ -98,6 +98,8 @@ active_version $cache || fail 'switch point disappeared after a failed bootstrap
   fail "a failed bootstrap changed the active version: $REPLY"
 [[ $(<$cache/zsh4monkey/main.zsh) == *alpha* ]] ||
   fail 'a failed bootstrap disturbed the active framework'
+staging=($cache/versions/.staging.*(N) $cache/versions/v9.9.9*(N))
+(( ${#staging} == 0 )) || fail "a failed bootstrap left its candidate behind: ${staging[*]}"
 
 # A second, valid candidate switches the cache and keeps the previous version
 # available as a rollback target.

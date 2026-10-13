@@ -36,6 +36,13 @@ case "$url" in
   */.zshrc.mac) source_file=.zshrc.mac ;;
   *) exit 1 ;;
 esac
+case "$source_file" in
+  .zshrc*)
+    if [ -n "${Z4M_TEST_ZSHRC_TEMPLATE-}" ]; then
+      exec cp -- "$Z4M_TEST_ZSHRC_TEMPLATE" "$output"
+    fi
+    ;;
+esac
 command cp -- "$Z4M_TEST_REPOSITORY/$source_file" "$output"
 SH
 chmod 755 "$test_bin/curl"
@@ -193,5 +200,69 @@ if (( $#install_leaks )); then
   print -ru2 -- 'installer transaction state leaked after successful rollback'
   exit 1
 fi
+
+# A template whose anchor no longer starts a line: the rewrite would silently do
+# nothing, so the installer must refuse before touching anything.
+local template_home=$temporary_directory/template-home
+local template_cache=$temporary_directory/template-cache
+local template=$temporary_directory/indented-zshrc
+mkdir -p -- "$template_home"
+print -r -- original-zshrc >"$template_home/.zshrc"
+command sed 's/^# Keyboard type:/  # Keyboard type:/' "$repository/.zshrc" >"$template"
+local output
+if output=$(HOME=$template_home \
+    XDG_CACHE_HOME=$template_cache \
+    PATH=$test_bin:$PATH \
+    Z4M_TEST_REPOSITORY=$repository \
+    Z4M_TEST_ZSHRC_TEMPLATE=$template \
+    Z4M_INSTALL_REF=main \
+      sh "$repository/install" --non-interactive --existing delete --no-bootstrap 2>&1); then
+  print -ru2 -- 'installer accepted a template without a line-start anchor'
+  exit 1
+fi
+[[ $output == *'missing anchor'* ]] || {
+  print -ru2 -- "installer failed for the wrong reason: $output"
+  exit 1
+}
+[[ $(<$template_home/.zshrc) == original-zshrc && ! -e $template_home/.zshenv ]]
+
+# A rewrite that produces nothing (an incompatible awk, say) must fail the
+# install instead of shipping a .zshrc without the requested settings.
+local real_awk=${commands[awk]}
+local noop_bin=$temporary_directory/noop-awk-bin
+mkdir -p -- "$noop_bin"
+command ln -s -- "$test_bin/curl" "$noop_bin/curl"
+cat >"$noop_bin/awk" <<'SH'
+#!/bin/sh
+rewrite=
+for argument do
+  case "$argument" in
+    anchor=*) rewrite=1 ;;
+    *'found = 1'*) rewrite= ; break ;;
+  esac
+  file=$argument
+done
+[ -n "$rewrite" ] && exec cat -- "$file"
+exec "$Z4M_TEST_REAL_AWK" "$@"
+SH
+chmod 755 "$noop_bin/awk"
+rm -rf -- "$template_home" "$template_cache"
+mkdir -p -- "$template_home"
+print -r -- original-zshrc >"$template_home/.zshrc"
+if output=$(HOME=$template_home \
+    XDG_CACHE_HOME=$template_cache \
+    PATH=$noop_bin:$PATH \
+    Z4M_TEST_REAL_AWK=$real_awk \
+    Z4M_TEST_REPOSITORY=$repository \
+    Z4M_INSTALL_REF=main \
+      sh "$repository/install" --non-interactive --editor vi --existing delete --no-bootstrap 2>&1); then
+  print -ru2 -- 'installer accepted a rewrite that produced nothing'
+  exit 1
+fi
+[[ $output == *'generated'*'.zshrc'*'is missing'* ]] || {
+  print -ru2 -- "installer failed for the wrong reason: $output"
+  exit 1
+}
+[[ $(<$template_home/.zshrc) == original-zshrc && ! -e $template_home/.zshenv ]]
 
 sh "$repository/install" --help >/dev/null

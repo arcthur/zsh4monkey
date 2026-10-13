@@ -122,11 +122,14 @@ if command sh $activate $strict 2>/dev/null; then
 fi
 
 # Pruning keeps the active version plus the most recent others up to the limit.
+# Ages are explicit: versions created in one burst can share a timestamp on
+# filesystems with coarse resolution, and the order would then be arbitrary.
 local aged=$test_directory/aged
 local name
+local -i age=1
 for name in v1 v2 v3 v4; do
   make_version $aged $name $name
-  command touch -- $aged/versions/$name
+  command touch -t 20200101000$(( age++ )) -- $aged/versions/$name
 done
 command sh $activate $aged v4
 command sh $prune $aged 2
@@ -139,9 +142,11 @@ command sh $prune $aged 2
 # Rolling back to an older version must protect it from the next prune.
 command sh $activate $aged v3
 make_version $aged v5 v5
+command touch -t 202001010009 -- $aged/versions/v5
 command sh $prune $aged 2
 [[ -d $aged/versions/v3 ]] || fail 'pruning removed the active version after rollback'
 [[ -d $aged/versions/v5 ]] || fail 'pruning removed the newest version'
+[[ ! -d $aged/versions/v4 ]] || fail 'pruning kept a version beyond the limit after rollback'
 
 # Abandoned staging directories are never rollback targets.
 local staged=$test_directory/staged

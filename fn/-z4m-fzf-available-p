@@ -1,5 +1,11 @@
 #!/usr/bin/env zsh
+#
+# The single answer to "may z4m use fzf here?". Both the fzf binary and the
+# configuration decide: `zstyle ':z4m:fzf' channel none` turns the integration
+# off even when fzf is on PATH. Before ZLE initialization has recorded that
+# choice in _z4m_use, only the binary is checked.
 
 emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
 
-(( $+commands[fzf] ))
+(( $+commands[fzf] )) || return 1
+(( ! ${+_z4m_use} || ${+_z4m_use[fzf]} ))

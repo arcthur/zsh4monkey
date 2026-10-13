@@ -27,5 +27,8 @@ for stale in \
   $Z4M/zsh-history-substring-search \
   $Z4M/zsh-autosuggestions \
   $Z4M/zsh-users/zsh-autosuggestions; do
-  [[ -d $stale ]] && zf_rm -rf -- $stale 2>/dev/null
+  # Best effort: a leftover directory must not fail the install.
+  if [[ -d $stale ]]; then
+    zf_rm -rf -- $stale 2>/dev/null || true
+  fi
 done

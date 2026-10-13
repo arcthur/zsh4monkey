@@ -26,6 +26,8 @@ _z4m_commands() {
     'highlight:Highlight backend diagnostics'
     'env:Show environment info'
     'time:Time command execution'
+    'history-debug:Show history-search wiring'
+    'tty-wait:Wait for a terminal size'
     'recovery:Enter recovery shell'
     'version:Show version info'
     'help:Show help'

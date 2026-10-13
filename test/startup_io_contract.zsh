@@ -110,8 +110,9 @@ call_count() {
   unset ATUIN_SESSION ATUIN_SHLVL
   function -z4m-compile() { return 0 }
   : >$calls
-  # The exit status reflects the optional trailing rebind step, not init success.
-  source fn/-z4m-init-atuin
+  # Success must not depend on the optional rebind step: a stray non-zero status
+  # here would fail initialization and send the next startup into safe mode.
+  source fn/-z4m-init-atuin || fail "atuin init reported failure ($?)"
   call_count 'atuin uuid'
   (( REPLY == 0 )) || fail 'atuin init forked atuin uuid'
   [[ $ATUIN_SESSION == [0-9a-f](#c12)7[0-9a-f](#c3)[89ab][0-9a-f](#c15) ]] ||

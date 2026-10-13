@@ -1,6 +1,6 @@
 #!/usr/bin/env zsh
 
-emulate -L zsh -o no_aliases -o pipe_fail
+emulate -L zsh -o err_return -o no_unset -o no_aliases -o pipe_fail
 
 local repository=${0:A:h:h}
 fpath=("$repository/fn" $fpath)

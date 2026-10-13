@@ -79,43 +79,95 @@ command ln -- "$test_dir/archive/root/file" "$test_dir/archive/root/hard-link" |
 command tar -C "$test_dir/archive" -czf "$test_dir/hard-link.tar.gz" root || exit 1
 assert_fail 'hard-link member' _z4m_archive_safe_p "$test_dir/hard-link.tar.gz"
 
-command python3 - "$test_dir/ambiguous-link.tar.gz" <<'PY' || exit 1
+# Hostile archives are built member by member: tar refuses to create most of
+# them, which is exactly why extraction must not trust its input.
+hostile_archive() {
+  command python3 - "$@" <<'PY' || exit 1
 import sys
 import tarfile
 
-archive_path = sys.argv[1]
+archive_path, kind, name, target = sys.argv[1:5]
 with tarfile.open(archive_path, "w:gz") as archive:
-    link = tarfile.TarInfo("root/link")
-    link.type = tarfile.SYMTYPE
-    link.linkname = "../../outside"
-    link.uname = "owner -> injected"
-    link.gname = "group"
-    archive.addfile(link)
+    root = tarfile.TarInfo("root")
+    root.type = tarfile.DIRTYPE
+    archive.addfile(root)
+    member = tarfile.TarInfo(name)
+    if kind == "symlink":
+        member.type = tarfile.SYMTYPE
+        member.linkname = target
+    elif kind == "ambiguous":
+        # `tar -tv` prints "owner -> injected ... root/link -> target", so a
+        # parser that splits on the first arrow would read the wrong target.
+        member.type = tarfile.SYMTYPE
+        member.linkname = target
+        member.uname = "owner -> injected"
+    archive.addfile(member)
 PY
-assert_fail 'ambiguous verbose symlink metadata' \
-  _z4m_archive_safe_p "$test_dir/ambiguous-link.tar.gz"
+}
+
+local -a hostile=(
+  'absolute member path|file|/etc/z4m-escape|'
+  'parent member path|file|../escape|'
+  'nested parent member path|file|root/../../escape|'
+  'trailing parent member path|file|root/sub/..|'
+  'absolute symlink target|symlink|root/link|/etc/passwd'
+  'parent symlink target|symlink|root/link|../outside'
+  'ambiguous verbose symlink metadata|ambiguous|root/link|../../outside'
+)
+local entry label kind name target
+local -i index=0
+for entry in $hostile; do
+  IFS='|' read -r label kind name target <<<"$entry"
+  hostile_archive "$test_dir/hostile-$(( ++index )).tar.gz" "$kind" "$name" "$target"
+  assert_fail "$label" _z4m_archive_safe_p "$test_dir/hostile-$index.tar.gz"
+done
+
+hostile_archive "$test_dir/dot-segment.tar.gz" file root/./file ''
+assert_ok 'current-directory segment' _z4m_archive_safe_p "$test_dir/dot-segment.tar.gz"
 
 print -r -- 'not an archive' >"$test_dir/invalid.tar.gz"
 assert_fail 'invalid archive' _z4m_archive_safe_p "$test_dir/invalid.tar.gz"
 
-for parser in sc/supply-chain z4m.zsh; do
-  if ! command grep -Fq 'if (index(target, marker))' "$parser"; then
-    print -ru2 -- "archive parser does not reject ambiguous symlink metadata: $parser"
+# --- Dependency lock ----------------------------------------------------------
+# Every entry must be usable through the lookup the installer uses, and its URL
+# must name the locked commit: a URL that tracks a branch breaks the install as
+# soon as the branch moves, even though the digest still guards the content.
+local lock_name lock_ref lock_sha256 lock_url
+local -i lock_entries=0
+while IFS='|' read -r lock_name lock_ref lock_sha256 lock_url; do
+  [[ -z $lock_name || $lock_name == '#'* ]] && continue
+  (( ++lock_entries ))
+  if ! _z4m_dependency_get dependencies.lock "$lock_name"; then
+    print -ru2 -- "unusable dependency lock entry: $lock_name"
+    (( ++failures ))
+  elif [[ $Z4M_DEPENDENCY_URL != *"/$Z4M_DEPENDENCY_REF"[/.]* ]]; then
+    print -ru2 -- "dependency URL is not pinned to its commit: $lock_name $Z4M_DEPENDENCY_URL"
     (( ++failures ))
   fi
+done <dependencies.lock
+(( lock_entries )) || { print -ru2 -- 'dependency lock is empty'; (( ++failures )) }
+
+# --- SHA-256 tool fallback ----------------------------------------------------
+# Hosts differ in which tool they have; each one must yield the same digest.
+local tool helper
+for tool in sha256sum shasum openssl; do
+  (( $+commands[$tool] )) || continue
+  mkdir -p -- "$test_dir/only-$tool" || exit 1
+  # shasum is a perl script on most systems.
+  for helper in $tool tr perl; do
+    (( $+commands[$helper] )) && ln -sf -- "$commands[$helper]" "$test_dir/only-$tool/$helper"
+  done
+  (
+    PATH=$test_dir/only-$tool
+    _z4m_sha256_file "$test_dir/payload" &&
+      [[ $Z4M_SHA256 == 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 ]]
+  ) || {
+    print -ru2 -- "SHA-256 through $tool did not produce the expected digest"
+    (( ++failures ))
+  }
 done
-
-if rg -n --color=never \
-    'archive/(master|main)\\.tar\\.gz|raw\\.githubusercontent\\.com/[^/]*/[^/]*/(master|main)/' \
-    fn/-z4m-install-one sc/exec-zsh-i >/dev/null; then
-  print -ru2 -- 'mutable built-in dependency URL remains'
-  (( ++failures ))
-fi
-
-if ! command grep -Eq \
-    'builtin_pkgs=.*powerlevel10k.*tmux' \
-    main.zsh; then
-  print -ru2 -- 'documented built-in packages are rejected by the install command'
+if ( PATH=$test_dir/no-tools; _z4m_sha256_file "$test_dir/payload" ); then
+  print -ru2 -- 'SHA-256 without any tool unexpectedly succeeded'
   (( ++failures ))
 fi
 

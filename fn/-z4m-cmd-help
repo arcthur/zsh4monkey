@@ -122,6 +122,8 @@ if (( ARGC == 1 )); then
       print -Pr -- "  zstyle ':z4m:ssh:*' env ...                # NAME=value, NAME=, NAME"
       print -Pr -- "  zstyle ':z4m:ssh:*' cwd 'src/project'      # Start in remote HOME/src/project"
       print -Pr -- "  zstyle ':z4m:ssh:*' interpreter 'sh'       # POSIX shell for bootstrap"
+      print -Pr -- "  zstyle ':z4m:ssh:*' term 'screen-256color' # Remote TERM override"
+      print -Pr -- "  zstyle ':z4m:ssh:*' ssh-command command ssh # ssh invocation (argv)"
     ;;
     debug)
       print -Pr -- "Usage: %F{2}z4m%f %Bdebug%b [on|off|trace <func>|status]"
@@ -360,6 +362,8 @@ print -Pru$fd -- "  %F{2}z4m%f %Bautosuggest%b [subcmd]     Autosuggest status, 
 print -Pru$fd -- "  %F{2}z4m%f %Bhighlight%b [subcmd]       Highlight status, checks, events"
 print -Pru$fd -- "  %F{2}z4m%f %Benv%b [full|paths]        Show environment info"
 print -Pru$fd -- "  %F{2}z4m%f %Btime%b %Ucommand%u             Time command execution"
+print -Pru$fd -- "  %F{2}z4m%f %Bhistory-debug%b            Show history-search wiring"
+print -Pru$fd -- "  %F{2}z4m%f %Btty-wait%b %U-t s -p pat%u     Wait for a terminal size"
 print -Pru$fd -- "  %F{2}z4m%f %Brecovery%b               Enter recovery shell"
 print -Pru$fd -- "  %F{2}z4m%f %Breset%b                  Clear failure markers and caches"
 print -Pru$fd -- ""

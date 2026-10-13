@@ -89,6 +89,21 @@ assert_fail 'source outside allowed roots is rejected' -z4m-pack-parse-copy-spec
 assert_fail 'relative source with parent segment' -z4m-pack-parse-copy-spec '../outside' "$TEST_ZDOTDIR" local_paths root_kinds rel_paths exclude_specs
 assert_fail 'dest with parent segment' -z4m-pack-parse-copy-spec '--dest ../target ~/.config/nvim/init.lua' "$TEST_ZDOTDIR" local_paths root_kinds rel_paths exclude_specs
 
+# Specs are data: command substitutions in any position stay literal text.
+local spec
+for spec in \
+    '~/$(touch "$HOME/PWNED")' \
+    '~/`touch "$HOME/PWNED"`' \
+    '--dest $(touch PWNED) ~/.config/nvim/init.lua' \
+    "--exclude '\$(touch PWNED)' ~/.config/nvim"; do
+  ( cd -- "$tmpdir" && -z4m-pack-parse-copy-spec "$spec" "$TEST_ZDOTDIR" local_paths root_kinds rel_paths exclude_specs ) >/dev/null 2>&1
+done
+local -a pwned=($tmpdir/**/PWNED(DN))
+if (( $#pwned )); then
+  print -ru2 -- "copy spec executed shell code: ${pwned[*]}"
+  ((failures++))
+fi
+
 if (( failures )); then
   exit 1
 fi

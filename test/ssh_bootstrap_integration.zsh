@@ -10,7 +10,7 @@ test_dir=$(mktemp -d) || exit 1
 trap 'rm -rf -- "$test_dir"' EXIT
 
 fpath=($PWD/fn $fpath)
-autoload -Uz -- -z4m-ssh-payload-offset || exit 1
+autoload -Uz -- -z4m-ssh-payload-offset -z4m-ssh-render-bootstrap || exit 1
 
 assert_file_content() {
   local target=$1 expected=$2 name=$3
@@ -27,45 +27,45 @@ assert_file_content() {
   fi
 }
 
+# Render through the same function -z4m-cmd-ssh uses, so these failure-path
+# scenarios exercise the script that is actually sent. RUN is a no-op: these
+# tests stop at the remote transaction, and test/ssh_teleport_integration.zsh
+# covers what follows it.
+#
+# Usage: build_bootstrap <output> <payload-dir> <send-to-tokens>
 build_bootstrap() {
-  local output=$1 payload=$2
-  shift 2
-  local -a destinations=("$@")
-  local destination_list=${(j: :)${(@qq)destinations}}
-  local script=${"$(<sc/ssh-bootstrap)"//$'\r'} || return
-
-  script=${script//'^TERM^'/${(qq)TERM}}
-  script=${script//'^MIN_VERSION^'/${(qq)100000001}}
-  script=${script//'^SSH_HOST^'/${(qq)test-host}}
-  script=${script//'^SSH_CLIENT^'/${(qq)test-client}}
-  script=${script//'^PRELUDE^'/}
-  script=${script//'^SEND_TO^'/$destination_list}
-  script=${script//'^RUN^'/:}
-  -z4m-ssh-payload-offset "$script" || return
-  script=${script//'^DUMP_POS^'/$REPLY}
-
-  print -r -- "$script" >"$output" || return
-  command tar -C "$payload" -czf - -- {1..$#destinations} >>"$output"
+  local output=$1 payload=$2 send_to=$3
+  local -a tokens=(${(z)send_to})
+  -z4m-ssh-render-bootstrap sc/ssh-bootstrap \
+    "$TERM" 100000001 test-host test-client '' "$send_to" : || return
+  print -r -- "$REPLY" >"$output" || return
+  command tar -C "$payload" -czf - -- {1..$#tokens} >>"$output"
 }
 
-build_dynamic_bootstrap() {
-  local output=$1 payload=$2
-  local destination_list='"$Z4M"/z4m.zsh "$ZDOTDIR"/.zshrc'
-  local script=${"$(<sc/ssh-bootstrap)"//$'\r'} || return
-
-  script=${script//'^TERM^'/${(qq)TERM}}
-  script=${script//'^MIN_VERSION^'/${(qq)100000001}}
-  script=${script//'^SSH_HOST^'/${(qq)test-host}}
-  script=${script//'^SSH_CLIENT^'/${(qq)test-client}}
-  script=${script//'^PRELUDE^'/}
-  script=${script//'^SEND_TO^'/$destination_list}
-  script=${script//'^RUN^'/:}
-  -z4m-ssh-payload-offset "$script" || return
-  script=${script//'^DUMP_POS^'/$REPLY}
-
-  print -r -- "$script" >"$output" || return
-  command tar -C "$payload" -czf - -- 1 2 >>"$output"
+# Usage: quoted_destinations <path>...
+quoted_destinations() {
+  REPLY=${(j: :)${(@qq)argv}}
 }
+
+# Inserted text is never rescanned: placeholder names inside values stay
+# literal, and every placeholder is filled exactly once.
+if -z4m-ssh-render-bootstrap sc/ssh-bootstrap "$TERM" 100000001 \
+    '^RUN^' test-client 'export X=^DUMP_POS^' "''" __RUN_MARKER__; then
+  if [[ $REPLY != *"z4m_ssh_host='^RUN^'"* || $REPLY != *'export X=^DUMP_POS^'* ||
+        ${#${(M)${(f)REPLY}:#__RUN_MARKER__}} != 1 ||
+        $REPLY == *'^'(TERM|MIN_VERSION|SSH_HOST|SSH_CLIENT|PRELUDE|SEND_TO|RUN)'^ '* ]]; then
+    print -ru2 -- 'renderer substituted inside inserted values'
+    (( ++failures ))
+  fi
+else
+  print -ru2 -- 'renderer rejected a valid template'
+  (( ++failures ))
+fi
+print -r -- 'no offset placeholder' >"$test_dir/broken-template"
+if -z4m-ssh-render-bootstrap "$test_dir/broken-template" "$TERM" 1 h c '' '' :; then
+  print -ru2 -- 'renderer accepted a template without a payload offset'
+  (( ++failures ))
+fi
 
 # The remote reads the archive with `tail -c`, so the offset is a byte count.
 # Under a multibyte locale a character count is smaller and shifts the payload,
@@ -101,7 +101,8 @@ print -r -- old-two >"$home/two/value"
 
 typeset success_script=$test_dir/bootstrap-success
 typeset success_log=$test_dir/bootstrap-success.log
-build_bootstrap "$success_script" "$payload" "$home/one" "$home/two" || exit 1
+quoted_destinations "$home/one" "$home/two"
+build_bootstrap "$success_script" "$payload" "$REPLY" || exit 1
 HOME=$home Z4M=$home/z4m TMPDIR=$test_dir command sh "$success_script" >"$success_log" 2>&1 || {
   print -ru2 -- 'bootstrap success scenario failed'
   command cat -- "$success_log" >&2
@@ -117,7 +118,8 @@ typeset dynamic_zdotdir=$home/dynamic-zdotdir
 mkdir -p -- "$dynamic_payload"
 print -r -- dynamic-z4m >"$dynamic_payload/1"
 print -r -- dynamic-zdotdir >"$dynamic_payload/2"
-build_dynamic_bootstrap "$dynamic_script" "$dynamic_payload" || exit 1
+# Built-in destinations are shell expressions expanded on the remote host.
+build_bootstrap "$dynamic_script" "$dynamic_payload" '"$Z4M"/z4m.zsh "$ZDOTDIR"/.zshrc' || exit 1
 HOME=$home Z4M=$dynamic_z4m ZDOTDIR=$dynamic_zdotdir TMPDIR=$test_dir \
   command sh "$dynamic_script" >/dev/null 2>&1 || {
   print -ru2 -- 'bootstrap dynamic destination scenario failed'
@@ -129,7 +131,8 @@ assert_file_content "$dynamic_zdotdir/.zshrc" dynamic-zdotdir 'expanded ZDOTDIR 
 typeset unicode_destination=$home/$'项目-ünïcode'
 typeset unicode_script=$test_dir/bootstrap-unicode
 typeset unicode_log=$test_dir/bootstrap-unicode.log
-build_bootstrap "$unicode_script" "$payload" "$unicode_destination" || exit 1
+quoted_destinations "$unicode_destination"
+build_bootstrap "$unicode_script" "$payload" "$REPLY" || exit 1
 HOME=$home Z4M=$home/z4m TMPDIR=$test_dir command sh "$unicode_script" \
   >"$unicode_log" 2>&1 || {
   print -ru2 -- 'bootstrap non-ASCII destination scenario failed'
@@ -141,7 +144,8 @@ assert_file_content "$unicode_destination" new-one 'non-ASCII remote destination
 typeset injection_destination=$home/'evil;$(touch${IFS}PWNED)'
 typeset injection_script=$test_dir/bootstrap-injection
 typeset injection_log=$test_dir/bootstrap-injection.log
-build_bootstrap "$injection_script" "$payload" "$injection_destination" || exit 1
+quoted_destinations "$injection_destination"
+build_bootstrap "$injection_script" "$payload" "$REPLY" || exit 1
 (
   cd -- "$test_dir" || exit 1
   HOME=$home Z4M=$home/z4m TMPDIR=$test_dir command sh "$injection_script"
@@ -158,11 +162,8 @@ fi
 
 typeset overlap_script=$test_dir/bootstrap-overlap
 typeset overlap_log=$test_dir/bootstrap-overlap.log
-build_bootstrap \
-  "$overlap_script" \
-  "$payload" \
-  "$home/overlap" \
-  "$home/overlap/child" || exit 1
+quoted_destinations "$home/overlap" "$home/overlap/child"
+build_bootstrap "$overlap_script" "$payload" "$REPLY" || exit 1
 if HOME=$home Z4M=$home/z4m TMPDIR=$test_dir \
     command sh "$overlap_script" >"$overlap_log" 2>&1; then
   print -ru2 -- 'overlapping destination scenario unexpectedly succeeded'
@@ -175,11 +176,8 @@ fi
 
 typeset separator_script=$test_dir/bootstrap-repeated-separator
 typeset separator_log=$test_dir/bootstrap-repeated-separator.log
-build_bootstrap \
-  "$separator_script" \
-  "$payload" \
-  "$home/alias" \
-  "$home//alias" || exit 1
+quoted_destinations "$home/alias" "$home//alias"
+build_bootstrap "$separator_script" "$payload" "$REPLY" || exit 1
 if HOME=$home Z4M=$home/z4m TMPDIR=$test_dir \
     command sh "$separator_script" >"$separator_log" 2>&1; then
   print -ru2 -- 'repeated-separator destination scenario unexpectedly succeeded'
@@ -219,7 +217,8 @@ chmod 755 "$fake_bin/cp" || exit 1
 
 typeset prepare_script=$test_dir/bootstrap-prepare-failure
 typeset prepare_log=$test_dir/bootstrap-prepare-failure.log
-build_bootstrap "$prepare_script" "$payload" "$home/one" "$home/two" || exit 1
+quoted_destinations "$home/one" "$home/two"
+build_bootstrap "$prepare_script" "$payload" "$REPLY" || exit 1
 if HOME=$home Z4M=$home/z4m TMPDIR=$test_dir PATH=$fake_bin:$PATH \
     Z4M_TEST_REAL_CP=$real_cp command sh "$prepare_script" >"$prepare_log" 2>&1; then
   print -ru2 -- 'bootstrap prepare failure scenario unexpectedly succeeded'
@@ -250,7 +249,8 @@ chmod 755 "$fake_bin/mv" || exit 1
 
 typeset failure_script=$test_dir/bootstrap-failure
 typeset failure_log=$test_dir/bootstrap-failure.log
-build_bootstrap "$failure_script" "$payload" "$home/one" "$home/two" || exit 1
+quoted_destinations "$home/one" "$home/two"
+build_bootstrap "$failure_script" "$payload" "$REPLY" || exit 1
 if HOME=$home Z4M=$home/z4m TMPDIR=$test_dir PATH=$fake_bin:$PATH Z4M_TEST_MV_STATE=$mv_state \
     command sh "$failure_script" >"$failure_log" 2>&1; then
   print -ru2 -- 'bootstrap failure scenario unexpectedly succeeded'
@@ -298,7 +298,8 @@ chmod 755 "$fake_bin/mv" || exit 1
 
 typeset rollback_failure_script=$test_dir/bootstrap-rollback-failure
 typeset rollback_failure_log=$test_dir/bootstrap-rollback-failure.log
-build_bootstrap "$rollback_failure_script" "$payload" "$home/one" "$home/two" || exit 1
+quoted_destinations "$home/one" "$home/two"
+build_bootstrap "$rollback_failure_script" "$payload" "$REPLY" || exit 1
 if HOME=$home Z4M=$home/z4m TMPDIR=$test_dir PATH=$fake_bin:$PATH \
     Z4M_TEST_MV_STATE=$mv_state command sh "$rollback_failure_script" \
       >"$rollback_failure_log" 2>&1; then

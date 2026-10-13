@@ -131,8 +131,11 @@ verify_sha256() {
   fi
 }
 
+# Same match as the rewrites below (`index($0, anchor) == 1`): an anchor that is
+# only contained in a line would pass a substring check and rewrite nothing.
 require_zshrc_anchor() {
-  if ! 'command' 'grep' '-Fq' "$1" "$zshrc"; then
+  if ! 'command' 'awk' '-v' "anchor=$1" \
+      'index($0, anchor) == 1 { found = 1 } END { exit found ? 0 : 1 }' "$zshrc"; then
     >&2 'printf' '\033[33mz4m\033[0m: downloaded \033[31m.zshrc\033[0m is missing anchor: \033[31m%s\033[0m\n' "$1"
     'exit' '1'
   fi

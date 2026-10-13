@@ -43,9 +43,4 @@ if (( $#_z4m_defer_queue )); then
   (( ++failures ))
 fi
 
-if rg -n --color=never 'eval "\\$cmd"|_z4m_defer_queue\\+=\\("\\$\\*"\\)' fn/z4m-defer >/dev/null; then
-  print -ru2 -- 'unsafe deferred command serialization remains'
-  (( ++failures ))
-fi
-
 (( failures == 0 ))

@@ -81,6 +81,12 @@ done
 for test_file in test/*.zsh; do zsh "$test_file"; done
 python3 test/benchmark_startup.py
 
+# End-to-end tests (startup_lifecycle, update_rollback, ssh_teleport_integration,
+# key_bindings) drive real `zsh -i` shells through test/lib/sandbox.zsh: an
+# offline, host-isolated HOME bootstrapped from the working tree. Keep the
+# sandbox of a failing run for inspection:
+Z4M_TEST_KEEP_SANDBOX=1 zsh test/startup_lifecycle.zsh
+
 # Verify locked remote dependencies
 sh tools/verify-dependencies
 ```

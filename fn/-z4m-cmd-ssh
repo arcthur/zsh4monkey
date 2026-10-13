@@ -11,7 +11,8 @@
 
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
-autoload -Uz -- -z4m-copy-path-with-excludes -z4m-ssh-parse-env-spec || return 1
+autoload -Uz -- -z4m-copy-path-with-excludes -z4m-ssh-parse-env-spec \
+  -z4m-ssh-render-bootstrap || return 1
 -z4m-check-core-params || return
 
 if (( _z4m_dangerous_root )); then
@@ -357,8 +358,10 @@ z4m_ssh_send_files=(
   $z4m_local_zdotdir/.zlogout '"$ZDOTDIR"/.zlogout'
   $z4m_local_zdotdir/.zlogout.zwc '"$ZDOTDIR"/.zlogout.zwc')
 
+# Unquoted split: with no package directories the output is empty, and a
+# quoted split would yield one empty name, i.e. the whole cache root.
 local package_dir
-for package_dir in "${(@f)$(-z4m-ssh-local-package-dirs)}"; do
+for package_dir in ${(f)"$(-z4m-ssh-local-package-dirs)"}; do
   z4m_ssh_send_files[$Z4M/$package_dir]='"$Z4M"/'${(qq)package_dir}
 done
 
@@ -377,11 +380,13 @@ if -z4m-ssh-zstyle-a send-extra-files extra_files; then
     parsed_exclude=()
     -z4m-ssh-parse-copy-spec "$spec" "$z4m_local_zdotdir" parsed_local parsed_remote parsed_exclude || return
 
+    # Quoted appends: these arrays are parallel, and an unquoted empty exclude
+    # list would vanish and attach the next source's patterns to this one.
     local -i idx
-    for idx in {1..$#parsed_local}; do
-      z4m_ssh_extra_send_from+=(${parsed_local[idx]})
-      z4m_ssh_extra_send_to+=(${parsed_remote[idx]})
-      z4m_ssh_extra_send_exclude+=(${parsed_exclude[idx]})
+    for (( idx = 1; idx <= $#parsed_local; ++idx )); do
+      z4m_ssh_extra_send_from+=("${parsed_local[idx]}")
+      z4m_ssh_extra_send_to+=("${parsed_remote[idx]}")
+      z4m_ssh_extra_send_exclude+=("${parsed_exclude[idx]}")
     done
   done
 fi
@@ -461,13 +466,14 @@ fi
   for src in ${(k)z4m_ssh_send_files}; do
     send_from+=($src)
     send_exclude+=('')
-    send_to+=(${z4m_ssh_send_files[$src]})
+    send_to+=("${z4m_ssh_send_files[$src]}")
     send_to_expression+=(1)
   done
-  for index in {1..$#z4m_ssh_extra_send_from}; do
-    send_from+=(${z4m_ssh_extra_send_from[index]})
-    send_to+=(${z4m_ssh_extra_send_to[index]})
-    send_exclude+=(${z4m_ssh_extra_send_exclude[index]})
+  # Not {1..N}: with no extra files that range is "1 0", not empty.
+  for (( index = 1; index <= $#z4m_ssh_extra_send_from; ++index )); do
+    send_from+=("${z4m_ssh_extra_send_from[index]}")
+    send_to+=("${z4m_ssh_extra_send_to[index]}")
+    send_exclude+=("${z4m_ssh_extra_send_exclude[index]}")
     send_to_expression+=(0)
   done
 
@@ -506,12 +512,6 @@ fi
        "exit" "1"
      fi')
 
-  local script=${"$(<$Z4M/zsh4monkey/sc/ssh-bootstrap)"//$'\r'} || return
-  script=${script//'^TERM^'/${(qq)term}}
-  script=${script//'^MIN_VERSION^'/${(qq)z4m_min_version}}
-  script=${script//'^SSH_HOST^'/${(qq)z4m_ssh_host}}
-  script=${script//'^SSH_CLIENT^'/${(qq)z4m_ssh_client}}
-  script=${script//'^PRELUDE^'/${(F)z4m_ssh_prelude}}
   local -a send_to_tokens
   for index in {1..$#send_to}; do
     if (( send_to_expression[index] )); then
@@ -520,13 +520,13 @@ fi
       send_to_tokens+=(${(qq)send_to[index]})
     fi
   done
-  script=${script//'^SEND_TO^'/${(j: :)send_to_tokens}}
-  script=${script//'^RUN^'/${(F)z4m_ssh_run}}
-  if ! -z4m-ssh-payload-offset "$script"; then
-    print -Pru2 -- "%F{3}z4m%f: ssh bootstrap payload has an unusable size"
+  if ! -z4m-ssh-render-bootstrap $Z4M/zsh4monkey/sc/ssh-bootstrap \
+      "$term" "$z4m_min_version" "$z4m_ssh_host" "$z4m_ssh_client" \
+      "${(F)z4m_ssh_prelude}" "${(j: :)send_to_tokens}" "${(F)z4m_ssh_run}"; then
+    print -Pru2 -- "%F{3}z4m%f: failed to render the ssh bootstrap script"
     return 1
   fi
-  script=${script//'^DUMP_POS^'/$REPLY}
+  local script=$REPLY
 
   print -r -- $script >$tmpdir/script || return
 
@@ -577,6 +577,11 @@ fi'
   fi
 
   local remote_exec=${(qq)z4m_ssh_interpreter}' '${(qq)remote_script}
+
+  # The payload is on the remote host now. Drop the local copy before the
+  # interactive session, which can last for days and end in a SIGHUP that never
+  # reaches the cleanup below.
+  zf_rm -rf -- $tmpdir
 
   TERM=${term:-$TERM} "${z4m_ssh_command[@]}" "${exec_args[@]}" "$remote_exec"
 } always {

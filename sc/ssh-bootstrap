@@ -20,7 +20,9 @@ _z4m_ssh_apply_cwd() {
       _z4m_ssh_cwd="$HOME"
       ;;
     '~/'*)
-      _z4m_ssh_cwd="$HOME/${_z4m_ssh_cwd#~/}"
+      # Escaped: an unescaped ~ in the pattern is tilde-expanded to $HOME and
+      # would never match the literal prefix.
+      _z4m_ssh_cwd="$HOME/${_z4m_ssh_cwd#\~/}"
       ;;
     '$HOME'|'${HOME}')
       _z4m_ssh_cwd="$HOME"

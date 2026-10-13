@@ -46,6 +46,11 @@ def main() -> int:
         assert result["iterations"] == 3
         assert result["min"] <= result["p50"] <= result["p95"] <= result["max"]
 
+        # `z4m bench` resolves the framework as $Z4M/zsh4monkey; a link keeps the
+        # test independent of the name of the checkout directory.
+        cache = Path(temporary_directory) / "cache"
+        cache.mkdir()
+        (cache / "zsh4monkey").symlink_to(repository)
         wrapper = subprocess.run(
             [
                 "zsh",
@@ -55,7 +60,7 @@ def main() -> int:
                     'source "$3/fn/-z4m-cmd-bench" --no-warmup --json 2'
                 ),
                 "_",
-                str(repository.parent),
+                str(cache),
                 str(fake_shell),
                 str(repository),
             ],

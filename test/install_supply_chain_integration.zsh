@@ -33,11 +33,17 @@ command tar -C "$temporary_directory/source" -czf "$temporary_directory/plugin.t
 
 cat >"$temporary_directory/bin/curl" <<'SH'
 #!/bin/sh
+for argument do
+  case "$argument" in
+    https://*) printf '%s\n' "$argument" >>"$Z4M_TEST_CURL_LOG" ;;
+  esac
+done
 command cat -- "$Z4M_TEST_ARCHIVE"
 SH
 chmod 755 "$temporary_directory/bin/curl"
 
 typeset -gx Z4M_TEST_ARCHIVE=$temporary_directory/plugin.tar.gz
+typeset -gx Z4M_TEST_CURL_LOG=$temporary_directory/curl.log
 typeset saved_path=$PATH
 PATH=$temporary_directory/bin:$PATH
 hash -r
@@ -132,6 +138,24 @@ fi
 function -z4m-mv() {
   command mv "$@"
 }
+
+# Managed shell components resolve through the lock: the download names the
+# locked commit, and the locked digest rejects anything else it returns.
+_z4m_dependency_get "$Z4M/zsh4monkey/dependencies.lock" powerlevel10k || exit 1
+local locked_url=$Z4M_DEPENDENCY_URL
+: >$Z4M_TEST_CURL_LOG
+if source "$repository_root/fn/-z4m-install-one" powerlevel10k 2>/dev/null; then
+  print -ru2 -- 'managed component installed content that does not match its lock'
+  exit 1
+fi
+if [[ $(<$Z4M_TEST_CURL_LOG) != $locked_url ]]; then
+  print -ru2 -- "managed component was not fetched from its locked URL: $(<$Z4M_TEST_CURL_LOG)"
+  exit 1
+fi
+if [[ -e $Z4M/powerlevel10k ]]; then
+  print -ru2 -- 'rejected managed component left an installed directory'
+  exit 1
+fi
 
 typeset -g Z4M_UPDATING=$temporary_directory/old
 mkdir -p -- "$Z4M_UPDATING/legacy/repo"

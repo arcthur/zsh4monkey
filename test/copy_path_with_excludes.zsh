@@ -32,9 +32,9 @@ trap 'rm -rf -- "$tmpdir"' EXIT
 src=$tmpdir/src
 dst=$tmpdir/dst
 mkdir -p -- "$src/node_modules/pkg" "$src/.git" "$src/.config" "$src/src" || exit 1
+print -r -- link-target >"$src/keep.txt" || exit 1
 touch -- \
   "$src/.config/init.lua" \
-  "$src/keep.txt" \
   "$src/skip.tmp" \
   "$src/.git/config" \
   "$src/node_modules/pkg/index.js" \
@@ -65,7 +65,7 @@ if ! -z4m-copy-path-with-excludes "$src" "$follow_dst" follow $'*.tmp\n.git\nnod
   exit 1
 fi
 assert_exists "$follow_dst/link" 'materialized symbolic-link target'
-if [[ -L $follow_dst/link || $(<$follow_dst/link) != '' ]]; then
+if [[ -L $follow_dst/link || $(<$follow_dst/link) != link-target ]]; then
   print -ru2 -- 'follow mode did not materialize a symbolic-link target'
   ((failures++))
 fi

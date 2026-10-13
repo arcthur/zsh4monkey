@@ -111,26 +111,27 @@ function -z4m-wrap-commands() {
 
 -z4m-wrap-commands
 
+# Capture the status with `||`: inside `if ! cmd; then`, $? is the status of the
+# negated condition, which is always 0, so a failing step would report success.
+local -i rc
 if [[ ! -e $Z4M/zsh4monkey/fn/-z4m-compinit-impl ]]; then
-  local -i rc
-  if ! -z4m-postinstall-self; then
+  -z4m-postinstall-self || {
     rc=$?
     typeset -g _z4m_init_failed_step=postinstall-self
     typeset -gi _z4m_init_failed_rc=$rc
     return $rc
-  fi
+  }
 fi
 
 if (( _z4m_zle )); then
   # Load embedded history substring search before ZLE init
   -z4m-history-substring-search
-  local -i rc
-  if ! -z4m-init-zle; then
+  -z4m-init-zle || {
     rc=$?
     typeset -g _z4m_init_failed_step=init-zle
     typeset -gi _z4m_init_failed_rc=$rc
     return $rc
-  fi
+  }
 else
   -z4m-cmd-bindkey() {}
   function compdef() {}
@@ -167,3 +168,8 @@ function md() { [[ $# == 1 ]] && mkdir -p -- "$1" && cd -- "$1" }
 # Note: For glob options, use setopt directly in your .zshrc:
 #   setopt glob_dots     # globs match dotfiles without explicit dot prefix
 #   setopt case_paths    # (macOS) paths stay case-sensitive with NO_CASE_GLOB
+
+# Only the steps above that return explicitly can fail initialization. Optional
+# integrations degrade on their own, so their status must not leak out of here
+# and send the next startup into safe mode.
+return 0

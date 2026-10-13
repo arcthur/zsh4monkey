@@ -1,0 +1,65 @@
+#!/usr/bin/env zsh
+#
+# Render sc/ssh-bootstrap for one connection.
+#
+# Usage:
+#   -z4m-ssh-render-bootstrap <template> <term> <min-version> <host> <client> \
+#     <prelude> <send-to> <run>
+#
+# <term>, <min-version>, <host> and <client> are plain values and get quoted
+# here. <prelude> and <run> are shell code, and <send-to> is the list of
+# already quoted destination tokens; they are inserted verbatim.
+#
+# Placeholders are replaced in a single left-to-right pass, so text that has
+# been inserted is never scanned again: a propagated value that happens to
+# contain ^RUN^ or ^DUMP_POS^ stays a value. ^DUMP_POS^ is filled last because
+# the archive offset depends on everything else (see -z4m-ssh-payload-offset).
+#
+# On success the rendered script is in REPLY.
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o no_aliases
+
+(( ARGC == 8 )) || return 1
+[[ -r $1 ]] || return 1
+
+local -A fill=(
+  TERM        "${(qq)2}"
+  MIN_VERSION "${(qq)3}"
+  SSH_HOST    "${(qq)4}"
+  SSH_CLIENT  "${(qq)5}"
+  PRELUDE     "$6"
+  SEND_TO     "$7"
+  RUN         "$8"
+)
+
+local rest=${"$(<$1)"//$'\r'}
+local -a parts
+local -i dump_part=0
+local name first_name prefix first_prefix
+while true; do
+  first_name=
+  for name in DUMP_POS ${(k)fill}; do
+    prefix=${rest%%"^$name^"*}
+    [[ $prefix == $rest ]] && continue
+    if [[ -z $first_name ]] || (( $#prefix < $#first_prefix )); then
+      first_name=$name
+      first_prefix=$prefix
+    fi
+  done
+  [[ -n $first_name ]] || break
+  parts+=("$first_prefix")
+  rest=${rest#*"^$first_name^"}
+  if [[ $first_name == DUMP_POS ]]; then
+    (( ! dump_part )) || return 1
+    parts+=('^DUMP_POS^')
+    dump_part=$#parts
+  else
+    parts+=("$fill[$first_name]")
+  fi
+done
+parts+=("$rest")
+(( dump_part )) || return 1
+
+-z4m-ssh-payload-offset "${(j::)parts}" || return
+parts[dump_part]=$REPLY
+REPLY=${(j::)parts}

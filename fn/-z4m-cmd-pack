@@ -107,7 +107,7 @@ function -z4m-pack-stage-path() {
     -z4m-pack-parse-copy-spec "$extra" "$local_zdotdir" parsed_local parsed_root parsed_rel parsed_exclude || return
 
     local -i idx
-    for idx in {1..$#parsed_local}; do
+    for (( idx = 1; idx <= $#parsed_local; ++idx )); do
       -z4m-pack-stage-path "$parsed_local[idx]" "$parsed_root[idx]" "$parsed_rel[idx]" "$payload_root" "$manifest" "$parsed_exclude[idx]" || return
     done
   done

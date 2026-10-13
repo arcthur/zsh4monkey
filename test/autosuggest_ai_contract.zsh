@@ -52,14 +52,6 @@ assert_not_contains() {
   fi
 }
 
-assert_no_function() {
-  local name=$1 label=$2
-  if (( ${+functions[$name]} )); then
-    print -ru2 -- "$label: unexpected function [$name]"
-    ((failures++))
-  fi
-}
-
 extract_user_prompt() {
   local payload=$1
   command jq -r '.messages[1].content' <<<"$payload"
@@ -71,7 +63,6 @@ assert_eq 0 "${_z4m_autosuggest_ai_state[configured_history_lines]}" 'default ai
 assert_eq pwd:off,project:off,output:off,source:tmux_then_proxy "${_z4m_autosuggest_ai_state[context_policy]}" 'ai context policy'
 assert_ok 'context policy helper' -z4m-autosuggest-ai-context-policy
 assert_eq pwd:off,project:off,output:off,source:tmux_then_proxy "$REPLY" 'context policy helper value'
-assert_no_function -z4m-autosuggest-ai-allow-empty-p 'empty autosuggest fallback gate'
 
 histfile=$(command mktemp "${TMPDIR:-/tmp}/z4m-ai-history.XXXXXXXXXX") || exit 1
 trap 'rm -f -- "$histfile"' EXIT

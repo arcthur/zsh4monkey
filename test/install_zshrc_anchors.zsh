@@ -2,8 +2,8 @@
 #
 # The installer rewrites the downloaded .zshrc by anchoring on comment lines.
 # A renamed comment used to make a rewrite silently no-op, so assert every
-# anchor still starts a line in both shipped templates, and that each rewrite
-# verifies its own result.
+# anchor still starts a line in both shipped templates. What the installer does
+# with a template that breaks this is covered by test/install_noninteractive.zsh.
 
 emulate -L zsh -o err_return -o no_unset -o pipe_fail -o no_aliases
 
@@ -51,20 +51,6 @@ for template in .zshrc .zshrc.mac; do
       (( ++failures ))
     fi
   done
-done
-
-# Anchoring is only half the contract: a rewrite that silently produces nothing
-# must fail the install, so every conditional rewrite verifies its own output.
-local expected
-for expected in \
-    "zstyle ':z4m:' start-tmux" \
-    "zstyle ':z4m:direnv' enable 'yes'" \
-    "zstyle ':z4m:' editor-mode 'vi'" \
-    "zstyle ':z4m:ssh-agent:' start yes"; do
-  if ! command grep -Fq -- "'require_zshrc_line' \"$expected\"" "$installer"; then
-    print -ru2 -- "installer does not verify its rewrite result: $expected"
-    (( ++failures ))
-  fi
 done
 
 (( failures == 0 ))

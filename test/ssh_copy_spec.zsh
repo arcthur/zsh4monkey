@@ -76,6 +76,21 @@ assert_fail 'relative source with parent segment' -z4m-ssh-parse-copy-spec '../o
 assert_fail 'dest with parent segment' -z4m-ssh-parse-copy-spec '--dest ../remote/path ~/.nanorc' "$tmpdir/zdotdir" local_paths remote_paths exclude_specs
 assert_fail 'absolute dest with dot segment' -z4m-ssh-parse-copy-spec '--dest /tmp/../remote ~/.nanorc' "$tmpdir/zdotdir" local_paths remote_paths exclude_specs
 
+# Specs are data: command substitutions in any position stay literal text.
+local spec
+for spec in \
+    '~/$(touch "$HOME/PWNED")' \
+    '~/`touch "$HOME/PWNED"`' \
+    '--dest $(touch PWNED) ~/.config/nvim/init.lua' \
+    "--exclude '\$(touch PWNED)' ~/.config/nvim"; do
+  ( cd -- "$tmpdir" && -z4m-ssh-parse-copy-spec "$spec" "$tmpdir/zdotdir" local_paths remote_paths exclude_specs ) >/dev/null 2>&1
+done
+local -a pwned=($tmpdir/**/PWNED(DN))
+if (( $#pwned )); then
+  print -ru2 -- "copy spec executed shell code: ${pwned[*]}"
+  ((failures++))
+fi
+
 if (( failures )); then
   exit 1
 fi

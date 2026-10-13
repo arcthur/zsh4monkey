@@ -58,7 +58,7 @@ done
 typeset -grA _z4m_use
 
 local -i _z4m_has_fzf=0
-if (( _z4m_use[fzf] )) && -z4m-fzf-available-p; then
+if -z4m-fzf-available-p; then
   _z4m_has_fzf=1
 fi
 
@@ -770,6 +770,11 @@ elif (( _z4m_use[powerlevel10k] )); then
     builtin source $Z4M/powerlevel10k/powerlevel10k.zsh-theme
   }
   z4m source -c $POWERLEVEL9K_CONFIG_FILE
+elif [[ $RPS1 == '%B%F{3}z4m recovery mode%f%b' ]]; then
+  # z4m.zsh installs this right prompt as the fallback for a startup that never
+  # gets here. Initialization succeeded without a prompt theme, so drop it
+  # unless the user already replaced it.
+  RPS1=
 fi
 
 -z4m-set-term-title-precmd || true

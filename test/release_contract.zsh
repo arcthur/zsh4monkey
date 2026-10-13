@@ -9,10 +9,13 @@ typeset test_dir
 test_dir=$(mktemp -d) || exit 1
 trap 'rm -rf -- "$test_dir"' EXIT
 
+# Skips are announced: a silent exit 0 is indistinguishable from a pass.
 if ! command tar --version 2>/dev/null | command grep -q 'GNU tar'; then
+  print -ru2 -- 'note: skipping release contract: build-release requires GNU tar'
   exit 0
 fi
 if ! git show HEAD:install | command grep -q "^z4m_default_install_ref='main'$"; then
+  print -ru2 -- 'note: skipping release contract: HEAD is not a development checkout'
   exit 0
 fi
 

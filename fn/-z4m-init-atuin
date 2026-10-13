@@ -101,3 +101,5 @@ fi
 
 # Ensure z4m owns Up/Down bindings even if atuin init script rebinds them.
 (( ${+functions[-z4m-rebind-history-keys]} )) && -z4m-rebind-history-keys
+# The rebind is optional: its absence must not read as an init failure.
+return 0
