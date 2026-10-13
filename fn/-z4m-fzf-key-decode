@@ -1,0 +1,16 @@
+#!/usr/bin/env zsh
+
+# Decode an fzf record key produced by -z4m-fzf-keys.
+# Usage: -z4m-fzf-key-decode <key>
+# Sets: reply[1] to the value. Fails closed on unknown or malformed keys.
+
+emulate -L zsh -o no_aliases
+
+case $1 in
+  r*) reply=("${1#r}");;
+  b*)
+    autoload -Uz -- -z4m-b64dec
+    -z4m-b64dec "${1#b}"
+    ;;
+  *) return 1;;
+esac

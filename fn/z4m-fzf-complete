@@ -6,6 +6,21 @@
 
 [[ -o auto_menu ]] && local -i auto_menu=1 || local -i auto_menu=0
 
+# A word ending in the recurse trigger (`**` by default) lists paths
+# recursively, like fzf's own completion trigger. Plain Tab stays on the
+# current level.
+local _z4m_recurse_trigger _z4m_trigger_lbuffer= _z4m_trigger_buffer=
+zstyle -s :z4m:${WIDGET#z4m-} recurse-trigger _z4m_recurse_trigger || _z4m_recurse_trigger='**'
+local -i _z4m_force_recurse=0
+if (( $#_z4m_recurse_trigger && $#LBUFFER >= $#_z4m_recurse_trigger )) &&
+   [[ $LBUFFER[-$#_z4m_recurse_trigger,-1] == "$_z4m_recurse_trigger" &&
+      ( -z $RBUFFER || $RBUFFER == [[:space:]]* ) ]]; then
+  _z4m_trigger_lbuffer=$LBUFFER
+  LBUFFER[-$#_z4m_recurse_trigger,-1]=
+  _z4m_trigger_buffer=$BUFFER
+  _z4m_force_recurse=1
+fi
+
 setopt local_options always_to_end no_auto_list no_auto_menu no_auto_param_keys     \
        no_auto_remove_slash no_bash_auto_list no_complete_in_word no_list_ambiguous \
        no_list_beep no_list_packed no_list_rows_first no_menu_complete no_rec_exact
@@ -265,6 +280,9 @@ done
         else
           again=0
         fi
+        # Keep descending after an unambiguous insertion so that the trigger
+        # ends in a recursive listing rather than a plain completion.
+        (( _z4m_force_recurse )) && again=1
       fi
 
       if [[ $LBUFFER == *' ' && $RBUFFER == ' '* ]]; then
@@ -290,6 +308,10 @@ done
 } always {
   # unsetopt xtrace
   # exec 2>&3 3>&-
+  # Nothing was completed: give the trigger back.
+  if (( _z4m_force_recurse )) && [[ $BUFFER == $_z4m_trigger_buffer ]]; then
+    LBUFFER=$_z4m_trigger_lbuffer
+  fi
   local f=
   for f in $_z4m_shadow_funcs; do
     if (( ${+functions[-z4m-orig-$f]} )); then

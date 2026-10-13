@@ -49,6 +49,20 @@ assert_match "history-incremental-search-backward" \
   fn/-z4m-init-zle \
   fn/-z4m-init-vi-mode
 
+# Plain Tab lists one level; recursion is opt-in via the trigger or recurse-dirs.
+assert_match 'zstyle -t :z4m:\$\{WIDGET#z4m-\} recurse-dirs' \
+  fn/-z4m-comp-files
+
+assert_match "recurse-trigger _z4m_recurse_trigger \\|\\| _z4m_recurse_trigger='\\*\\*'" \
+  fn/z4m-fzf-complete
+
+# Record keys go through one codec; base64 is the rare fallback only.
+assert_no_match '-z4m-b64(enc|dec)\b' \
+  fn/-z4m-present-files \
+  fn/-z4m-comp-files \
+  fn/z4m-cd-down \
+  fn/z4m-fzf-dir-history
+
 if (( failures )); then
   exit 1
 fi

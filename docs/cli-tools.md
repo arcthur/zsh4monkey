@@ -113,9 +113,9 @@ fd -x command {}        # Execute on each result
 
 ### Integration
 
-z4m uses fd for:
-- `z4m-cd-down` widget (Shift+Down)
-- fzf file completion when available
+z4m uses fd, when installed, for recursive listings: `**<Tab>` path
+completion, `z4m-cd-down` (Shift+Down), and `z4m-fzf-dir-history`. It honors
+`.gitignore` and falls back to `bfs` or `find`.
 
 ## rg (ripgrep)
 

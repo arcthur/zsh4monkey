@@ -3,7 +3,7 @@
 [[ -v _z4m_tty_fd ]] || return
 
 autoload +X -Uz -- -z4m-present-files -z4m-cursor-show -z4m-find -z4m-fzf -z4m-fzf-version
-autoload +X -Uz -- -z4m-b64dec
+autoload +X -Uz -- -z4m-fzf-key-decode
 
 # Detect fzf version for --scheme support
 -z4m-fzf-version 2>/dev/null || true
@@ -71,21 +71,8 @@ local -i list_colors=$((!$?))
         # Path-optimized scoring (fzf 0.59+)
         (( ver >= 5900 )) && opts+=(--scheme=path)
 
-        if (( first )); then
-          opts+=(--no-sort)
-        else
-          () {
-            emulate -L zsh
-            # Set dot_glob in case the value of find-flags depends on it (via `zstyle -e`).
-            # Ideally we should run this with user options.
-            (( dot_glob )) && setopt dot_glob
-            local -a bin
-            zstyle -a :z4m:${WIDGET#z4m-} find-command bin
-            if (( ! $#bin )) && (( $+commands[bfs] )); then
-              opts+=(--no-sort)
-            fi
-          }
-        fi
+        # Keep history order (most recent first).
+        (( first )) && opts+=(--no-sort)
 
         local cursor_y cursor_x
         -z4m-get-cursor-pos || return
@@ -142,7 +129,7 @@ local -i list_colors=$((!$?))
                 done 2>/dev/null
               else
                 print -rC1 -- $dirs
-                -z4m-find $dot_glob 1 $non_empty | command sed -n '/\/.*\// s/^..//p'
+                -z4m-find $dot_glob 1 $non_empty
               fi
             } | {
               local -a pids
@@ -163,9 +150,8 @@ local -i list_colors=$((!$?))
           choice=("${(@f)choice}")
           [[ -n $choice[1] ]] && again=1
           # Weird chars don't roundtrip, so the directory may not exist.
-          local b64=${choice[2]%%$'\0'*}
           local -a reply=()
-          -z4m-b64dec "$b64" || return
+          -z4m-fzf-key-decode "${choice[2]%%$'\0'*}" || return
           cd -- "$reply[1]" 2>/dev/null || return
           redraw=1
         } always {

@@ -11,7 +11,7 @@ local -i list_types=$2
 local -i tilde_unexpand=$3
 local -i encode_key=${4:-0}
 
-autoload +X -Uz -- -z4m-b64enc
+autoload +X -Uz -- -z4m-fzf-keys
 
 [[ $_z4m_mode_colors[ln] != target ]]
 local -i ln_target=$?
@@ -23,9 +23,7 @@ local -r suf=('|' '|' '' '' '' '' '/' '/' '' '' '' '' '' '' '' '*' '' '' '@' '@'
 
 local -i10 m i
 local buf file style
-local -a files modes link link_mode
-local -i MATCH
-local MBEGIN MEND
+local -a files keys modes link link_mode
 
 while true; do
   while [[ $buf != *$'\n'* ]]; do
@@ -38,31 +36,23 @@ while true; do
   buf=$files[-1]
   files[-1]=()
 
+  if (( encode_key )); then
+    -z4m-fzf-keys "${files[@]}" || return
+    keys=("${reply[@]}")
+  else
+    keys=("${files[@]}")
+  fi
+
   if (( ! list_colors && ! list_types && ! tilde_unexpand )) || ! zstat -L -A modes +mode -- $files; then
-    if (( encode_key )); then
-      for file in $files; do
-        local -a reply=()
-        -z4m-b64enc "$file" || continue
-        printf '%s\0%q\n' "$reply[1]" "$file"
-      done
-    else
-      printf '%1$s\0%1$q\n' $files
-    fi
+    printf '%s\0%q\n' "${(@)keys:^files}"
     continue
   fi
 
   if (( ! list_colors && ! tilde_unexpand )); then
-    if (( encode_key )); then
-      for file m in ${files:^modes}; do
-        local k=${file}${suf[$((((m & 61440) >> 11) | ! (m & 73)))]}
-        local -a reply=()
-        -z4m-b64enc "$k" || continue
-        printf '%s\0%q\n' "$reply[1]" "$k"
-      done
-    else
-      printf '%2$s\0%2$q%1$s\n' \
-        ${"${(@)modes/(#m)*/$suf[$((((MATCH & 61440) >> 11) | !(MATCH & 73)))]}":^files}
-    fi
+    for (( i = 1; i <= $#files; ++i )); do
+      m=$modes[i]
+      printf '%s\0%q%s\n' "$keys[i]" "$files[i]" "$suf[$((((m & 61440) >> 11) | !(m & 73)))]"
+    done
     continue
   fi
 
@@ -88,13 +78,9 @@ while true; do
   if (( tilde_unexpand )); then
     # This implementation is the same as below except that $file in the second output field
     # is replaced with ${(D)file}.
+    i=0
     for file m in ${files:^modes}; do
-      local key=$file
-      if (( encode_key )); then
-        local -a reply=()
-        -z4m-b64enc "$key" || continue
-        key=$reply[1]
-      fi
+      local key=$keys[++i]
       if [[ ${style::=${${_z4m_mode_codes[$((m & 64075))]:-$'\0'}/%$'\0'/$'\0'$_z4m_name_colors[(ke)$file:t]}} \
               == $'@\0.' ]]; then
         if ! zstat -L -A link +link -- $file; then
@@ -121,13 +107,9 @@ while true; do
     done
   else
     # This implementation works whether _z4m_name_colors is empty or not.
+    i=0
     for file m in ${files:^modes}; do
-      local key=$file
-      if (( encode_key )); then
-        local -a reply=()
-        -z4m-b64enc "$key" || continue
-        key=$reply[1]
-      fi
+      local key=$keys[++i]
       if [[ ${style::=${${_z4m_mode_codes[$((m & 64075))]:-$'\0'}/%$'\0'/$'\0'$_z4m_name_colors[(ke)$file:t]}} \
               == $'@\0.' ]]; then
         if ! zstat -L -A link +link -- $file; then

@@ -10,7 +10,7 @@ z4m uses a strict, line-based protocol between its completion generators and fzf
 
 - **Record delimiter**: newline (`\n`). Each selectable item is one line.
 - **Field delimiter inside a record**: ASCII NUL (`\0`). This allows separating an internal key from the displayed text.
-- **Key encoding**: for path-like completions, the internal key is base64-encoded data (single line). This prevents control characters in the operational value from corrupting the UI protocol.
+- **Key encoding**: for path-like completions, the internal key is `r<value>` when the value is printable and has no leading or trailing whitespace, and `b<base64>` otherwise. Keys are single-line and ANSI-free, so control characters in the operational value cannot corrupt the UI protocol, and the common case costs no process spawn. Unknown or malformed keys are rejected.
 - **Invariant**: selectable items must not contain newline characters. (This is also a practical limitation because upstream generators read and write line-oriented streams.)
 
 z4m's fzf wrapper always produces a **first line** indicating which key closed fzf:
@@ -23,6 +23,8 @@ This makes the output parsing stable across all widgets and avoids relying on un
 ## Basic Usage
 
 Press `Tab` to trigger completion. When multiple matches exist, fzf opens for selection.
+Path completion lists the current directory level only; end the word with `**`
+to search recursively (see [Recursive Search](#recursive-search)).
 
 | Key | Action |
 |-----|--------|
@@ -69,13 +71,46 @@ Completions are colored based on `LS_COLORS`, showing file types at a glance:
 - Symlinks in cyan
 - etc.
 
-### Recursive Directory Search
+### Recursive Search
 
-When completing paths, fzf can recursively search subdirectories:
+Plain `Tab` lists only the current level, like fzf-tab and fzf's own
+completion. Type `**` at the end of a path word and press `Tab` to list
+everything below it:
+
+```
+$ cd ~/Projects/**<Tab>     # directories below ~/Projects
+$ vim src/**<Tab>           # files and directories below src
+$ vim src/ma**<Tab>         # entries matching ma*, plus everything below them
+```
+
+If the word completes unambiguously (a single directory), z4m descends into it
+and opens the recursive listing there. If nothing gets completed, the `**` is
+restored.
+`Shift+Down` (`z4m-cd-down`) offers the same recursive listing for `cd`.
+
+Recursive listings are bounded so they stay responsive in large trees such as
+`$HOME`:
+
+- **Backend**: [fd](https://github.com/sharkdp/fd) when installed (`fd` or
+  `fdfind`), otherwise `bfs`, otherwise `find`. fd honors `.gitignore`, `.ignore`
+  and `.fdignore`, and runs depth by depth so shallow paths appear first.
+- **Depth**: at most `max-depth` path components below the completion base
+  (default `6`; `0` means unlimited).
+- **Pruning**: `find-exclude` names are skipped at any depth (default `.git`
+  and `node_modules`). Hidden entries need `setopt glob_dots`. Traversal stays
+  on one filesystem and follows symlinks.
+- **macOS**: `~/Library` is skipped when listing `$HOME`, since Finder hides it
+  too. Complete `~/Library/**` explicitly or `setopt glob_dots` to include it.
 
 ```zsh
-zstyle ':z4m:fzf-complete' recurse-dirs yes  # default
+zstyle ':z4m:fzf-complete' recurse-trigger '**'   # default; '' disables
+zstyle ':z4m:fzf-complete' recurse-dirs yes       # recurse on plain Tab (default: no)
+zstyle ':z4m:*' max-depth 8                       # fzf-complete, cd-down, fzf-dir-history
+zstyle ':z4m:*' find-exclude .git node_modules target
 ```
+
+Setting `find-command` or `find-flags` switches to the legacy find-compatible
+pipeline, which ignores `max-depth` and `find-exclude`.
 
 ### Preview
 
@@ -113,6 +148,9 @@ zstyle ':z4m:fzf-complete' fzf-preview 'bat --color=always -- {2}'
 ### Triggers
 
 ```zsh
+# Recursive listing trigger typed before Tab (default: **)
+zstyle ':z4m:fzf-complete' recurse-trigger '**'
+
 # Continuous completion trigger (default: /)
 zstyle ':z4m:fzf-complete' continuous-trigger '/'
 

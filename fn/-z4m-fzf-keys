@@ -1,0 +1,33 @@
+#!/usr/bin/env zsh
+
+# Encode values as fzf record keys.
+# Usage: -z4m-fzf-keys <value>...
+# Sets: reply to one key per value. A value that cannot be encoded gets an
+# empty key, which -z4m-fzf-key-decode rejects.
+#
+# Keys are single-line, ANSI-free, and never start or end with whitespace, so
+# fzf returns them byte-for-byte. Printable values are stored verbatim as
+# "r<value>" without forking, which keeps large recursive listings streaming.
+# Anything else (control characters, invalid multibyte sequences, edge
+# whitespace) falls back to "b<base64>".
+
+emulate -L zsh -o extended_glob -o no_aliases
+
+local -r raw='[[:graph:]]([[:print:]]#[[:graph:]]|)'
+local -a vals=("$@")
+local -a keys=(r${^vals})
+
+if (( ${#${(M)vals:#$~raw}} != $#vals )); then
+  autoload -Uz -- -z4m-b64enc
+  local -i i
+  for (( i = 1; i <= $#vals; ++i )); do
+    [[ $vals[i] == $~raw ]] && continue
+    if -z4m-b64enc "$vals[i]"; then
+      keys[i]=b$reply[1]
+    else
+      keys[i]=
+    fi
+  done
+fi
+
+reply=("${keys[@]}")

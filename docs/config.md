@@ -285,7 +285,8 @@ See [tmux-context-title.md](tmux-context-title.md) for details.
 
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
-| `:z4m:fzf-complete recurse-dirs` | bool | `yes` | Recursive directory search |
+| `:z4m:fzf-complete recurse-trigger` | string | `**` | Word suffix that makes `Tab` list paths recursively; empty disables |
+| `:z4m:fzf-complete recurse-dirs` | bool | `no` | Recurse on plain `Tab` as well |
 | `:z4m:fzf-complete fzf-preview` | bool/string | `yes` | Preview: `yes`, `no`, or custom command |
 | `:z4m:fzf-complete continuous-trigger` | string | `/` | Key to accept and continue path completion |
 | `:z4m:fzf-complete accept-line` | string | — | Key to accept and execute command |
@@ -305,7 +306,16 @@ See [fzf-completion.md](fzf-completion.md) for details.
 |-------|------|---------|-------------|
 | `:z4m:fzf-dir-history fzf-bindings` | array | — | Key bindings |
 | `:z4m:cd-down fzf-bindings` | array | — | Key bindings |
-| `:z4m:cd-down find-command` | array | — | Custom find command (command + args) |
+| `:z4m:cd-down find-command` | array | — | Custom find command (command + args); selects the legacy pipeline |
+
+### Recursive Listings
+
+Apply to `fzf-complete`, `cd-down`, and `fzf-dir-history` (use `:z4m:*` or a widget context).
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:* max-depth` | int | `6` | Path components below the base; `0` means unlimited |
+| `:z4m:* find-exclude` | array | `.git node_modules` | Names pruned at any depth |
 
 ## SSH Teleportation
 

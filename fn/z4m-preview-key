@@ -1,0 +1,26 @@
+#!/usr/bin/env zsh
+# z4m-preview-key - Decode an fzf record key then delegate to z4m-preview.
+# Usage: z4m-preview-key <context> <key> [path_prefix]
+#
+# Keys come from -z4m-fzf-keys: "r<value>" verbatim or "b<base64>".
+# This runs as a standalone script, so it decodes inline instead of autoloading.
+
+emulate -L zsh -o typeset_silent -o pipe_fail
+
+local ctx=$1 key=$2 path_prefix=$3
+local word
+
+case $key in
+  r?*) word=${key#r};;
+  b?*)
+    local b64=${key#b}
+    # Validate as data-only payload (consistent with -z4m-b64dec)
+    [[ $b64 =~ '^[A-Za-z0-9+/=]+$' ]] || exit 0
+    word=$(print -r -- "$b64" | command base64 -d 2>/dev/null) ||
+      word=$(print -r -- "$b64" | command base64 -D 2>/dev/null) || exit 0
+    ;;
+  *) exit 0;;
+esac
+
+# Delegate to the existing preview dispatcher.
+"${0:A:h}/z4m-preview" "$ctx" "$word" "$path_prefix"

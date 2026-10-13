@@ -3,7 +3,7 @@
 [[ -v _z4m_tty_fd ]] || return
 
 autoload +X -Uz -- -z4m-present-files -z4m-cursor-show -z4m-find -z4m-fzf -z4m-fzf-version
-autoload +X -Uz -- -z4m-b64dec
+autoload +X -Uz -- -z4m-fzf-key-decode
 
 # Detect fzf version for new features
 -z4m-fzf-version 2>/dev/null || true
@@ -15,15 +15,6 @@ local -i dot_glob list_types
 
 -z4m-set-list-colors :complete:cd:: $list_types
 local -i list_colors=$((!$?))
-
-# Check if we can use --walker (fzf 0.48+)
-local -i use_walker=0
-if (( ver >= 4800 )); then
-  local find_cmd
-  zstyle -s :z4m:${WIDGET#z4m-} find-command find_cmd
-  # Only use walker if no custom find command is specified
-  [[ -z $find_cmd ]] && use_walker=1
-fi
 
 {
   -z4m-cursor-hide
@@ -74,28 +65,6 @@ fi
         # Path-optimized scoring (fzf 0.59+)
         (( ver >= 5900 )) && opts+=(--scheme=path)
 
-        # Use built-in walker if available (fzf 0.48+), otherwise fall back to find
-        if (( use_walker )); then
-          local walker_opts='dir'
-          (( dot_glob )) && walker_opts+=',hidden'
-          opts+=(
-            --walker=$walker_opts
-            --walker-skip=.git,node_modules,.cache,.svn
-          )
-        else
-          () {
-            emulate -L zsh
-            # Set dot_glob in case the value of find-flags depends on it (via `zstyle -e`).
-            # Ideally we should run this with user options.
-            (( dot_glob )) && setopt dot_glob
-            local -a bin
-            zstyle -a :z4m:${WIDGET#z4m-} find-command bin
-            if (( ! $#bin )) && (( $+commands[bfs] )); then
-              opts+=(--no-sort)
-            fi
-          }
-        fi
-
         local cursor_y cursor_x
         -z4m-get-cursor-pos || return
 
@@ -136,7 +105,7 @@ fi
             {
               print -r -- $sysparams[pid]
               print -rC1 -- $dirs
-              -z4m-find $dot_glob 1 $non_empty | command sed -n '/\/.*\// s/^..//p'
+              -z4m-find $dot_glob 1 $non_empty
             } | {
               local -a pids
               IFS=' ' builtin read -rA pids || exit
@@ -155,9 +124,8 @@ fi
           [[ -n $choice ]] || return
           choice=("${(@f)choice}")
           [[ -n $choice[1] ]] && again=1
-          local b64=${choice[2]%%$'\0'*}
           local -a reply=()
-          -z4m-b64dec "$b64" || return
+          -z4m-fzf-key-decode "${choice[2]%%$'\0'*}" || return
           cd -- "$reply[1]" 2>/dev/null || return
           redraw=1
         } always {

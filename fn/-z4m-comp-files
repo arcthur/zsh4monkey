@@ -8,27 +8,32 @@
   [[ $1 == on ]] && dot_glob=1
   [[ $2 == on ]] && list_types=1
 
-  if (( _z4m_only_dirs )); then
-    local dirs=($_z4m_path_prefix${^${(Q)_z4m_words}}/*(D-/Y1N:h:t))
-  else
-    local dirs=($_z4m_path_prefix${^${(Q)_z4m_words}}/*(DY1N:h:t))
-  fi
-
   -z4m-set-list-colors "$_z4m_curcontext" "$list_types"
   local -i list_colors=$((!$?))
 
   autoload +X -Uz -- -z4m-present-files -z4m-cursor-show -z4m-find -z4m-fzf
-  autoload +X -Uz -- -z4m-b64dec
+  autoload +X -Uz -- -z4m-fzf-key-decode
 
-  local -i recurse
-  () {
+  # Tab lists the current level only; the recurse trigger (`**`) or
+  # `recurse-dirs yes` opts into a recursive listing.
+  local -i recurse=${_z4m_force_recurse:-0}
+  (( recurse )) || () {
     emulate -L zsh
     # Set curcontext and dot_glob in case the value of recurse depends on them (via `zstyle -e`).
     # Ideally we should run this with user options.
     (( dot_glob )) && setopt dot_glob
     local curcontext=$_z4m_curcontext
-    zstyle -T :z4m:${WIDGET#z4m-} recurse-dirs && recurse=1
+    zstyle -t :z4m:${WIDGET#z4m-} recurse-dirs && recurse=1
   }
+
+  local -a dirs=()
+  if (( recurse )); then
+    if (( _z4m_only_dirs )); then
+      dirs=($_z4m_path_prefix${^${(Q)_z4m_words}}/*(D-/Y1N:h:t))
+    else
+      dirs=($_z4m_path_prefix${^${(Q)_z4m_words}}/*(DY1N:h:t))
+    fi
+  fi
 
   # Use full height from cursor to bottom
   local -i height=$((LINES - 1))
@@ -53,7 +58,7 @@
     [[ $preview_cmd == (no|false|off|0) ]] && preview_cmd=
   elif zstyle -T :z4m:${WIDGET#z4m-} fzf-preview; then
     # Default preview using z4m-preview
-    local preview_script="${Z4M}/zsh4monkey/fn/z4m-preview-b64"
+    local preview_script="${Z4M}/zsh4monkey/fn/z4m-preview-key"
     preview_cmd="zsh ${(q)preview_script} ${(q)_z4m_curcontext} {1} ${(q)_z4m_path_prefix}"
   fi
 
@@ -78,18 +83,6 @@
   )
 
   opts+=(--scheme=path)
-
-  () {
-    emulate -L zsh
-    # Set dot_glob in case the value of find-flags depends on it (via `zstyle -e`).
-    # Ideally we should run this with user options.
-    (( dot_glob )) && setopt dot_glob
-    local -a bin
-    zstyle -a :z4m:${WIDGET#z4m-} find-command bin
-    if (( ! $#bin )) && (( $+commands[bfs] )); then
-      opts+=(--no-sort)
-    fi
-  }
 
   local cursor_y cursor_x
   -z4m-get-cursor-pos || return
@@ -145,7 +138,7 @@
           local curcontext=$_z4m_curcontext
           local -a _z4m_find_pats=("${_z4m_file_pats[@]}")
           local -a _z4m_find_ignore=("${_z4m_file_ignore[@]}")
-          -z4m-find $dot_glob $_z4m_only_dirs $dirs | command sed -n '/\/.*\// s/^..//p'
+          -z4m-find $dot_glob $_z4m_only_dirs $dirs
         fi
       } | {
         local -a pids
@@ -177,9 +170,8 @@
   local -a decoded=()
   local sel
   for sel in "${choice[@]:1}"; do
-    local b64=${sel%$'\0'*}
     local -a reply=()
-    -z4m-b64dec "$b64" || continue
+    -z4m-fzf-key-decode "${sel%$'\0'*}" || continue
     decoded+=("$reply[1]")
   done
   typeset -g _z4m_reply=(0 "${decoded[@]}")

@@ -35,7 +35,8 @@ local -i rc=0
     (( $? == 5 )) && break
     return 1
   done
-  exec {fd}<&- 2>/dev/null || true
+  # No redirection here: on `exec` it would persist in the calling shell.
+  exec {fd}<&-
 
   reply=("$out")
   return 0
