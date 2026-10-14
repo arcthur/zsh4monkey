@@ -182,26 +182,55 @@ function -z4m-cmd-load() {
   zparseopts -D -F -- c=compile -compile=compile || return '_z4m_err()'
 
   local -a files
+  local -i rc=0
 
+  # Entry point: init.zsh, then <dir>.plugin.zsh, then the only *.plugin.zsh in
+  # the directory (repositories named zsh-foo often ship foo.plugin.zsh). A
+  # plugin that only provides functions/ or completion functions needs no entry
+  # point. Anything else is reported rather than skipped silently.
   () {
     emulate -L zsh -o extended_glob
     local pkgs=(${(M)@:#/*} $Z4M/${^${@:#/*}})
-    pkgs=(${^${(u)pkgs}}(-/FN))
-    local dirs=(${^pkgs}/functions(-/FN))
+    local pkg
+    local -a found
+    for pkg in ${(u)pkgs}; do
+      if [[ -d $pkg ]]; then
+        found+=($pkg)
+      else
+        print -Pru2 -- "%F{3}z4m%f: %Bload%b: no such plugin directory: %F{1}${pkg//\%/%%}%f"
+        rc=1
+      fi
+    done
+    local dirs=(${^found}/functions(-/FN))
     local funcs=(${^dirs}/^([_.]*|prompt_*_setup|README*|*~|*.zwc)(-.N:t))
-    fpath+=($pkgs $dirs)
+    fpath+=($found $dirs)
     (( $#funcs )) && autoload -Uz -- $funcs
     local dir
-    for dir in $pkgs; do
+    local -a candidates
+    for dir in $found; do
       if [[ -s $dir/init.zsh ]]; then
         files+=($dir/init.zsh)
       elif [[ -s $dir/${dir:t}.plugin.zsh ]]; then
         files+=($dir/${dir:t}.plugin.zsh)
+      else
+        candidates=($dir/*.plugin.zsh(N-.L+0))
+        if (( $#candidates == 1 )); then
+          files+=($candidates)
+        elif (( $#candidates )); then
+          candidates=(${${candidates:t}//\%/%%})
+          print -Pru2 -- "%F{3}z4m%f: %Bload%b: ambiguous entry point in %F{1}${dir//\%/%%}%f: ${(j:, :)candidates}"
+          print -Pru2 -- "%F{3}z4m%f: use %Bz4m source%b with the file to load"
+          rc=1
+        elif [[ ! -d $dir/functions && -z $dir/_*(#qN-.) ]]; then
+          print -Pru2 -- "%F{3}z4m%f: %Bload%b: nothing to load in %F{1}${dir//\%/%%}%f (no init.zsh, *.plugin.zsh, functions/ or completions)"
+          rc=1
+        fi
       fi
     done
   } "$@"
 
-  -z4m-cmd-source "${compile[@]}" -- "${files[@]}"
+  -z4m-cmd-source "${compile[@]}" -- "${files[@]}" || return
+  return rc
 }
 
 function -z4m-cmd-init() {

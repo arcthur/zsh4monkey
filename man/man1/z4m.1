@@ -93,7 +93,19 @@ Compile zsh script file(s) to zwc format for faster loading.
 Compiled files are created alongside the original.
 .It Cm load Oo Fl c | Fl -compile Oc Ar dir ...
 Load a plugin from directory.
-Adds functions to fpath and sources the main plugin file.
+Adds functions to fpath and sources the main plugin file:
+.Pa init.zsh ,
+.Pa <dir>.plugin.zsh ,
+or the only
+.Pa *.plugin.zsh
+in the directory.
+Plugins that only provide
+.Pa functions/
+or completion functions need no entry point.
+A missing directory, an ambiguous entry point, or a directory with nothing to
+load is reported and makes the command fail; use
+.Cm source
+for other entry points.
 .It Cm bindkey Ar widget Ar key ...
 Bind key(s) to a ZLE widget with proper terminal handling.
 See

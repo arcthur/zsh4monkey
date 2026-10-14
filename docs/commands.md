@@ -75,8 +75,17 @@ z4m install --resolve fzf powerlevel10k
 ### Loading Plugins
 
 ```bash
+z4m load ohmyzsh/ohmyzsh/plugins/emoji-clock   # relative to $Z4M
 z4m load ~/.local/share/my-plugin
 ```
+
+`z4m load` adds the directory and its `functions/` to `fpath` and sources the
+first entry point it finds: `init.zsh`, `<dir>.plugin.zsh`, or the only
+`*.plugin.zsh` in the directory (for example `zsh-auto-notify` ships
+`auto-notify.plugin.zsh`). Plugins that only provide `functions/` or completion
+functions need no entry point. A missing directory, several candidate
+`*.plugin.zsh` files, or a directory with nothing to load is reported and makes
+the command fail; load such plugins with `z4m source <dir>/<file>`.
 
 ## SSH
 
