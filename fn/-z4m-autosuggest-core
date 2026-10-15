@@ -7,7 +7,6 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 
 (( ${+_z4m_autosuggest_state} )) || typeset -gA _z4m_autosuggest_state
 (( ${+_z4m_autosuggest_events} )) || typeset -ga _z4m_autosuggest_events
-(( ${+_z4m_dir_cmd_map} )) || typeset -gA _z4m_dir_cmd_map
 (( ${+_z4m_dir_history_ids} )) || typeset -gA _z4m_dir_history_ids
 (( ${+_z4m_rank_status} )) || typeset -gA _z4m_rank_status
 (( ${+_z4m_rank_dirs} )) || typeset -gA _z4m_rank_dirs
@@ -28,7 +27,6 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 function -z4m-autosuggest-core-ensure() {
   (( ${+_z4m_autosuggest_state} )) || typeset -gA _z4m_autosuggest_state
   (( ${+_z4m_autosuggest_events} )) || typeset -ga _z4m_autosuggest_events
-  (( ${+_z4m_dir_cmd_map} )) || typeset -gA _z4m_dir_cmd_map
   (( ${+_z4m_dir_history_ids} )) || typeset -gA _z4m_dir_history_ids
   (( ${+_z4m_rank_status} )) || typeset -gA _z4m_rank_status
   (( ${+_z4m_rank_dirs} )) || typeset -gA _z4m_rank_dirs
@@ -248,7 +246,13 @@ function -z4m-autosuggest-core-read-config() {
   _z4m_autosuggest_state[configured_pwd_scan_limit]=$pwd_scan_limit
   _z4m_autosuggest_state[configured_rank_window]=$rank_window
 
-  -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-read-config || true
+  # The AI lane is sourced only when enabled (or already loaded, so that
+  # disabling it at runtime takes effect); commands load it on demand.
+  local ai_raw
+  if (( ${+functions[-z4m-autosuggest-ai-read-config]} )) ||
+     { zstyle -s :z4m:autosuggestions:ai enabled ai_raw && [[ ${ai_raw:l} == (1|on|true|yes) ]] }; then
+    -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-read-config || true
+  fi
 
   # Unit Separator (ASCII 0x1F) avoids collision with tab in strategy names.
   local sep=$'\x1f'
@@ -266,6 +270,14 @@ function -z4m-autosuggest-core-configure-style() {
   else
     ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=black,bold'
   fi
+}
+
+# Cheap per-keystroke gate: the AI lane only runs while it is enabled or still
+# has a request or status message to finish.
+function -z4m-autosuggest-core-ai-active-p() {
+  (( ${+functions[-z4m-autosuggest-ai-pre-redraw]} )) || return 1
+  (( ${_z4m_autosuggest_ai_state[enabled]:-0} || ${_z4m_autosuggest_ai_state[inflight]:-0} ||
+     ${_z4m_ai_status_message_armed:-0} ))
 }
 
 function -z4m-autosuggest-core-load-ai() {
@@ -569,11 +581,12 @@ function -z4m-autosuggest-core-init() {
   local -a strategy_list=(${=strategy})
   _z4m_autosuggest_state[state]=initializing
   _z4m_autosuggest_state[last_error]=
+  unset _z4m_autosuggest_miss_key
   -z4m-autosuggest-core-log info init "enabled=${enabled} strategy=${strategy} buffer_min=${buffer_min_size:-none} match_prev_max=${match_prev_max_cmds} match_prev_count=${match_prev_cmd_count} ci=${case_insensitive} pwd_scan=${pwd_scan_limit}"
 
   if (( ! enabled )); then
     -z4m-autosuggest-core-reset disabled
-    -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-reset disabled || true
+    (( ${+functions[-z4m-autosuggest-ai-reset]} )) && -z4m-autosuggest-ai-reset disabled || true
     if (( ${+functions[_zsh_autosuggest_widget_disable]} )); then
       _zsh_autosuggest_widget_disable || true
     fi
@@ -755,10 +768,7 @@ function -z4m-autosuggest-core-fetch() {
     return 0
   fi
 
-  -z4m-autosuggest-core-load-ai || true
-  if (( ${+functions[-z4m-autosuggest-ai-pre-redraw]} )); then
-    -z4m-autosuggest-ai-pre-redraw "$BUFFER" || true
-  fi
+  -z4m-autosuggest-core-ai-active-p && -z4m-autosuggest-ai-pre-redraw "$BUFFER" || true
   if [[ -z $BUFFER ]]; then
     unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion
     _z4m_autosuggest_state[active_provider]=none
@@ -788,31 +798,47 @@ function -z4m-autosuggest-core-fetch() {
     do_fetch=0
   fi
 
+  # Every strategy is a prefix match over history (ranked also over where and
+  # after what commands ran, which only reorders matches), so a miss holds until
+  # history or the directory changes: for the same buffer, and for every
+  # extension of a buffer that no history entry matched at all. Without this,
+  # each redraw rescans the whole history.
+  local miss_key="${HISTCMD}:${PWD}"
+  if [[ ${_z4m_autosuggest_miss_key-} != "$miss_key" ]]; then
+    typeset -g _z4m_autosuggest_miss_key=$miss_key
+    unset _z4m_autosuggest_miss_buffer _z4m_autosuggest_miss_prefix
+  elif [[ $BUFFER == "${_z4m_autosuggest_miss_buffer-}" ||
+          ( -v _z4m_autosuggest_miss_prefix && $BUFFER == "${_z4m_autosuggest_miss_prefix}"* ) ]]; then
+    do_fetch=0
+  fi
+
   if [[ ${+_ZSH_AUTOSUGGEST_DISABLED} == 0 ]] && (( do_fetch )); then
     if (( ${+functions[_zsh_autosuggest_fetch_suggestion]} )); then
       _zsh_autosuggest_fetch_suggestion "$BUFFER"
       if [[ -n ${suggestion-} ]]; then
         provider=local
+      else
+        typeset -g _z4m_autosuggest_miss_prefix=$BUFFER
       fi
     else
       _z4m_autosuggest_state[last_error]="missing _zsh_autosuggest_fetch_suggestion"
       -z4m-autosuggest-core-degrade "${_z4m_autosuggest_state[last_error]}" || true
       return 1
     fi
-  fi
 
-  # If local provider returned a non-usable value (for example no_delta),
-  # clear it early so AI fallback can still run in the same fetch cycle.
-  if [[ -n ${suggestion-} && $provider == local ]]; then
-    if ! -z4m-autosuggest-core-suggestion-valid-p "$BUFFER" "$suggestion" "$provider"; then
+    # If local provider returned a non-usable value (for example no_delta),
+    # clear it early so AI fallback can still run in the same fetch cycle.
+    if [[ -n ${suggestion-} ]] &&
+       ! -z4m-autosuggest-core-suggestion-valid-p "$BUFFER" "$suggestion" "$provider"; then
       local reason=${REPLY:-invalid_suggestion}
       -z4m-autosuggest-core-log info filter "drop invalid suggestion provider=${provider} reason=${reason}"
       unset suggestion
       provider=none
     fi
+    [[ -n ${suggestion-} ]] || typeset -g _z4m_autosuggest_miss_buffer=$BUFFER
   fi
 
-  if [[ -z ${suggestion-} ]] && (( ${+functions[-z4m-autosuggest-ai-maybe-suggest]} )); then
+  if [[ -z ${suggestion-} ]] && -z4m-autosuggest-core-ai-active-p; then
     if -z4m-autosuggest-ai-maybe-suggest "$BUFFER" fetch && [[ -n ${REPLY-} ]]; then
       suggestion=$REPLY
       provider=ai
@@ -859,10 +885,7 @@ function -z4m-autosuggest-core-pre-redraw() {
 
   [[ ${_z4m_autosuggest_state[state]-uninitialized} == ready ]] || return 0
 
-  -z4m-autosuggest-core-load-ai || true
-  if (( ${+functions[-z4m-autosuggest-ai-pre-redraw]} )); then
-    -z4m-autosuggest-ai-pre-redraw "$BUFFER" || true
-  fi
+  -z4m-autosuggest-core-ai-active-p && -z4m-autosuggest-ai-pre-redraw "$BUFFER" || true
 
   if [[ -n ${POSTDISPLAY-} ]]; then
     local prior_buffer=${_z4m_autosuggest_buffer-}
@@ -915,9 +938,10 @@ function -z4m-autosuggest-core-reset() {
     _zsh_autosuggest_highlight_reset || true
   fi
 
-  -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-reset "$reason" || true
+  (( ${+functions[-z4m-autosuggest-ai-reset]} )) && -z4m-autosuggest-ai-reset "$reason" || true
 
-  unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion _z4m_autosuggest_ci_original
+  unset POSTDISPLAY _z4m_autosuggest_buffer _z4m_autosuggestion _z4m_autosuggest_ci_original \
+    _z4m_autosuggest_miss_key _z4m_autosuggest_miss_buffer _z4m_autosuggest_miss_prefix
   _z4m_autosuggest_state[active_provider]=none
   -z4m-autosuggest-core-log info reset "$reason"
   return 0

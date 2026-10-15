@@ -4,7 +4,7 @@
 #
 # First Principles Design:
 #   - Window name reflects current context (project, git branch, command)
-#   - Performance first: use gitstatus when available, fallback to git
+#   - Performance first: no forks per prompt; dirty state reuses p10k's gitstatus result
 #   - Non-intrusive: only active inside tmux, graceful degradation
 #
 # Triggers:
@@ -104,6 +104,8 @@ typeset -gA _z4m_cmd_icons=(
 # State Variables
 # =============================================================================
 typeset -g _z4m_tmux_title_context=''
+# The enclosing git worktree and its HEAD file, found by -z4m-tmux-project-name.
+typeset -g _z4m_tmux_title_git_root='' _z4m_tmux_title_git_head=''
 
 # =============================================================================
 # Core: Set tmux window name
@@ -130,65 +132,71 @@ function -z4m-tmux-set-window-name() {
 # Git Branch Detection (with dirty indicator)
 # =============================================================================
 function -z4m-tmux-git-info() {
-  local branch='' dirty=''
+  [[ -n $_z4m_tmux_title_git_head ]] || return 1
 
-  # Fast path: try gitstatus if available (p10k uses POWERLEVEL9K as prompt name)
-  if (( $+functions[gitstatus_query] )); then
-    local -a prompt_names=(POWERLEVEL9K Z4M MY)
-    local pname
-    for pname in $prompt_names; do
-      if gitstatus_query -t 0 -p $pname 2>/dev/null && [[ $VCS_STATUS_RESULT == ok-sync ]]; then
-        branch=$VCS_STATUS_LOCAL_BRANCH
-        [[ -z $branch ]] && branch=${VCS_STATUS_COMMIT:0:8}
-        # Check for any changes
-        if (( VCS_STATUS_NUM_STAGED + VCS_STATUS_NUM_UNSTAGED + VCS_STATUS_NUM_UNTRACKED > 0 )); then
-          dirty='*'
-        fi
-        REPLY="${branch}${dirty}"
-        return 0
-      fi
-    done
-    # gitstatus query failed for all names, fall through to git commands
+  # HEAD is read on every prompt so that checkouts show up immediately.
+  local head=''
+  { read -r head <$_z4m_tmux_title_git_head || [[ -n $head ]] } 2>/dev/null || return 1
+  if [[ $head == 'ref: '* ]]; then
+    REPLY=${${head#ref: }#refs/heads/}
+  else
+    REPLY=${head:0:8}
   fi
 
-  # Fallback: direct git commands
-  branch=$(git symbolic-ref --short HEAD 2>/dev/null) || \
-  branch=$(git rev-parse --short HEAD 2>/dev/null) || return 1
-
-  # Check dirty state (any uncommitted changes)
-  if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
-    dirty='*'
-  elif [[ -n $(git ls-files --others --exclude-standard 2>/dev/null | head -1) ]]; then
-    dirty='*'
+  # Dirty state comes from p10k's latest gitstatus result for this repository
+  # (it is refreshed after this hook, so it may lag one prompt). Querying
+  # gitstatus here would block the prompt or race p10k's request, and running
+  # git would scan the worktree on every prompt.
+  if [[ ${VCS_STATUS_RESULT-} == ok-* && ${VCS_STATUS_WORKDIR-} == "$_z4m_tmux_title_git_root" ]] &&
+     (( ${VCS_STATUS_NUM_STAGED:-0} > 0 || ${VCS_STATUS_NUM_UNSTAGED:-0} > 0 ||
+        ${VCS_STATUS_NUM_UNTRACKED:-0} > 0 )); then
+    REPLY+='*'
   fi
-
-  REPLY="${branch}${dirty}"
   return 0
 }
 
 # =============================================================================
 # Project Detection
 # =============================================================================
+# Usage: -z4m-tmux-project-name [find-git]
 function -z4m-tmux-project-name() {
-  local dir=$PWD
+  local dir=$PWD m root='' gitdir='' line=''
+  local -i scan=1 find_git=${1:-0}
   local -a markers=(.git package.json Cargo.toml go.mod pyproject.toml
                     Makefile CMakeLists.txt build.gradle pom.xml
                     composer.json Gemfile mix.exs deno.json)
 
-  # Walk up directory tree looking for project markers
-  while [[ $dir != / && $dir != $HOME ]]; do
-    for m in $markers; do
-      if [[ -e $dir/$m ]]; then
-        REPLY=${dir:t}
-        return 0
-      fi
-    done
+  # Walk up the directory tree: project markers below $HOME (falling back to
+  # the current directory name) and, if asked, the enclosing git worktree up to /.
+  REPLY=${PWD:t}
+  while :; do
+    [[ $dir == / || $dir == "$HOME" ]] && scan=0
+    if (( scan )); then
+      for m in $markers; do
+        if [[ -e $dir/$m ]]; then
+          REPLY=${dir:t}
+          scan=0
+          break
+        fi
+      done
+    fi
+    (( find_git )) && [[ -z $root && -e $dir/.git ]] && root=$dir
+    [[ $dir == / ]] && break
+    (( scan || (find_git && ! $#root) )) || break
     dir=${dir:h}
   done
 
-  # No project found, use current directory name
-  REPLY=${PWD:t}
-  return 1
+  # .git is a directory, or a file pointing to it (worktrees, submodules).
+  if [[ -n $root && -d $root/.git ]]; then
+    gitdir=$root/.git
+  elif [[ -n $root ]] && { read -r line <$root/.git } 2>/dev/null && [[ $line == 'gitdir: '* ]]; then
+    gitdir=${line#gitdir: }
+    [[ $gitdir == /* ]] || gitdir=$root/$gitdir
+  fi
+
+  # p10k queries gitstatus with the resolved directory, so compare resolved paths.
+  _z4m_tmux_title_git_root=${root:+${root:A}}
+  _z4m_tmux_title_git_head=${gitdir:+$gitdir/HEAD}
 }
 
 # =============================================================================
@@ -200,7 +208,7 @@ function -z4m-tmux-build-context() {
   zstyle -t :z4m:tmux-title git-branch && show_git=1 || show_git=0
 
   # Get project name
-  -z4m-tmux-project-name
+  -z4m-tmux-project-name $show_git
   project=$REPLY
 
   # Get git branch if enabled and in a git repo

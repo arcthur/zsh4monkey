@@ -158,21 +158,22 @@ list_pats() {
   print -r -- ${(o)${(f)"$(cd -- $tree && WIDGET=z4m-fzf-complete -z4m-find 0 0 pats)"}}
 }
 
-# Breadth-first order: fd runs depth by depth.
+# Shallow-first order: fd lists two levels, then the rest.
 if (( $+commands[fd] || $+commands[fdfind] )); then
   check_common fd
   command git -C $tree/proj init -q 2>/dev/null && print -r -- build > $tree/proj/.gitignore
   local -a ordered=("${(@f)$(cd -- $tree && WIDGET=z4m-fzf-complete -z4m-find 0 0 proj other)}")
   [[ -n ${(M)ordered:#proj/build*} ]] && fail 'fd: .gitignore must be honored'
-  local -i depth=0 prev=0
+  # root/a/b is two levels below a root; deeper paths come in a second walk.
+  local -i deep=0
   local p
   for p in $ordered; do
-    depth=${#${(s:/:)p}}
-    if (( depth < prev )); then
-      fail "fd: $p (depth $depth) listed after a depth-$prev path"
+    if (( ${#${(s:/:)p}} > 3 )); then
+      deep=1
+    elif (( deep )); then
+      fail "fd: shallow path $p listed after a deeper one"
       break
     fi
-    prev=depth
   done
   command rm -rf -- $tree/proj/.git $tree/proj/.gitignore
 fi

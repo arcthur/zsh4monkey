@@ -139,7 +139,8 @@ z4m__git_remote_preview() {
 
   # Scope + detail (bounded)
   echo ""
-  command git remote show "$remote" 2>/dev/null | command head -n "$preview_lines"
+  # -n: never contact the remote from a preview.
+  command git remote show -n "$remote" 2>/dev/null | command head -n "$preview_lines"
 }
 
 # Git commands

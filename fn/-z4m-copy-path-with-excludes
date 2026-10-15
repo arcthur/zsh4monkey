@@ -22,7 +22,11 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
   return 1
 }
 
--z4m-copy-path-with-excludes-impl() {
+# Walk the tree once, recording directories to create and, per destination
+# directory, the entries to copy into it. Copying then costs one mkdir for the
+# whole tree and one cp per directory and entry kind, instead of a mkdir and a
+# cp per file. Callers declare dirs, batch_dst, batch_flags and batch_srcs.
+-z4m-copy-path-with-excludes-walk() {
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob -o no_aliases
 
   local src=$1
@@ -31,34 +35,54 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
   local exclude_blob=$4
   local rel=$5
 
-  if -z4m-copy-path-matches-exclude "$rel" "$exclude_blob"; then
-    return 0
-  fi
-
-  if [[ -d $src && ! -L $src ]]; then
-    command mkdir -p -- "$dst" || return
-    local -a entries=($src/*(N) $src/.[^.]*(N) $src/..?*(N))
-    local entry child_rel
-    for entry in $entries; do
-      child_rel=${rel:+$rel/}${entry:t}
-      -z4m-copy-path-with-excludes-impl "$entry" "$dst/${entry:t}" "$mode" "$exclude_blob" "$child_rel" || return
-    done
-    return 0
-  fi
-
-  command mkdir -p -- "${dst:h}" || return
-
-  if [[ -L $src ]]; then
-    if [[ $mode == follow ]]; then
-      command cp -RLp -- "$src" "$dst" || return
+  dirs+=("$dst")
+  local -a entries=($src/*(N) $src/.[^.]*(N) $src/..?*(N))
+  local -a files links
+  local entry child_rel
+  for entry in $entries; do
+    child_rel=${rel:+$rel/}${entry:t}
+    -z4m-copy-path-matches-exclude "$child_rel" "$exclude_blob" && continue
+    if [[ -L $entry ]]; then
+      links+=("$entry")
+    elif [[ -d $entry ]]; then
+      -z4m-copy-path-with-excludes-walk "$entry" "$dst/${entry:t}" "$mode" "$exclude_blob" "$child_rel" || return
+    elif [[ -f $entry ]]; then
+      files+=("$entry")
     else
-      command cp -pP -- "$src" "$dst" || return
+      return 1
     fi
-    return 0
-  fi
+  done
 
-  [[ -f $src ]] || return 1
-  command cp -p -- "$src" "$dst" || return
+  if (( $#files )); then
+    batch_dst+=("$dst")
+    batch_flags+=(-p)
+    batch_srcs+=("${(pj:\0:)files}")
+  fi
+  if (( $#links )); then
+    batch_dst+=("$dst")
+    [[ $mode == follow ]] && batch_flags+=(-RLp) || batch_flags+=(-pP)
+    batch_srcs+=("${(pj:\0:)links}")
+  fi
+}
+
+-z4m-copy-path-with-excludes-tree() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob -o no_aliases
+
+  local -a dirs batch_dst batch_flags batch_srcs
+  -z4m-copy-path-with-excludes-walk "$@" '' || return
+
+  # Chunked to stay well below ARG_MAX on directories with many entries.
+  local -i chunk=512 i j
+  for (( j = 1; j <= $#dirs; j += chunk )); do
+    command mkdir -p -- "${(@)dirs[j,j+chunk-1]}" || return
+  done
+  local -a srcs
+  for (( i = 1; i <= $#batch_dst; ++i )); do
+    srcs=("${(@0)batch_srcs[i]}")
+    for (( j = 1; j <= $#srcs; j += chunk )); do
+      command cp $batch_flags[i] -- "${(@)srcs[j,j+chunk-1]}" "$batch_dst[i]/" || return
+    done
+  done
 }
 
 local src=$1
@@ -71,7 +95,19 @@ local exclude_blob=${4-}
 [[ $mode == preserve || $mode == follow ]] || return 1
 
 if [[ -d $src && ! -L $src ]]; then
-  -z4m-copy-path-with-excludes-impl "$src" "$dst" "$mode" "$exclude_blob" ''
-else
-  -z4m-copy-path-with-excludes-impl "$src" "$dst" "$mode" "$exclude_blob" "${src:t}"
+  -z4m-copy-path-with-excludes-tree "$src" "$dst" "$mode" "$exclude_blob"
+  return
 fi
+
+-z4m-copy-path-matches-exclude "${src:t}" "$exclude_blob" && return 0
+command mkdir -p -- "${dst:h}" || return
+if [[ -L $src ]]; then
+  if [[ $mode == follow ]]; then
+    command cp -RLp -- "$src" "$dst"
+  else
+    command cp -pP -- "$src" "$dst"
+  fi
+  return
+fi
+[[ -f $src ]] || return 1
+command cp -p -- "$src" "$dst"

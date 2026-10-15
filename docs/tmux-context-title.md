@@ -95,17 +95,19 @@ If no project marker is found, the current directory name is used.
 
 ## Git Integration
 
-### Fast Path: gitstatus
+No git command runs from the prompt hooks.
 
-If [gitstatus](https://github.com/romkatv/gitstatus) is available (used by powerlevel10k), it provides instant git status via async queries. This is the fastest method.
+### Branch
 
-### Fallback: Direct Git
-
-When gitstatus is not available, direct git commands are used:
-- `git symbolic-ref --short HEAD` for branch name
-- `git diff --quiet` for dirty detection
+The branch is read directly from the repository's `HEAD` on every prompt, so a
+checkout shows up immediately. Linked worktrees and submodules (`.git` files)
+are supported; a detached `HEAD` shows the first 8 characters of the commit.
 
 ### Dirty Indicator
+
+The `*` suffix comes from powerlevel10k's gitstatus result for the same
+repository. It is refreshed after the title hook runs, so it can lag by one
+prompt. Without powerlevel10k only the branch is shown.
 
 The `*` suffix appears when any of these conditions are true:
 - Staged changes exist
@@ -132,7 +134,7 @@ Full map is in `fn/-z4m-init-tmux-title` (empty values mean "no icon").
 
 - **Tmux**: Must be running inside tmux
 - **Nerd Font**: For command icons (optional, can be disabled)
-- **gitstatus**: For fast git status (optional, falls back to git)
+- **powerlevel10k**: For the dirty indicator (optional; without it only the branch is shown)
 
 ## Troubleshooting
 
@@ -171,16 +173,6 @@ printf '󱃾\n'  # Should render the kubectl icon
    ```bash
    zstyle -t ':z4m:tmux-title' git-branch && echo "enabled" || echo "disabled"
    ```
-
-### Performance issues
-
-If you notice lag, the git fallback may be slow on large repositories. Install gitstatus for better performance:
-```bash
-# Already included with powerlevel10k
-# Or install standalone:
-git clone https://github.com/romkatv/gitstatus.git ~/.gitstatus
-echo 'source ~/.gitstatus/gitstatus.plugin.zsh' >> ~/.zshrc
-```
 
 ## Integration with Tmux Status Bar
 

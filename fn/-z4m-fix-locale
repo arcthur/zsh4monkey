@@ -1,7 +1,25 @@
 #!/usr/bin/env zsh
 
 # Try in order: C.UTF-8, en_US.UTF-8, the first UTF-8 locale in lexicographical order.
-(( $+commands[locale] )) || return
-local loc=(${(@M)$(locale -a):#*.(utf|UTF)(-|)8})
-(( $#loc )) || return
-export LC_ALL=${loc[(r)(#i)C.UTF(-|)8]:-${loc[(r)(#i)en_US.UTF(-|)8]:-$loc[1]}}
+# The common names are probed in-process; `locale -a` is forked only if none of them exists.
+local -i had_lc_all=${+LC_ALL}
+local orig=${LC_ALL-} loc
+for loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+  export LC_ALL=$loc
+  [[ $langinfo[CODESET] == (utf|UTF)(-|)8 ]] && return
+done
+
+if (( $+commands[locale] )); then
+  local -a locs=(${(@M)$(locale -a):#*.(utf|UTF)(-|)8})
+  if (( $#locs )); then
+    export LC_ALL=$locs[1]
+    return
+  fi
+fi
+
+if (( had_lc_all )); then
+  LC_ALL=$orig
+else
+  unset LC_ALL
+fi
+return 1

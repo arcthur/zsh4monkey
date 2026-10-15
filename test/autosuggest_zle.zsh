@@ -78,6 +78,13 @@ zle -N z4m-autosuggest-ai-trigger
 bindkey '^O' z4m-autosuggest-ai-trigger
 bindkey '^E' end-of-line
 -z4m-autosuggest-init
+# Counts history scans; ^Xs appends the count so far to fake/scans.
+typeset -gi z4m_test_scans=0
+functions[-z4m-test-orig-fetch]=\$functions[_zsh_autosuggest_fetch_suggestion]
+_zsh_autosuggest_fetch_suggestion() { (( ++z4m_test_scans )); -z4m-test-orig-fetch "\$@" }
+dump-scans() { print -r -- \$z4m_test_scans >> $sandbox/fake/scans }
+zle -N dump-scans
+bindkey '^Xs' dump-scans
 print -r -- SETUP-DONE
 EOF
 
@@ -161,6 +168,28 @@ drain 0.25
 print -r -- '!no_suggestion' >| $sandbox/fake/response
 scenario 'stale fallback is dropped' '' 0 'x' 1.2 T42_x
 
+# A result stays usable while the user keeps typing along it.
+print -r -- '+abcdef' >| $sandbox/fake/response
+: >| $sandbox/fake/count
+scenario 'fallback survives typing ahead' 'print -r -- C$((6*7))_' 0.2 'ab' 1.2 C42_abcdef
+(( $(requests) == 1 )) || { print -ru2 -- "typing ahead issued $(requests) requests"; (( ++failures )) }
+
+# Typing does not submit; one request follows once the buffer is stable.
+zpty -w t "zstyle ':z4m:autosuggestions:ai' debounce-ms 300; -z4m-autosuggest-init"
+drain 0.3
+print -r -- '+suggested' >| $sandbox/fake/response
+: >| $sandbox/fake/count
+acc=
+for chunk in 'print -r -- D$((6*7))_' a b c; do
+  zpty -w -n t "$chunk"
+  drain 0.1
+done
+(( $(requests) == 0 )) || { print -ru2 -- "debounce: $(requests) requests while typing"; cat $sandbox/fake/count >&2; (( ++failures )) }
+drain 1.2
+(( $(requests) == 1 )) || { print -ru2 -- "debounce: $(requests) requests after pause"; (( ++failures )) }
+zpty -w -n t $'\x05\r'
+wait_for $'D42_abcsuggested\r' 4 || { print -ru2 -- "debounce: suggestion not shown after pause"; (( ++failures )) }
+
 # history_pwd only indexes lines that actually entered history, so ignored
 # lines never steal the id of the next command run in another directory.
 mkdir -p -- $sandbox/home/{a,b}
@@ -174,6 +203,28 @@ wait_for END42 4 || { print -ru2 -- "history_pwd map dump missing: ${(q+)acc[-60
 [[ $acc == *$'Ea:true pwdA\r'* ]] || { print -ru2 -- 'history_pwd lost command in a'; (( ++failures )) }
 [[ $acc == *$'Eb:true pwdB\r'* ]] || { print -ru2 -- 'history_pwd lost command in b'; (( ++failures )) }
 [[ $acc == *$'Ea:true pwdB\r'* ]] && { print -ru2 -- 'history_pwd associated b command with a'; (( ++failures )) }
+
+# A miss is not rescanned while the buffer stays the same or extends a buffer
+# that matched nothing, but a new history entry invalidates it.
+zpty -w t "zstyle ':z4m:autosuggestions:ai' mode manual; -z4m-autosuggest-init"
+drain 0.3
+: >| $sandbox/fake/scans
+acc=
+zpty -w -n t 'print -r -- Q$((6*7))_'
+drain 0.3
+zpty -w -n t $'\x18s\eOD\eOC\eOD\eOC\x18s'
+drain 0.3
+zpty -w -n t $'x\x18s'
+drain 0.3
+local -a scans=(${(f)"$(<$sandbox/fake/scans)"})
+(( $#scans == 3 )) || { print -ru2 -- "scan counts missing: $scans"; (( ++failures )) }
+(( scans[2] == scans[1] )) || { print -ru2 -- "unchanged buffer rescanned: $scans"; (( ++failures )) }
+(( scans[3] == scans[2] )) || { print -ru2 -- "extension of a miss rescanned: $scans"; (( ++failures )) }
+zpty -w -n t $'\x15'
+drain 0.2
+zpty -w -n t 'print -r -- Q$((6*7))_later'$'\r'
+drain 0.3
+scenario 'miss is forgotten once history changes' 'print -r -- Q$((6*7))_' 0 '' 0.5 Q42_later
 
 zpty -w t 'exit'
 (( failures == 0 ))

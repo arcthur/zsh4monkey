@@ -8,9 +8,10 @@
 #
 # Traversal is bounded: it stays on one filesystem, prunes `find-exclude` names
 # and stops at `max-depth` path components (0 means unlimited). fd is preferred
-# because it honors .gitignore and runs depth by depth, so shallow paths reach
-# fzf first; bfs and find are fallbacks. Setting `find-command` or `find-flags`
-# selects the legacy find-compatible pipeline instead.
+# because it honors .gitignore and lists the first two levels before deeper
+# ones, so shallow paths reach fzf first; bfs and find are fallbacks. Setting
+# `find-command` or `find-flags` selects the legacy find-compatible pipeline
+# instead.
 
 emulate -L zsh -o typeset_silent -o no_aliases -o extended_glob
 
@@ -139,13 +140,14 @@ else
   (( only_dirs )) && cmd+=(--type=directory)
   cmd+=(--exclude=${^exclude} --search-path=./${^dirs})
   # Probe once so that an fd without these flags degrades to find.
-  if [[ -n $fd ]] && "${cmd[@]}" --exact-depth=1 --max-results=1 &>/dev/null; then
+  if [[ -n $fd ]] && "${cmd[@]}" --min-depth=1 --max-depth=1 --max-results=1 &>/dev/null; then
     function -z4m-find-run() {
-      if (( max )); then
-        local -i depth
-        for (( depth = 1; depth <= max; ++depth )); do
-          "${cmd[@]}" --exact-depth=$depth
-        done
+      # Two walks keep shallow paths first without re-walking every level.
+      if (( max > 2 )); then
+        "${cmd[@]}" --max-depth=2
+        "${cmd[@]}" --min-depth=3 --max-depth=$max
+      elif (( max )); then
+        "${cmd[@]}" --max-depth=$max
       else
         "${cmd[@]}"
       fi | command sed 's:^\./::; s:/$::'

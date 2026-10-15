@@ -20,7 +20,7 @@ fi
 
 # Remember the line for the history_pwd strategy. The history id is assigned
 # only once zsh accepts the entry, so the commit is deferred to line-init.
-if (( ${+_z4m_dir_history_ids} )); then
+if [[ " ${_z4m_autosuggest_state[active_strategy]-} " == *' history_pwd '* ]]; then
   if [[ -n $BUFFER ]] && [[ ! -o hist_ignore_space || $PREBUFFER$BUFFER != ' '* ]]; then
     typeset -g _z4m_dir_history_pending_dir=${(%):-%~}
     typeset -g _z4m_dir_history_pending_text=$PREBUFFER$BUFFER

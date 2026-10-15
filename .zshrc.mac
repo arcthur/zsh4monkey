@@ -45,8 +45,9 @@ z4m install eza bat fd rg zoxide || return
 # network I/O must be done above. Everything else is best done below.
 z4m init || return
 
-# Extend PATH.
-path=(~/bin $path)
+# Extend PATH. ~/bin, ~/.local/bin, ~/.cargo/bin, and Homebrew are already
+# included when they exist.
+# path=(~/go/bin $path)
 
 # Export environment variables.
 export GPG_TTY=$TTY

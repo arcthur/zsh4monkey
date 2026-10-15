@@ -43,6 +43,15 @@ if sandbox_pty_expect 30 $ready; then
   sandbox_pty_send 'print -r -- "__RP""S1__=[$RPS1]"'
   sandbox_pty_expect 20 "*${(b):-__RPS1__=[]}*" ||
     sandbox_fail "initialized shell kept the bootstrap fallback prompt: ${(q+)REPLY[-300,-1]}"
+  # The sandbox's zsh on PATH is a symlink to the running binary, as with
+  # Homebrew and Nix; child shells must not be routed through the zb wrapper.
+  sandbox_pty_send 'print -r -- "__Z""B__=[${path[(Ie)$Z4M/zsh4monkey/zb]}|${+_Z4M_EXE}]"'
+  sandbox_pty_expect 20 "*${(b):-__ZB__=[0|0]}*" ||
+    sandbox_fail "symlinked zsh on PATH is routed through the zb wrapper: ${(q+)REPLY[-300,-1]}"
+  # AI suggestions are off by default; their lane is not even loaded then.
+  sandbox_pty_send 'print -r -- "__A""I__=[${+functions[-z4m-autosuggest-ai-ensure]}]"'
+  sandbox_pty_expect 20 "*${(b):-__AI__=[0]}*" ||
+    sandbox_fail "disabled AI lane was loaded at startup: ${(q+)REPLY[-300,-1]}"
 else
   sandbox_fail 'steady-state shell did not reach the prompt for the prompt check'
 fi

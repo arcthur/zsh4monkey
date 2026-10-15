@@ -65,6 +65,9 @@ re-walk history. Event lookups get slower the further back they reach, so
 | `manual_rewrite` | `z4m-autosuggest-ai-trigger` (`Ctrl+O` by default) | Rewrite/extend current buffer | No input prefix required; provider `+` -> overlay, `=` -> replace `BUFFER` |
 | `intent_command` | `z4m ai "<query>"` | Convert natural language intent into one command | Queues interactively; prints non-interactively |
 
+The AI lane is not loaded at all unless `:z4m:autosuggestions:ai enabled` is
+set; `Ctrl+O` and `z4m ai` load it on demand.
+
 ## Key Bindings and Entry Points
 
 | Key / Command | Action |
@@ -82,7 +85,8 @@ re-walk history. Event lookups get slower the further back they reach, so
 ```
 ZLE pre-redraw
   -> local suggestion strategies
-  -> if local miss: AI fallback submit/harvest (async)
+  -> if local miss: AI fallback submit/harvest (async, once the buffer is
+     stable for debounce-ms and the cooldown has passed)
   -> quality gate
   -> update POSTDISPLAY (never execute)
 ```

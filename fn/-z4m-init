@@ -4,7 +4,8 @@ autoload -Uz add-zsh-hook || return
 
 unset _z4m_init_failed_step _z4m_init_failed_rc
 
-if [[ $commands[zsh] != $_z4m_exe ]]; then
+# $_z4m_exe is symlink-resolved; compare like with like so Homebrew/Nix symlinks match.
+if [[ -z $commands[zsh] || ${commands[zsh]:P} != $_z4m_exe ]]; then
   export _Z4M_EXE=$_z4m_exe
   path=($Z4M/zsh4monkey/zb $path)
 fi

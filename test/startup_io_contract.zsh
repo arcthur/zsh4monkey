@@ -121,4 +121,30 @@ call_count() {
   unfunction -- -z4m-compile
 }
 
+# Locale: a non-UTF-8 start switches to a common UTF-8 locale without forking `locale -a`.
+cat >$root/bin/locale <<EOF
+#!/bin/sh
+echo "locale \$*" >>'$calls'
+exec /usr/bin/locale "\$@"
+EOF
+chmod +x $root/bin/locale || exit 1
+hash -r
+zmodload zsh/langinfo || exit 1
+() {
+  local available=$(/usr/bin/locale -a 2>/dev/null)
+  [[ $available == *(#i)(C|en_US).UTF(-|)8* ]] || return 0
+  : >$calls
+  local selected=$(
+    unset LC_ALL LC_CTYPE
+    export LANG=C
+    source fn/-z4m-fix-locale
+    print -r -- $LC_ALL)
+  call_count locale
+  (( REPLY == 0 )) || fail 'locale fix forked locale -a'
+  [[ $selected == (C|en_US).(UTF-8|utf8) ]] || fail "locale fix selected '$selected'"
+  if [[ $available == *(#i)C.UTF(-|)8* && $selected != C.* ]]; then
+    fail "locale fix preferred $selected over C.UTF-8"
+  fi
+}
+
 (( failures == 0 ))
