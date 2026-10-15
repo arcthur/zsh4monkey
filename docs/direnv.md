@@ -199,12 +199,9 @@ export ENV=development
 use asdf
 ```
 
-### mise (rtx)
+### mise
 
-```bash
-# .envrc
-eval "$(mise activate zsh)"
-```
+Activate mise from `~/.zshrc` rather than `.envrc`; see [mise.md](mise.md).
 
 ### Docker
 

@@ -382,6 +382,14 @@ See [history-search.md](history-search.md) for details.
 
 See [direnv.md](direnv.md) for details.
 
+## mise
+
+| Style | Type | Default | Description |
+|-------|------|---------|-------------|
+| `:z4m:mise fast-hook` | bool | `yes` | Run `mise hook-env` only when its inputs change instead of before every prompt |
+
+See [mise.md](mise.md) for details.
+
 ## Shell Integration
 
 | Style | Type | Default | Description |
@@ -420,4 +428,5 @@ See [shell-integration.md](shell-integration.md) for details.
 | [tmux-unified-nav.md](tmux-unified-nav.md) | Tmux navigation |
 | [tmux-context-title.md](tmux-context-title.md) | Tmux window naming |
 | [direnv.md](direnv.md) | Direnv integration |
+| [mise.md](mise.md) | mise activation fast hook |
 | [recovery.md](recovery.md) | Safe mode and recovery |

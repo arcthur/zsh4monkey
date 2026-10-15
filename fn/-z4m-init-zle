@@ -814,6 +814,26 @@ function -z4m-post-init() {
     unset _z4m_direnv_initialized
   fi
 
+  # `mise activate zsh` runs hook-env from precmd before every prompt. Keep
+  # its _mise_hook but call it only when the files and variables it reads
+  # change, plus after any command line that mentions mise (`mise trust` and
+  # `mise settings` write state outside the watched files).
+  if (( ${+functions[_mise_hook]} && ${precmd_functions[(Ie)_mise_hook_precmd]} )) &&
+     zstyle -T :z4m:mise fast-hook; then
+    precmd_functions=(${precmd_functions:#_mise_hook_precmd} -z4m-mise-hook)
+    chpwd_functions=(${chpwd_functions:#_mise_hook_chpwd} -z4m-mise-hook)
+    preexec_functions+=(-z4m-mise-preexec)
+    function -z4m-mise-preexec() {
+      [[ $1 == *mise* ]] && unset _z4m_mise_sig
+      return 0
+    }
+    # Activation just ran hook-env; the first prompt only needs it again when
+    # .zshrc changed PATH afterwards, which is what mise's own hook checks.
+    # mise's precmd still runs for this prompt (hook arrays are iterated as a
+    # copy) and consumes __MISE_ZSH_ACTIVATE_PATH itself.
+    [[ $PATH == "${__MISE_ZSH_ACTIVATE_PATH-}" ]] && -z4m-mise-hook --seed
+  fi
+
   typeset -gi _z4m_compinit_fd
   if sysopen -o cloexec -ru _z4m_compinit_fd /dev/null 2>/dev/null; then
     zle -F $_z4m_compinit_fd -z4m-compinit || true

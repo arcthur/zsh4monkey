@@ -1,0 +1,49 @@
+#!/usr/bin/env zsh
+#
+# Sets REPLY to a fork-free signature of everything `mise hook-env` reads:
+# $PWD, $PATH, MISE_* variables, and the paths and mtimes of the files mise
+# discovers from $PWD up. -z4m-mise-hook runs mise only when it changes.
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+local d=$PWD
+local -a dirs
+while true; do
+  dirs+=($d)
+  [[ $d == / ]] && break
+  d=${d:h}
+done
+local config_dir=${MISE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/mise}
+local data_dir=${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}
+# Config files mise discovers, idiomatic version files, env files that
+# `_.file` commonly names, and install directories so a new tool version is
+# picked up. Over-matching costs a spawn; under-matching leaves stale env.
+# Names are literal so each ancestor costs stats, not a directory listing.
+local -a envs=(${(s:,:)MISE_ENV-})
+local -a names=(
+  {,.}mise{,.local}.toml
+  {,.}mise.${^envs}{,.local}.toml
+  .config/mise{,.local}.toml
+  .tool-versions .env .env.local .nvmrc .sdkmanrc
+  .{node,python,ruby,go,java,bun,deno,terraform}-version
+)
+local -a candidates=($^dirs/$^names)
+local -a files=(
+  ${^candidates}(N)
+  /etc/mise/config.toml(N)
+  $data_dir/installs(N/)
+  $data_dir/installs/*(N/)
+)
+local dir
+for dir in $config_dir $^dirs/{,.}mise(N/) $^dirs/.config/mise(N/); do
+  files+=($dir/config{,.local}.toml(N) $dir/conf.d/*.toml(N))
+done
+local -a stat
+# Nanoseconds: an edit within the second of the last prompt must still count.
+(( $#files )) && { zstat -F %s.%N -A stat +mtime -- $files 2>/dev/null || stat=(stat-error) }
+local name env
+for name in ${(ko)parameters[(I)MISE_*]}; do
+  env+=$name=${(P)name}$'\0'
+done
+REPLY=$PWD$'\0'$PATH$'\0'$env$'\0'${(pj:\0:)files}$'\0'${(pj:\0:)stat}

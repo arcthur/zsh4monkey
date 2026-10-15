@@ -1,0 +1,28 @@
+#!/usr/bin/env zsh
+#
+# Runs mise's own `_mise_hook` only when something hook-env reads may have
+# changed. `mise activate` spawns `mise hook-env` before every prompt; this
+# gate replaces that with a stat of the files mise discovers from $PWD up.
+#
+# Usage: -z4m-mise-hook [--seed]
+#   --seed  record the current signature without running mise, for the prompt
+#           right after `mise activate` already ran hook-env.
+
+emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+
+# `mise deactivate` unsets MISE_SHELL and must not have its env reapplied.
+(( ${+functions[_mise_hook]} )) && [[ -n ${MISE_SHELL-} ]] || return 0
+
+-z4m-mise-signature
+if [[ $1 == --seed ]]; then
+  typeset -g _z4m_mise_sig=$REPLY
+  return 0
+fi
+[[ $REPLY == "${_z4m_mise_sig-}" ]] && return 0
+
+unset _z4m_mise_sig
+_mise_hook || return
+# hook-env rewrote PATH and exports; sign the state it left behind.
+-z4m-mise-signature
+typeset -g _z4m_mise_sig=$REPLY
