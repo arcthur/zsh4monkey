@@ -22,7 +22,10 @@ if (( PENDING || KEYS_QUEUED_COUNT )); then
   if (( autosuggest_library_mode && ! sync_redraw && ! ${+_z4m_redraw_fd} )); then
     typeset -gi _z4m_redraw_fd
     if sysopen -o cloexec -ru _z4m_redraw_fd /dev/null; then
-      zle -F $_z4m_redraw_fd -z4m-redraw-buffer
+      # As a widget (-w) the deferred redraw sees the live BUFFER; a plain
+      # handler would fetch and highlight an unset one.
+      (( ${+widgets[-z4m-redraw-buffer]} )) || zle -N -- -z4m-redraw-buffer
+      zle -F -w $_z4m_redraw_fd -z4m-redraw-buffer
     else
       unset _z4m_redraw_fd
     fi

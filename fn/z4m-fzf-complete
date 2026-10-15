@@ -101,10 +101,11 @@ done
       zparseopts -a mopts f=files /=dirs g+:=pats F:=ignore \
         P: S: q r: R: W:  M+: J+: V+: x+: X+: 1 2 o+: n
       local -i patdirs=${#pats}
-      # Extract glob patterns for file filtering (excluding directory-only patterns)
+      # Extract glob patterns for file filtering (excluding directory-only patterns).
+      # -z4m-find splits and normalizes each -g value.
       local -a file_pats=()
-      local p
-      for p in "${(@)pats:1:2}"; do
+      local o p
+      for o p in "${pats[@]}"; do
         [[ $p != ('*(-/)'|'*(#q-/)') ]] && file_pats+=("$p")
       done
       (( $#file_pats )) && typeset -ga _z4m_file_pats=("${file_pats[@]}")

@@ -16,74 +16,84 @@
 # Note: z4m already defers syntax-highlighting and compinit internally.
 # This is for user plugins that can tolerate delayed loading.
 #
+# Deferred commands run inside a function: options they set persist, but
+# parameters must be declared with `typeset -g` to outlive the call.
+#
 
-emulate -L zsh -o typeset_silent -o extended_glob
+# Frames that run deferred commands must not use `emulate -L` (local_options
+# would revert their setopt); only bookkeeping runs under emulation.
 
-# Initialize queue on first call
-(( ${+_z4m_defer_queue} )) || typeset -ga _z4m_defer_queue=()
-(( ${+_z4m_defer_next_id} )) || typeset -gi _z4m_defer_next_id=0
+() {
+  emulate -L zsh -o typeset_silent
 
-if (( ! ${+functions[_z4m_defer_enqueue]} )); then
-  function _z4m_defer_enqueue() {
-    emulate -L zsh -o typeset_silent
-    (( $# )) || return 1
+  # Initialize queue on first call
+  (( ${+_z4m_defer_queue} )) || typeset -ga _z4m_defer_queue=()
+  (( ${+_z4m_defer_next_id} )) || typeset -gi _z4m_defer_next_id=0
 
-    local -i id=$(( ++_z4m_defer_next_id ))
-    local parameter=_z4m_defer_argv_$id
-    typeset -ga "$parameter"
-    set -A "$parameter" "$@"
-    _z4m_defer_queue+=($id)
-  }
-fi
+  if (( ! ${+functions[_z4m_defer_enqueue]} )); then
+    function _z4m_defer_enqueue() {
+      emulate -L zsh -o typeset_silent
+      (( $# )) || return 1
 
-if (( ! ${+functions[_z4m_defer_run_queue]} )); then
-  function _z4m_defer_run_queue() {
-    emulate -L zsh -o typeset_silent
+      local -i id=$(( ++_z4m_defer_next_id ))
+      local parameter=_z4m_defer_argv_$id
+      typeset -ga "$parameter"
+      set -A "$parameter" "$@"
+      _z4m_defer_queue+=($id)
+    }
+  fi
 
-    local -a pending=("${_z4m_defer_queue[@]}")
-    _z4m_defer_queue=()
+  # Written to work under arbitrary user options; locals are prefixed so that
+  # deferred code cannot collide with them.
+  if (( ! ${+functions[_z4m_defer_run_queue]} )); then
+    function _z4m_defer_run_queue() {
+      local -a _z4m_defer_pending=("${_z4m_defer_queue[@]}")
+      _z4m_defer_queue=()
 
-    local -i id rc overall_rc=0
-    local parameter
-    local -a argv
-    for id in $pending; do
-      parameter=_z4m_defer_argv_$id
-      argv=("${(@P)parameter}")
-      unset "$parameter"
-      (( $#argv )) || continue
+      local -i _z4m_defer_id _z4m_defer_rc _z4m_defer_overall_rc=0
+      local _z4m_defer_parameter
+      local -a _z4m_defer_cmd
+      for _z4m_defer_id in "${_z4m_defer_pending[@]}"; do
+        _z4m_defer_parameter=_z4m_defer_argv_$_z4m_defer_id
+        _z4m_defer_cmd=("${(@P)_z4m_defer_parameter}")
+        unset "$_z4m_defer_parameter"
+        (( ${#_z4m_defer_cmd} )) || continue
 
-      "${argv[@]}" &>/dev/null
-      rc=$?
-      if (( rc )); then
-        overall_rc=$rc
-        print -Pru2 -- "%F{3}z4m%f: deferred command failed (%F{1}$rc%f): %B${argv[1]//\%/%%}%b"
-      fi
-    done
+        _z4m_defer_rc=0
+        "${_z4m_defer_cmd[@]}" &>/dev/null || _z4m_defer_rc=$?
+        if (( _z4m_defer_rc )); then
+          _z4m_defer_overall_rc=$_z4m_defer_rc
+          () {
+            emulate -L zsh
+            print -Pru2 -- "%F{3}z4m%f: deferred command failed (%F{1}$1%f): %B${2//\%/%%}%b"
+          } $_z4m_defer_rc "${_z4m_defer_cmd[@]:0:1}"
+        fi
+      done
 
-    return $overall_rc
-  }
-fi
+      return $_z4m_defer_overall_rc
+    }
+  fi
+
+  # Deferred execution handler
+  if (( ! ${+functions[_z4m_defer_execute]} )); then
+    function _z4m_defer_execute() {
+      # Unregister the fd handler
+      local -i _z4m_defer_handler_fd=$1
+      zle -F $_z4m_defer_handler_fd
+      exec {_z4m_defer_handler_fd}>&-
+      unset _z4m_defer_fd
+
+      # Execute all queued commands
+      _z4m_defer_run_queue || true
+
+      # Redraw prompt (syntax highlighting may have loaded)
+      [[ -o zle ]] && zle && zle reset-prompt 2>/dev/null
+      return 0
+    }
+  fi
+}
 
 (( $# )) || return 0
-
-# Deferred execution handler
-if (( ! ${+functions[_z4m_defer_execute]} )); then
-  function _z4m_defer_execute() {
-    emulate -L zsh -o typeset_silent -o extended_glob
-
-    # Unregister the fd handler
-    local fd=$1
-    zle -F $fd
-    exec {fd}>&-
-    unset _z4m_defer_fd
-
-    # Execute all queued commands
-    _z4m_defer_run_queue || true
-
-    # Redraw prompt (syntax highlighting may have loaded)
-    [[ -o zle ]] && zle && zle reset-prompt 2>/dev/null
-  }
-fi
 
 # Add command to queue
 _z4m_defer_enqueue "$@" || return

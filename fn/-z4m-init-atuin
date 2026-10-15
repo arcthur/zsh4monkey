@@ -62,8 +62,14 @@ if (( ! cache_valid )); then
     zstyle -t :z4m:atuin debug && print -Pru2 -- "%F{3}z4m%f: %Batuin init%b failed"
     return 0
   }
-  print -r -- "$init_output" >$cache_file 2>/dev/null
-  -z4m-compile $cache_file 2>/dev/null
+  # Replace atomically: concurrent shells must never source or compile a partial file.
+  local tmp=$cache_file.tmp.$$
+  if print -r -- "$init_output" >$tmp 2>/dev/null &&
+     zf_rm -f -- $cache_file.zwc && zf_mv -f -- $tmp $cache_file; then
+    -z4m-compile $cache_file 2>/dev/null
+  else
+    zf_rm -f -- $tmp 2>/dev/null
+  fi
 fi
 
 # The init script forks `atuin uuid` on every new shell. Pre-seed the session with the

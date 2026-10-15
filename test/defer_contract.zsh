@@ -43,4 +43,17 @@ if (( $#_z4m_defer_queue )); then
   (( ++failures ))
 fi
 
+# Deferred plugin code configures the interactive shell; its setopt calls must
+# outlive the queue run, like they would when sourced directly. The queue runs
+# from a zle -F handler, where local_options is off.
+(
+  unsetopt local_options auto_cd
+  _z4m_defer_enqueue setopt auto_cd || exit 1
+  _z4m_defer_run_queue
+  [[ -o auto_cd ]]
+) || {
+  print -ru2 -- 'option set by a deferred command did not persist'
+  (( ++failures ))
+}
+
 (( failures == 0 ))

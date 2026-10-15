@@ -883,12 +883,33 @@ function -z4m-autosuggest-core-pre-redraw() {
   fi
 }
 
+# Commits the line stashed by zle-line-finish to the history_pwd index, but
+# only if it actually became the latest history entry (it may have been empty,
+# aborted, or dropped by hist_ignore_dups / zshaddhistory).
+function -z4m-autosuggest-core-commit-dir-history() {
+  local text=${_z4m_dir_history_pending_text-} dir=${_z4m_dir_history_pending_dir-}
+  unset _z4m_dir_history_pending_text _z4m_dir_history_pending_dir
+  [[ -n $text ]] || return 0
+
+  local -i id=$(( HISTCMD - 1 ))
+  (( id > 0 )) && [[ ${history[$id]-} == "$text" ]] || return 0
+
+  local -a ids=(${=_z4m_dir_history_ids[$dir]-})
+  (( ${ids[1]:-0} == id )) && return 0
+  local -i cap=${_z4m_autosuggest_state[history_pwd_capture_cap]:-1024}
+  ids=($id "${ids[@]}")
+  (( $#ids > cap )) && ids=("${(@)ids[1,cap]}")
+  _z4m_dir_history_ids[$dir]="${(j: :)ids}"
+}
+
 function -z4m-autosuggest-core-reset() {
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
   -z4m-autosuggest-core-ensure
   local reason=${1:-reset}
+
+  [[ $reason == init ]] && -z4m-autosuggest-core-commit-dir-history
 
   if (( ${+functions[_zsh_autosuggest_highlight_reset]} )); then
     _zsh_autosuggest_highlight_reset || true

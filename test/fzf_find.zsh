@@ -94,6 +94,12 @@ mkdir -p -- $tree/proj/src/deep/deeper $tree/proj/node_modules/pkg $tree/proj/.h
 : > $tree/proj/node_modules/pkg/index.js
 : > $tree/proj/build/out/artifact
 : > $tree/other/sub/file
+mkdir -p -- $tree/pats/a/b $tree/pats/dir.pdf || exit 1
+: > $tree/pats/doc.PDF
+: > $tree/pats/a/b/notes.pdf
+: > $tree/pats/x.c
+: > $tree/pats/y.h
+: > $tree/pats/m.md
 
 list() {
   local only_dirs=$1 dot_glob=${2:-0}
@@ -133,6 +139,23 @@ check_common() {
   [[ -n ${(M)out:#proj/src*} ]] && fail "$backend: find-exclude must replace the default list"
   (( ${out[(I)proj/node_modules/pkg]} )) || fail "$backend: find-exclude overrides defaults"
   zstyle -d ':z4m:fzf-complete' find-exclude
+
+  # -g values as completion functions pass them to _path_files.
+  assert_eq "$backend: glob flag and qualifier" 'pats/a/b/notes.pdf pats/doc.PDF' \
+    "$(list_pats '*.(#i)pdf(-.)')"
+  assert_eq "$backend: (#q) qualifier" 'pats/a/b/notes.pdf pats/doc.PDF' \
+    "$(list_pats '*.(#i)pdf(#q-.)')"
+  assert_eq "$backend: every -g value" 'pats/x.c pats/y.h' "$(list_pats '*.c' '*.h')"
+  assert_eq "$backend: blank-separated patterns" 'pats/m.md pats/x.c' "$(list_pats ' *.c  *.md ')"
+  assert_eq "$backend: _files brace list" 'pats/x.c pats/y.h' "$(list_pats '{*.c,*.h}(#q-.)')"
+  assert_eq "$backend: alternation is not a qualifier" 'pats/m.md pats/x.c' "$(list_pats '*.(c|md)')"
+  assert_eq "$backend: unqualified pattern keeps directories" 'pats/a/b/notes.pdf pats/dir.pdf' \
+    "$(list_pats '*.pdf')"
+}
+
+list_pats() {
+  local -a _z4m_find_pats=("$@")
+  print -r -- ${(o)${(f)"$(cd -- $tree && WIDGET=z4m-fzf-complete -z4m-find 0 0 pats)"}}
 }
 
 # Breadth-first order: fd runs depth by depth.

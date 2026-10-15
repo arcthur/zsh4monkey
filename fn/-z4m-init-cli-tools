@@ -54,9 +54,16 @@ if zstyle -T :z4m:zoxide enabled && (( $+commands[zoxide] )); then
     local init_output
     init_output=$(zoxide init zsh 2>/dev/null) || init_output=
     if [[ -n $init_output ]]; then
-      print -r -- "$init_output" >$cache_file 2>/dev/null || true
-      -z4m-compile $cache_file 2>/dev/null || true
-      source $cache_file 2>/dev/null || eval "$init_output"
+      # Replace atomically: concurrent shells must never source or compile a partial file.
+      local tmp=$cache_file.tmp.$$
+      if print -r -- "$init_output" >$tmp 2>/dev/null &&
+         zf_rm -f -- $cache_file.zwc && zf_mv -f -- $tmp $cache_file; then
+        -z4m-compile $cache_file 2>/dev/null || true
+        source $cache_file
+      else
+        zf_rm -f -- $tmp 2>/dev/null
+        eval "$init_output"
+      fi
     fi
   fi
 fi

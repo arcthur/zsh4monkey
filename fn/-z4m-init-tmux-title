@@ -23,14 +23,12 @@ fi
 # Require tmux environment
 [[ -n $TMUX ]] || return 0
 
-# Resolve tmux command path
-local tmux_cmd=${_Z4M_TMUX_CMD:-${commands[tmux]:-tmux}}
-
 # =============================================================================
 # Configuration
 # =============================================================================
-local -i max_length
-zstyle -s :z4m:tmux-title max-length max_length || max_length=24
+# Read by hooks after this function returns, so it must be global.
+typeset -gi _z4m_tmux_title_max_length
+zstyle -s :z4m:tmux-title max-length _z4m_tmux_title_max_length || _z4m_tmux_title_max_length=24
 
 # =============================================================================
 # Command Icon Mapping (Nerd Fonts)
@@ -113,9 +111,9 @@ typeset -g _z4m_tmux_title_context=''
 function -z4m-tmux-set-window-name() {
   # Directory names, HEAD contents and command words are untrusted: render
   # control characters visibly so they cannot end the sequence or inject others.
-  local name=${(V)1}
+  local name=${(V)1} max=$_z4m_tmux_title_max_length
   # Truncate if too long
-  (( ${#name} > max_length )) && name="${name:0:$((max_length-1))}…"
+  (( max > 0 && ${#name} > max )) && name="${name:0:$((max-1))}…"
   # Use escape sequence (faster, works in nested sessions)
   printf '\033k%s\033\\' "$name"
 }

@@ -39,11 +39,14 @@ local -a stat files=(${^fpath}/^([^_]*|*~|*.zwc)(-.N))
 (( ! $#files )) || zstat -A stat +mtime -- $files
 local real_sig=($ZSH_VERSION $ZSH_PATCHLEVEL $files $stat)
 real_sig='# '${(V)${(pj:\0:)real_sig}}$'\n'
+# sysread counts bytes; $#real_sig counts characters under multibyte.
+local -i sig_len
+() { setopt local_options no_multibyte; sig_len=$#real_sig }
 
 local sig
 if [[ -r $dump ]] &&
-    sysread -s $#real_sig sig <$dump        &&
-    [[ $sig == $real_sig && -r $dump.zwc ]] &&
+    sysread -s $sig_len sig <$dump            &&
+    [[ $sig == "$real_sig" && -r $dump.zwc ]] &&
     zstat -A stat +mtime -- $dump $dump.zwc &&
     (( stat[2] == stat[1] + 1 )); then
   -z4m-compinit-impl -C -d $dump

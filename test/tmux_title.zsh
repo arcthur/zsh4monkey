@@ -23,7 +23,9 @@ tmpdir=${tmpdir:A}
 trap 'command rm -rf -- "$tmpdir"' EXIT
 
 # Hooks run after the init function has returned, as they do in a real shell.
+export LC_ALL=en_US.UTF-8
 TMUX=/tmp/tmux-test,1,0
+zstyle :z4m:tmux-title max-length 10
 HOME=$tmpdir/home
 command mkdir -p -- $HOME/plain || exit 1
 cd -q -- $HOME/plain || exit 1
@@ -49,11 +51,17 @@ capture_title() {
 # Directory names and command words are untrusted text.
 capture_title -z4m-tmux-title-preexec $'evil\e\\\e]2;pwned\a arg'
 [[ $REPLY != *[[:cntrl:]]* ]] || fail "command word leaks control characters: ${(q+)REPLY}"
-[[ $REPLY == 'evil^[\^[]2;pwned'* ]] || fail "command word is not rendered visibly: ${(q+)REPLY}"
+assert_eq 'command word is rendered visibly' 'evil^[\^[…' "$REPLY"
 
 command mkdir -p -- $HOME/$'x\e\\y' || exit 1
 cd -q -- $HOME/$'x\e\\y' || exit 1
 capture_title -z4m-tmux-title-chpwd
-[[ $REPLY != *[[:cntrl:]]* && $REPLY == 'x^['* ]] || fail "directory name is not rendered visibly: ${(q+)REPLY}"
+assert_eq 'directory name is rendered visibly' 'x^[\y' "$REPLY"
+
+# max-length is read when the hooks run, long after initialization.
+capture_title -z4m-tmux-title-preexec abcdefghij
+assert_eq 'name within max-length' abcdefghij "$REPLY"
+capture_title -z4m-tmux-title-preexec abcdefghijk
+assert_eq 'name over max-length' 'abcdefghi…' "$REPLY"
 
 (( ! failures ))

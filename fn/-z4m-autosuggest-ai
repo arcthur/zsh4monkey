@@ -306,14 +306,9 @@ function -z4m-autosuggest-ai-redraw-ready() {
 
   -z4m-autosuggest-ai-clear-redraw-watch
 
-  # Harvest/apply directly here because zle -F callbacks are not guaranteed
-  # to run with CONTEXT=start, and fetch would no-op in that case.
-  local current_buffer=${BUFFER-}
-  if [[ -z $current_buffer && -v LBUFFER ]]; then
-    current_buffer=${LBUFFER-}${RBUFFER-}
-  fi
-  [[ -n $current_buffer ]] || current_buffer=${_z4m_autosuggest_ai_state[inflight_buffer]-}
-  [[ -n $current_buffer ]] || current_buffer=${_z4m_autosuggest_buffer-}
+  # Runs as a zle -F -w widget, so BUFFER is the live edit line. Harvest and
+  # apply here because fetch no-ops outside CONTEXT=start.
+  local current_buffer=$BUFFER
 
   local harvested=
   if (( ${+functions[-z4m-autosuggest-ai-harvest]} )); then
@@ -366,7 +361,10 @@ function -z4m-autosuggest-ai-notify-redraw-on-complete() {
       done
       print -r -- done
     ); then
-      zle -F "$_z4m_ai_redraw_fd" -z4m-autosuggest-ai-redraw-ready 2>/dev/null || {
+      # A plain handler cannot see BUFFER; only a widget gets the live line.
+      (( ${+widgets[-z4m-autosuggest-ai-redraw-ready]} )) ||
+        zle -N -- -z4m-autosuggest-ai-redraw-ready
+      zle -F -w "$_z4m_ai_redraw_fd" -z4m-autosuggest-ai-redraw-ready 2>/dev/null || {
         -z4m-autosuggest-ai-clear-redraw-watch
       }
       -z4m-autosuggest-ai-log info ai-redraw "watch pid=${request_pid} fd=${_z4m_ai_redraw_fd} timeout_ms=${timeout_ms}"
@@ -1951,8 +1949,7 @@ function -z4m-autosuggest-ai-trigger-manual() {
   return 0
 }
 
-# Called from both pre-redraw (synchronous, BUFFER is live) and
-# redraw-ready (ZLE fd callback where BUFFER may be stale).
+# Called from pre-redraw and from the redraw-ready widget; both see the live BUFFER.
 function -z4m-autosuggest-ai-apply-autosuggest-pending() {
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
@@ -1962,13 +1959,10 @@ function -z4m-autosuggest-ai-apply-autosuggest-pending() {
   local suggestion=${_z4m_autosuggest_ai_state[autosuggest_pending_suggestion]-}
   local expected_buffer=${_z4m_autosuggest_ai_state[autosuggest_pending_buffer]-}
   [[ -n $suggestion ]] || return 1
-  [[ -n $current_buffer ]] || current_buffer=${BUFFER-}
 
   local apply_buffer=
   if [[ -n $current_buffer && $suggestion == "$current_buffer"* ]]; then
     apply_buffer=$current_buffer
-  elif [[ -z $current_buffer && -n $expected_buffer && $suggestion == "$expected_buffer"* ]]; then
-    apply_buffer=$expected_buffer
   elif [[ -n $expected_buffer && $suggestion == "$expected_buffer"* ]]; then
     _z4m_autosuggest_ai_state[last_reject]=stale_buffer
     _z4m_autosuggest_ai_state[last_error]="pending autosuggest dropped: stale buffer inflight_len=${#expected_buffer} current_len=${#current_buffer}"

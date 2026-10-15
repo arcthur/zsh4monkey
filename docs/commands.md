@@ -232,6 +232,8 @@ expanded by the caller before `z4m-defer` can enqueue it.
 - Cannot read stdin
 - Output is suppressed
 - Runs in ZLE context
+- Runs inside a function: `setopt` persists, but parameters must be declared
+  with `typeset -g` to outlive the call
 
 ## Built-in Utilities
 
