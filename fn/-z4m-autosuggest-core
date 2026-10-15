@@ -9,16 +9,19 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 (( ${+_z4m_autosuggest_events} )) || typeset -ga _z4m_autosuggest_events
 (( ${+_z4m_dir_cmd_map} )) || typeset -gA _z4m_dir_cmd_map
 (( ${+_z4m_dir_history_ids} )) || typeset -gA _z4m_dir_history_ids
+(( ${+_z4m_rank_status} )) || typeset -gA _z4m_rank_status
+(( ${+_z4m_rank_dirs} )) || typeset -gA _z4m_rank_dirs
 : ${_z4m_autosuggest_state[state]:=uninitialized}
 : ${_z4m_autosuggest_state[event_capacity]:=200}
 : ${_z4m_autosuggest_state[history_pwd_capture_cap]:=1024}
 : ${_z4m_autosuggest_state[configured_enabled]:=1}
-: ${_z4m_autosuggest_state[configured_strategy]:=history}
+: ${_z4m_autosuggest_state[configured_strategy]:=ranked history}
 : ${_z4m_autosuggest_state[configured_buffer_min_size]:=}
 : ${_z4m_autosuggest_state[configured_match_prev_max_cmds]:=200}
 : ${_z4m_autosuggest_state[configured_match_prev_cmd_count]:=1}
 : ${_z4m_autosuggest_state[configured_case_insensitive]:=0}
 : ${_z4m_autosuggest_state[configured_pwd_scan_limit]:=500}
+: ${_z4m_autosuggest_state[configured_rank_window]:=500}
 : ${_z4m_autosuggest_state[active_strategy]:=history}
 : ${_z4m_autosuggest_state[active_provider]:=none}
 
@@ -27,16 +30,19 @@ function -z4m-autosuggest-core-ensure() {
   (( ${+_z4m_autosuggest_events} )) || typeset -ga _z4m_autosuggest_events
   (( ${+_z4m_dir_cmd_map} )) || typeset -gA _z4m_dir_cmd_map
   (( ${+_z4m_dir_history_ids} )) || typeset -gA _z4m_dir_history_ids
+  (( ${+_z4m_rank_status} )) || typeset -gA _z4m_rank_status
+  (( ${+_z4m_rank_dirs} )) || typeset -gA _z4m_rank_dirs
   : ${_z4m_autosuggest_state[state]:=uninitialized}
   : ${_z4m_autosuggest_state[event_capacity]:=200}
   : ${_z4m_autosuggest_state[history_pwd_capture_cap]:=1024}
   : ${_z4m_autosuggest_state[configured_enabled]:=1}
-  : ${_z4m_autosuggest_state[configured_strategy]:=history}
+  : ${_z4m_autosuggest_state[configured_strategy]:=ranked history}
   : ${_z4m_autosuggest_state[configured_buffer_min_size]:=}
   : ${_z4m_autosuggest_state[configured_match_prev_max_cmds]:=200}
   : ${_z4m_autosuggest_state[configured_match_prev_cmd_count]:=1}
   : ${_z4m_autosuggest_state[configured_case_insensitive]:=0}
   : ${_z4m_autosuggest_state[configured_pwd_scan_limit]:=500}
+  : ${_z4m_autosuggest_state[configured_rank_window]:=500}
   : ${_z4m_autosuggest_state[active_strategy]:=history}
   : ${_z4m_autosuggest_state[active_provider]:=none}
 }
@@ -156,12 +162,12 @@ function -z4m-autosuggest-core-read-config() {
     enabled=0
   fi
 
-  zstyle -s :z4m:autosuggestions strategy strategy || strategy=history
+  zstyle -s :z4m:autosuggestions strategy strategy || strategy='ranked history'
   local -a strategy_list=(${=${strategy:l}})
   local validated=() s
   for s in $strategy_list; do
     case $s in
-      history|match_prev_cmd|history_pwd) validated+=($s) ;;
+      ranked|history|match_prev_cmd|history_pwd) validated+=($s) ;;
       *)
         -z4m-autosuggest-core-warn-once "invalid-strategy:${s}" \
           "%F{3}z4m%f: %F{1}warning%f: invalid autosuggestions strategy %B${s//\%/%%}%b; ignoring"
@@ -202,8 +208,8 @@ function -z4m-autosuggest-core-read-config() {
     fi
   fi
 
-  local ci_raw pwd_scan_raw
-  local -i case_insensitive=0 pwd_scan_limit=500
+  local ci_raw pwd_scan_raw rank_window_raw
+  local -i case_insensitive=0 pwd_scan_limit=500 rank_window=500
   if zstyle -s :z4m:autosuggestions case-insensitive ci_raw; then
     case ${ci_raw:l} in
       1|on|true|yes) case_insensitive=1 ;;
@@ -222,6 +228,16 @@ function -z4m-autosuggest-core-read-config() {
         "%F{3}z4m%f: %F{1}warning%f: invalid pwd-scan-limit %B${pwd_scan_raw//\%/%%}%b; forcing %B500%b"
     fi
   fi
+  if zstyle -s :z4m:autosuggestions rank-window rank_window_raw; then
+    # Lookups by event number walk the history ring, so the scan cost grows
+    # quadratically with the window; 5000 keeps the worst case bounded.
+    if [[ $rank_window_raw == <-> ]] && (( rank_window_raw > 0 && rank_window_raw <= 5000 )); then
+      rank_window=$rank_window_raw
+    else
+      -z4m-autosuggest-core-warn-once "invalid-rank-window:${rank_window_raw}" \
+        "%F{3}z4m%f: %F{1}warning%f: invalid rank-window %B${rank_window_raw//\%/%%}%b (expected 1-5000); forcing %B500%b"
+    fi
+  fi
 
   _z4m_autosuggest_state[configured_enabled]=$(( enabled ? 1 : 0 ))
   _z4m_autosuggest_state[configured_strategy]=$strategy
@@ -230,6 +246,7 @@ function -z4m-autosuggest-core-read-config() {
   _z4m_autosuggest_state[configured_match_prev_cmd_count]=$match_prev_cmd_count
   _z4m_autosuggest_state[configured_case_insensitive]=$case_insensitive
   _z4m_autosuggest_state[configured_pwd_scan_limit]=$pwd_scan_limit
+  _z4m_autosuggest_state[configured_rank_window]=$rank_window
 
   -z4m-autosuggest-core-load-ai && -z4m-autosuggest-ai-read-config || true
 
@@ -277,7 +294,7 @@ function -z4m-autosuggest-core-configure-widgets() {
 
   typeset -g ZSH_AUTOSUGGEST_MANUAL_REBIND=1
 
-  typeset -ga ZSH_AUTOSUGGEST_STRATEGY=(${=_z4m_autosuggest_state[configured_strategy]:-history})
+  typeset -ga ZSH_AUTOSUGGEST_STRATEGY=(${=_z4m_autosuggest_state[configured_strategy]:-ranked history})
   if [[ -n ${_z4m_autosuggest_state[configured_buffer_min_size]-} ]]; then
     typeset -g ZSH_AUTOSUGGEST_BUFFER_MIN_SIZE="${_z4m_autosuggest_state[configured_buffer_min_size]}"
   else
@@ -488,6 +505,56 @@ function -z4m-autosuggest-core-install-overrides() {
   typeset -gi _z4m_autosuggest_overrides_installed=1
 }
 
+# The ranked strategy learns where each command ran and how it exited. Both
+# maps are keyed by command text, not event number: ignored lines reuse their
+# number and SHARE_HISTORY interleaves other sessions' events, so the number
+# seen at preexec need not name the saved entry.
+function -z4m-autosuggest-rank-preexec() {
+  typeset -g _z4m_rank_pending=$1 _z4m_rank_pending_dir=$PWD
+}
+
+function -z4m-autosuggest-rank-precmd() {
+  local -i ret=$?
+  [[ -v _z4m_rank_pending ]] || return 0
+  _z4m_rank_status[$_z4m_rank_pending]=$ret
+  _z4m_rank_dirs[$_z4m_rank_pending_dir$'\x1f'$_z4m_rank_pending]=1
+  typeset -g _z4m_rank_last_cmd=$_z4m_rank_pending
+  unset _z4m_rank_pending _z4m_rank_pending_dir
+}
+
+# Snapshots the most recent history window for the ranked strategy: the lines
+# newest first (holes from expired duplicates kept as empty elements so
+# adjacency stays meaningful), the distinct commands in that order, and which
+# commands directly followed the previous command. Fetching an event by number
+# walks the history ring, so this runs once per prompt rather than per
+# keystroke; history does not change while a line is edited.
+function -z4m-autosuggest-rank-snapshot() {
+  local -i window=${_z4m_autosuggest_state[configured_rank_window]:-500}
+  local key=$HISTCMD:$window:${_z4m_rank_last_cmd-}
+  [[ ${_z4m_rank_snapshot_key-} == "$key" ]] && return
+
+  local -a lines
+  local -i i n m budget=$(( 4 * window ))
+  # Event $HISTCMD is the line being edited, which history iteration skips too.
+  for (( i = HISTCMD - 1; i > 0 && n < window && budget-- > 0; --i )); do
+    lines[++m]=${history[$i]-}
+    [[ -n ${lines[m]} ]] && (( ++n ))
+  done
+  typeset -ga _z4m_rank_lines=("${lines[@]}")
+  typeset -ga _z4m_rank_texts=("${(@u)lines:#}")
+  # Counts are filled lazily per candidate and reset with the snapshot.
+  typeset -gA _z4m_rank_count=() _z4m_rank_follows=()
+
+  local last=${_z4m_rank_last_cmd-}
+  if [[ -n $last ]]; then
+    # Newest first: lines[i-1] ran right after lines[i].
+    for (( i = 2; i <= m; ++i )); do
+      [[ ${lines[i]} == "$last" && -n ${lines[i-1]} ]] && _z4m_rank_follows[${lines[i-1]}]=1
+    done
+  fi
+  typeset -g _z4m_rank_snapshot_key=$key
+}
+
 function -z4m-autosuggest-core-init() {
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
@@ -499,6 +566,7 @@ function -z4m-autosuggest-core-init() {
 
   local enabled strategy buffer_min_size match_prev_max_cmds match_prev_cmd_count case_insensitive pwd_scan_limit
   IFS=$'\x1f' read -r enabled strategy buffer_min_size match_prev_max_cmds match_prev_cmd_count case_insensitive pwd_scan_limit <<< "$config"
+  local -a strategy_list=(${=strategy})
   _z4m_autosuggest_state[state]=initializing
   _z4m_autosuggest_state[last_error]=
   -z4m-autosuggest-core-log info init "enabled=${enabled} strategy=${strategy} buffer_min=${buffer_min_size:-none} match_prev_max=${match_prev_max_cmds} match_prev_count=${match_prev_cmd_count} ci=${case_insensitive} pwd_scan=${pwd_scan_limit}"
@@ -582,6 +650,72 @@ function -z4m-autosuggest-core-init() {
       return
     done
   }
+
+  # Rank prefix matches within the most recent history window instead of
+  # taking the first hit. Signals: recency of the latest occurrence, frequency
+  # in the window, whether an occurrence directly followed the previous command,
+  # whether it ran in $PWD this session, and whether its last run failed.
+  # Ties go to the most recent candidate. An empty result falls through to the
+  # next strategy, so `ranked history` still covers matches outside the window.
+  _zsh_autosuggest_strategy_ranked() {
+    emulate -L zsh
+    setopt EXTENDED_GLOB
+    -z4m-autosuggest-rank-snapshot
+    local prefix="${1//(#m)[\\*?[\]<>()|^~#]/\\$MATCH}"
+    local pattern="${prefix}*"
+    local -i ci=${+Z4M_ZAS_CASE_INSENSITIVE}
+    (( ci )) && pattern="(#i)${pattern}"
+    [[ -n ${ZSH_AUTOSUGGEST_HISTORY_IGNORE-} ]] && pattern="(${pattern})~(${ZSH_AUTOSUGGEST_HISTORY_IGNORE})"
+
+    # One filter pass in C over distinct commands, newest first. Scoring is the
+    # expensive part, so only the 64 most recent matches compete.
+    local -a cands=("${(@M)_z4m_rank_texts:#${~pattern}}")
+    (( $#cands )) || return
+    (( $#cands > 64 )) && cands=("${(@)cands[1,64]}")
+
+    local dir_key=$PWD$'\x1f' line best_line
+    local -F score best
+    local -i count last_status found=0
+    for line in "${cands[@]}"; do
+      if (( ci )); then
+        [[ ${line:l} == "${1:l}" ]] && continue
+      else
+        [[ $line == "$1" ]] && continue
+      fi
+      count=${_z4m_rank_count[$line]:-0}
+      if (( ! count )); then
+        count=${#${(M)_z4m_rank_lines:#${(b)line}}}
+        _z4m_rank_count[$line]=$count
+      fi
+      (( score = 4.0 * 0.5 ** ((${_z4m_rank_lines[(ie)$line]} - 1) / 100.0) + 3.0 * count / (count + 2.0) ))
+      (( ${+_z4m_rank_follows[$line]} )) && (( score += 2.0 ))
+      (( ${+_z4m_rank_dirs[$dir_key$line]} )) && (( score += 2.0 ))
+      # Signal exits (>128) such as Ctrl-C on a long-running command are not failures.
+      last_status=${_z4m_rank_status[$line]:-0}
+      (( last_status > 0 && last_status <= 128 )) && (( score -= 3.0 ))
+      if (( ! found || score > best )); then
+        best=score
+        best_line=$line
+        found=1
+      fi
+    done
+    (( found )) || return
+
+    typeset -g suggestion="$best_line"
+    if (( ci )) && [[ $suggestion != "$1"* ]]; then
+      typeset -g _z4m_autosuggest_ci_original="$suggestion"
+      suggestion="${1}${suggestion:${#1}}"
+    fi
+  }
+
+  (( ${+functions[add-zsh-hook]} )) || autoload -Uz add-zsh-hook
+  if (( ${strategy_list[(Ie)ranked]} )); then
+    add-zsh-hook preexec -z4m-autosuggest-rank-preexec
+    add-zsh-hook precmd -z4m-autosuggest-rank-precmd
+  else
+    add-zsh-hook -d preexec -z4m-autosuggest-rank-preexec
+    add-zsh-hook -d precmd -z4m-autosuggest-rank-precmd
+  fi
 
   -z4m-autosuggest-core-configure-widgets
 
@@ -797,12 +931,13 @@ function -z4m-autosuggest-core-status() {
   [[ ${_z4m_autosuggest_state[state]-uninitialized} == ready ]] && runtime_enabled=1
 
   print -r -- "configured_enabled=${_z4m_autosuggest_state[configured_enabled]-1}"
-  print -r -- "configured_strategy=${_z4m_autosuggest_state[configured_strategy]-history}"
+  print -r -- "configured_strategy=${_z4m_autosuggest_state[configured_strategy]-ranked history}"
   print -r -- "configured_buffer_min_size=${_z4m_autosuggest_state[configured_buffer_min_size]-}"
   print -r -- "configured_match_prev_max_cmds=${_z4m_autosuggest_state[configured_match_prev_max_cmds]-200}"
   print -r -- "configured_match_prev_cmd_count=${_z4m_autosuggest_state[configured_match_prev_cmd_count]-1}"
   print -r -- "configured_case_insensitive=${_z4m_autosuggest_state[configured_case_insensitive]-0}"
   print -r -- "configured_pwd_scan_limit=${_z4m_autosuggest_state[configured_pwd_scan_limit]-500}"
+  print -r -- "configured_rank_window=${_z4m_autosuggest_state[configured_rank_window]-500}"
   print -r -- "highlight_style=${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE-}"
   print -r -- "active_strategy=${_z4m_autosuggest_state[active_strategy]-none}"
   print -r -- "active_provider=${_z4m_autosuggest_state[active_provider]-none}"

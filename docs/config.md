@@ -58,12 +58,13 @@ See [keybindings.md](keybindings.md) for key binding reference.
 | Style | Type | Default | Description |
 |-------|------|---------|-------------|
 | `:z4m:autosuggestions enabled` | bool | `yes` | Enable built-in autosuggestions |
-| `:z4m:autosuggestions strategy` | string | `history` | Suggestion strategy list: `history`, `history_pwd`, `match_prev_cmd` |
+| `:z4m:autosuggestions strategy` | string | `ranked history` | Suggestion strategy list, tried in order: `ranked`, `history`, `history_pwd`, `match_prev_cmd` |
 | `:z4m:autosuggestions buffer-min-size` | int | unset | Skip suggestions when `BUFFER` length is below this threshold |
 | `:z4m:autosuggestions match-prev-max-cmds` | int | `200` | Max matching history commands to inspect for `match_prev_cmd` (`-1` means all) |
 | `:z4m:autosuggestions match-prev-cmd-count` | int | `1` | Number of preceding commands that must match for `match_prev_cmd` |
 | `:z4m:autosuggestions case-insensitive` | bool | `no` | Case-insensitive matching for local history strategies |
 | `:z4m:autosuggestions pwd-scan-limit` | int | `500` | Max history entries scanned for `history_pwd` strategy |
+| `:z4m:autosuggestions rank-window` | int | `500` | Recent history entries scored by the `ranked` strategy (1-5000) |
 | `:z4m:autosuggestions forward-char` | string | `accept` | Cursor right behavior: `accept` or `partial-accept` |
 | `:z4m:autosuggestions end-of-line` | string | `accept` | End-of-line behavior: `accept` or `partial-accept` |
 | `:z4m:autosuggestions:ai enabled` | bool | `no` | Enable AI sidecar suggestions |

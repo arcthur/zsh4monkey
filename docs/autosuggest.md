@@ -11,7 +11,7 @@ z4m autosuggestions are built into the core runtime and designed for three goals
 The subsystem combines local history-based suggestions with optional AI lanes:
 
 ```
-Local strategies (history/history_pwd/match_prev_cmd)
+Local strategies (ranked/history/history_pwd/match_prev_cmd)
   -> optional passive/auto AI fallback lane when local lanes miss
 
 Manual AI rewrite lane (Ctrl+O by default)
@@ -24,9 +24,38 @@ Intent command lane (z4m ai "...")
 
 | Lane | Purpose | Blocking behavior |
 |------|---------|-------------------|
+| `ranked` | Score prefix matches in the recent history window (default, first) | Non-blocking |
 | `history` | Basic prefix completion from shell history | Non-blocking |
 | `history_pwd` | Prefer commands used in current directory | Non-blocking |
 | `match_prev_cmd` | Contextual completion based on preceding command pattern | Non-blocking |
+
+Strategies run in order and the first non-empty suggestion wins. The default
+is `ranked history`: `ranked` scores matches among the most recent
+`rank-window` commands, and `history` covers anything older.
+
+### Ranked Strategy
+
+`ranked` takes the newest occurrence of each distinct command in the window
+that starts with the buffer, keeps the 64 most recent, and suggests the one
+with the highest score:
+
+| Signal | Weight | Scope |
+|--------|--------|-------|
+| Recency of the latest occurrence | `4 × 0.5^((position − 1) / 100)` | History window |
+| Frequency in the window | `3 × count / (count + 2)` | History window |
+| Ran right after the previous command | `+2` | History window |
+| Ran in the current directory | `+2` | This session |
+| Last run exited with status 1-128 | `−3` | This session |
+
+Ties go to the most recent command. Signal exits above 128, such as Ctrl-C on a
+long-running command, are not failures. A failing command is demoted, never
+hidden, so it is still suggested when nothing else matches.
+
+Directory and exit status come from `preexec`/`precmd` hooks that `ranked`
+installs, keyed by command text and kept in memory only. The window snapshot
+is taken once per prompt, on the first suggestion fetch, so typing does not
+re-walk history. Event lookups get slower the further back they reach, so
+`rank-window` is capped at 5000.
 
 ### AI Lanes (Optional)
 
@@ -129,7 +158,8 @@ For the full table, see `config.md`. Most users only need to set AI enable + API
 
 ```zsh
 zstyle ':z4m:autosuggestions' enabled yes
-zstyle ':z4m:autosuggestions' strategy 'history_pwd history'
+zstyle ':z4m:autosuggestions' strategy 'ranked history'
+zstyle ':z4m:autosuggestions' rank-window 500
 ```
 
 ### AI Lanes

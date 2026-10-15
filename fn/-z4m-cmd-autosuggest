@@ -80,12 +80,13 @@ function -z4m-cmd-autosuggest-status() {
   -z4m-cmd-autosuggest-load-status-map
 
   local configured_enabled=${_z4m_autosuggest_cmd_status[configured_enabled]-1}
-  local configured_strategy=${_z4m_autosuggest_cmd_status[configured_strategy]-history}
+  local configured_strategy=${_z4m_autosuggest_cmd_status[configured_strategy]-ranked history}
   local configured_buffer_min_size=${_z4m_autosuggest_cmd_status[configured_buffer_min_size]-}
   local configured_match_prev_max_cmds=${_z4m_autosuggest_cmd_status[configured_match_prev_max_cmds]-200}
   local configured_match_prev_cmd_count=${_z4m_autosuggest_cmd_status[configured_match_prev_cmd_count]-1}
   local configured_case_insensitive=${_z4m_autosuggest_cmd_status[configured_case_insensitive]-0}
   local configured_pwd_scan_limit=${_z4m_autosuggest_cmd_status[configured_pwd_scan_limit]-500}
+  local configured_rank_window=${_z4m_autosuggest_cmd_status[configured_rank_window]-500}
   local highlight_style=${_z4m_autosuggest_cmd_status[highlight_style]-}
   local active_strategy=${_z4m_autosuggest_cmd_status[active_strategy]-none}
   local active_provider=${_z4m_autosuggest_cmd_status[active_provider]-none}
@@ -168,6 +169,7 @@ function -z4m-cmd-autosuggest-status() {
     (( configured_case_insensitive )) && ci_json=true
     print -rn -- "\"configured_case_insensitive\":$ci_json,"
     print -rn -- "\"configured_pwd_scan_limit\":$configured_pwd_scan_limit,"
+    print -rn -- "\"configured_rank_window\":$configured_rank_window,"
     print -rn -- "\"active_strategy\":\"$(-z4m-cmd-autosuggest-json-escape "$active_strategy")\","
     print -rn -- "\"active_provider\":\"$(-z4m-cmd-autosuggest-json-escape "$active_provider")\","
     print -rn -- "\"state\":\"$(-z4m-cmd-autosuggest-json-escape "$state")\","
@@ -304,6 +306,7 @@ function -z4m-cmd-autosuggest-status() {
   print -Pr -- "  match prev cmd cnt:  ${configured_match_prev_cmd_count}"
   print -Pr -- "  case insensitive:   ${configured_case_insensitive}"
   print -Pr -- "  pwd scan limit:     ${configured_pwd_scan_limit}"
+  print -Pr -- "  rank window:        ${configured_rank_window}"
   [[ -z $highlight_style ]] || print -Pr -- "  highlight style:    ${highlight_style}"
   print -Pr -- "  active strategy:    ${active_strategy}"
   print -Pr -- "  active provider:    ${active_provider}"
@@ -373,7 +376,7 @@ function -z4m-cmd-autosuggest-doctor() {
   -z4m-cmd-autosuggest-load-status-map
 
   local state=${_z4m_autosuggest_cmd_status[state]-uninitialized}
-  local configured_strategy=${_z4m_autosuggest_cmd_status[configured_strategy]-history}
+  local configured_strategy=${_z4m_autosuggest_cmd_status[configured_strategy]-ranked history}
   local configured_enabled=${_z4m_autosuggest_cmd_status[configured_enabled]-1}
   local configured_buffer_min_size=${_z4m_autosuggest_cmd_status[configured_buffer_min_size]-}
   local configured_match_prev_max_cmds=${_z4m_autosuggest_cmd_status[configured_match_prev_max_cmds]-200}
@@ -421,7 +424,7 @@ function -z4m-cmd-autosuggest-doctor() {
   local sw
   for sw in $strategy_words; do
     case $sw in
-      history|match_prev_cmd|history_pwd) ;;
+      ranked|history|match_prev_cmd|history_pwd) ;;
       *) strategy_valid=0; break ;;
     esac
   done
