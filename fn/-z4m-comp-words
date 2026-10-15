@@ -22,6 +22,20 @@
     fi
   done
 
+  # fzf records are "key\0descr" as in -z4m-comp-files: {1} is the word's
+  # key for previews, {2} the displayed text. Words are unique per record,
+  # so the key maps a selection back to its index.
+  autoload +X -Uz -- -z4m-fzf-keys
+  local -a reply
+  -z4m-fzf-keys "${_z4m_words[@]}"
+  local -a keys=("${reply[@]}")
+  local -A idx_of
+  for idx in $indices; do
+    # Unencodable word: an opaque key that previews and decoding reject.
+    [[ -n $keys[idx] ]] || keys[idx]=x$idx
+    idx_of[$keys[idx]]=$idx
+  done
+
   -z4m-set-list-colors "$_z4m_curcontext" "$list_types"
   local -i list_colors=$((!$?))
 
@@ -38,15 +52,13 @@
   zstyle -s :z4m:${WIDGET#z4m-} accept-line accept_line_trigger
 
   # Preview support
-  local preview_cmd word_file
+  local preview_cmd
   if zstyle -s :z4m:${WIDGET#z4m-} fzf-preview preview_cmd; then
     # User-defined preview; if 'no' or 'false', disable preview
     [[ $preview_cmd == (no|false|off|0) ]] && preview_cmd=
   elif zstyle -T :z4m:${WIDGET#z4m-} fzf-preview; then
-    word_file=${TMPPREFIX:-/tmp/zsh}-z4m-words-$$
-    print -l -- "${_z4m_words[@]}" > $word_file
-    # Use awk to get word by line number, then call z4m-preview
-    preview_cmd="${Z4M}/zsh4monkey/fn/z4m-preview ${(q)_z4m_curcontext} \$(awk 'NR=={1}' ${(q)word_file})"
+    local preview_script="${Z4M}/zsh4monkey/fn/z4m-preview-key"
+    preview_cmd="zsh ${(q)preview_script} ${(q)_z4m_curcontext} {1}"
   fi
 
   # Preview window style: left border only, auto-hide when empty
@@ -136,7 +148,7 @@
               if [[ -n ${idx_to_style[$idx]:-} ]]; then
                 descr=$'\e['${idx_to_style[$idx]}'m'$descr$'\e[0m'
               fi
-              printf '%s\0%s\n' $idx "$descr"
+              printf '%s\0%s\n' "$keys[idx]" "$descr"
             done
           else
             for idx in $indices; do
@@ -151,18 +163,18 @@
                   fi
                 fi
               fi
-              printf '%s\0%s\n' $idx "$descr"
+              printf '%s\0%s\n' "$keys[idx]" "$descr"
             done
           fi
         elif (( sort )); then
           local rows=()
           for idx in $indices; do
-            rows+=($_z4m_descrs[idx]$'\0'$idx)
+            rows+=($_z4m_descrs[idx]$'\0'$keys[idx])
           done
           printf '%2$s\0%1$s\n' "${(@0)${(@o)rows}}"
         else
           for idx in $indices; do
-            printf '%s\0%s\n' $idx "$_z4m_descrs[idx]"
+            printf '%s\0%s\n' "$keys[idx]" "$_z4m_descrs[idx]"
           done
         fi
       } | {
@@ -173,7 +185,6 @@
     )"
   } always {
     -z4m-cursor-hide
-    [[ -n $word_file ]] && command rm -f $word_file 2>/dev/null
     if (( _z4m_can_save_restore_screen )); then
       -z4m-restore-screen
       print -rn -- $'\e[0m\e['$cursor_y';'$cursor_x'H'
@@ -185,7 +196,13 @@
 
   [[ -n $choice ]] || return
   choice=("${(@f)choice}")
-  typeset -g _z4m_reply=(0 ${${choice:1}%$'\0'*})
+  local sel
+  local -a picked=()
+  for sel in "${(@)choice:1}"; do
+    idx=${idx_of[${sel%%$'\0'*}]-}
+    [[ -n $idx ]] && picked+=($idx)
+  done
+  typeset -g _z4m_reply=(0 $picked)
 
   # Check if accept-line trigger was pressed
   if [[ $choice[1] == $accept_line_trigger && -n $accept_line_trigger ]]; then

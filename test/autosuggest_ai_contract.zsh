@@ -182,6 +182,31 @@ if [[ -n $real_perl ]]; then
   assert_eq 1 "$perl_count" 'fallback payload redaction perl calls'
 fi
 
+# Request files hold the API key. When mktemp fails there must be no fallback
+# to a guessable directory that another local user could have pre-created.
+(
+  sandbox=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-ai-submit.XXXXXXXXXX") || exit 1
+  trap 'command rm -rf -- "$sandbox"' EXIT
+  command mkdir -p -- $sandbox/bin $sandbox/tmp || exit 1
+  print -r -- '#!/bin/sh
+exit 1' >| $sandbox/bin/mktemp
+  print -r -- "#!/bin/sh
+: >'$sandbox/curl-ran'" >| $sandbox/bin/curl
+  command chmod +x -- $sandbox/bin/mktemp $sandbox/bin/curl || exit 1
+  PATH=$sandbox/bin:$PATH TMPDIR=$sandbox/tmp Z4M_TEST_AI_KEY=submit-secret-value
+  hash -r
+  zstyle ':z4m:autosuggestions:ai' api-key-env Z4M_TEST_AI_KEY
+  -z4m-autosuggest-ai-read-config
+  _z4m_autosuggest_ai_state[inflight]=0
+  if -z4m-autosuggest-ai-submit 'print ok' default manual_rewrite '' 2>/dev/null; then
+    print -ru2 -- 'submit succeeded without a private request directory'
+    exit 1
+  fi
+  local -a created=($sandbox/tmp/*(DN))
+  (( ! $#created )) || { print -ru2 -- "submit created ${(j: :)created}"; exit 1 }
+  [[ ! -e $sandbox/curl-ran ]] || { print -ru2 -- 'submit ran curl'; exit 1 }
+) || ((failures++))
+
 assert_ok 'no-suggestion protocol is valid' -z4m-autosuggest-ai-parse-protocol '!no_suggestion' 'git '
 assert_eq none "$reply[1]" 'no-suggestion kind'
 assert_eq '' "$reply[2]" 'no-suggestion payload'

@@ -111,7 +111,9 @@ typeset -g _z4m_tmux_title_context=''
 # Core: Set tmux window name
 # =============================================================================
 function -z4m-tmux-set-window-name() {
-  local name=$1
+  # Directory names, HEAD contents and command words are untrusted: render
+  # control characters visibly so they cannot end the sequence or inject others.
+  local name=${(V)1}
   # Truncate if too long
   (( ${#name} > max_length )) && name="${name:0:$((max_length-1))}…"
   # Use escape sequence (faster, works in nested sessions)

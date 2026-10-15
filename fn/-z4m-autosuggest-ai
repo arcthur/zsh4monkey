@@ -1392,14 +1392,15 @@ function -z4m-autosuggest-ai-submit() {
 
   local timeout_s
   timeout_s=$(printf '%d.%03d' $(( timeout_ms / 1000 )) $(( timeout_ms % 1000 )))
+  # The request files hold the API key. A guessable fallback path could be
+  # pre-created by another local user, so skip the request instead.
   local tmp_dir=
-  if tmp_dir=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-autosuggest-ai.XXXXXXXX" 2>/dev/null); then
-    command chmod 700 "$tmp_dir" 2>/dev/null || true
-  else
-    tmp_dir=${TMPDIR:-/tmp}/z4m-autosuggest-ai-${EPOCHSECONDS:-0}-${RANDOM}-${$}
-    command mkdir -p -- "$tmp_dir" 2>/dev/null || return 1
-    command chmod 700 "$tmp_dir" 2>/dev/null || true
+  if ! tmp_dir=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-autosuggest-ai.XXXXXXXX" 2>/dev/null); then
+    _z4m_autosuggest_ai_state[last_reject]=tmp_dir_failed
+    _z4m_autosuggest_ai_state[last_error]='cannot create a private request directory'
+    return 1
   fi
+  command chmod 700 "$tmp_dir" 2>/dev/null || true
   local body_file=${tmp_dir}/body
   local code_file=${tmp_dir}/code
   local rc_file=${tmp_dir}/rc
