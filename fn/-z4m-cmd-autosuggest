@@ -109,7 +109,7 @@ function -z4m-cmd-autosuggest-status() {
   local ai_debounce_ms=${_z4m_autosuggest_cmd_status[ai_debounce_ms]-160}
   local ai_cooldown_ms=${_z4m_autosuggest_cmd_status[ai_cooldown_ms]-800}
   local ai_min_input=${_z4m_autosuggest_cmd_status[ai_min_input]-2}
-  local ai_max_input_tokens=${_z4m_autosuggest_cmd_status[ai_max_input_tokens]-384}
+  local ai_max_input_tokens=${_z4m_autosuggest_cmd_status[ai_max_input_tokens]-1024}
   local ai_max_output_tokens=${_z4m_autosuggest_cmd_status[ai_max_output_tokens]-96}
   local ai_history_lines=${_z4m_autosuggest_cmd_status[ai_history_lines]-0}
   local ai_rewrite_enabled=${_z4m_autosuggest_cmd_status[ai_rewrite_enabled]-1}
@@ -401,7 +401,7 @@ function -z4m-cmd-autosuggest-doctor() {
   local ai_proxy_effective_enabled=${_z4m_autosuggest_cmd_status[ai_proxy_effective_enabled]-0}
   local ai_proxy_tmux_available=${_z4m_autosuggest_cmd_status[ai_proxy_tmux_available]-0}
   local ai_timeout_ms=${_z4m_autosuggest_cmd_status[ai_timeout_ms]-3000}
-  local ai_max_input_tokens=${_z4m_autosuggest_cmd_status[ai_max_input_tokens]-384}
+  local ai_max_input_tokens=${_z4m_autosuggest_cmd_status[ai_max_input_tokens]-1024}
   local ai_max_output_tokens=${_z4m_autosuggest_cmd_status[ai_max_output_tokens]-96}
   local ai_budget_per_minute=${_z4m_autosuggest_cmd_status[ai_budget_per_minute]-12000}
   local ai_budget_per_day=${_z4m_autosuggest_cmd_status[ai_budget_per_day]-300000}

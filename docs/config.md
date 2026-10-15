@@ -76,7 +76,7 @@ See [keybindings.md](keybindings.md) for key binding reference.
 | `:z4m:autosuggestions:ai debounce-ms` | int | `160` | Buffer-stable debounce window |
 | `:z4m:autosuggestions:ai cooldown-ms` | int | `800` | Minimum time between AI requests |
 | `:z4m:autosuggestions:ai min-input` | int | `2` | Minimum buffer length before querying AI fallback; empty buffers are not sent |
-| `:z4m:autosuggestions:ai max-input-tokens` | int | `384` | Approximate input token cap per request |
+| `:z4m:autosuggestions:ai max-input-tokens` | int | `1024` | Approximate token cap for the whole request payload; optional context is dropped or trimmed to fit |
 | `:z4m:autosuggestions:ai max-output-tokens` | int | `96` | Max completion tokens requested from model |
 | `:z4m:autosuggestions:ai history-lines` | int | `0` | Number of recent history lines sent as context for manual/intent lanes |
 | `:z4m:autosuggestions:ai token-budget-per-minute` | int | `12000` | Approximate per-minute token budget |
@@ -113,7 +113,7 @@ zstyle ':z4m:autosuggestions:ai' enabled yes
 export DEEPSEEK_API_KEY='your-token'
 zstyle ':z4m:autosuggestions:ai' mode manual
 zstyle ':z4m:autosuggestions:ai' model deepseek-chat
-zstyle ':z4m:autosuggestions:ai' max-input-tokens 384
+zstyle ':z4m:autosuggestions:ai' max-input-tokens 1024
 zstyle ':z4m:autosuggestions:ai' max-output-tokens 96
 zstyle ':z4m:autosuggestions:ai' token-budget-per-minute 12000
 zstyle ':z4m:autosuggestions:ai' token-budget-per-day 300000

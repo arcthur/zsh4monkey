@@ -22,7 +22,7 @@ function -z4m-autosuggest-ai-ensure() {
   : ${_z4m_autosuggest_ai_state[configured_debounce_ms]:=160}
   : ${_z4m_autosuggest_ai_state[configured_cooldown_ms]:=800}
   : ${_z4m_autosuggest_ai_state[configured_min_input]:=2}
-  : ${_z4m_autosuggest_ai_state[configured_max_input_tokens]:=384}
+  : ${_z4m_autosuggest_ai_state[configured_max_input_tokens]:=1024}
   : ${_z4m_autosuggest_ai_state[configured_max_output_tokens]:=96}
   : ${_z4m_autosuggest_ai_state[configured_history_lines]:=0}
   : ${_z4m_autosuggest_ai_state[configured_budget_per_minute]:=12000}
@@ -144,39 +144,31 @@ function -z4m-autosuggest-ai-context-policy() {
 }
 
 function -z4m-autosuggest-ai-json-escape() {
-  local value=$1
-  value=${value//\\/\\\\}
-  value=${value//\"/\\\"}
-  value=${value//$'\n'/\\n}
-  value=${value//$'\r'/\\r}
-  value=${value//$'\t'/\\t}
-  value=${value//$'\b'/\\b}
-  value=${value//$'\f'/\\f}
-  value=${value//[[:cntrl:]]/}
-  print -rn -- "$value"
+  REPLY=$1
+  REPLY=${REPLY//\\/\\\\}
+  REPLY=${REPLY//\"/\\\"}
+  REPLY=${REPLY//$'\n'/\\n}
+  REPLY=${REPLY//$'\r'/\\r}
+  REPLY=${REPLY//$'\t'/\\t}
+  REPLY=${REPLY//$'\b'/\\b}
+  REPLY=${REPLY//$'\f'/\\f}
+  REPLY=${REPLY//[[:cntrl:]]/}
 }
 
+# Pure zsh: payload budgeting redacts each context section separately, which
+# must not cost a fork per section.
 function -z4m-autosuggest-ai-redact-sensitive() {
-  local raw=${1-}
-  [[ -n $raw ]] || { REPLY=; return 0; }
+  emulate -L zsh -o extended_glob
+  REPLY=${1-}
+  [[ -n $REPLY ]] || return 0
 
-  if [[ -n ${commands[perl]-} ]]; then
-    REPLY=$(print -r -- "$raw" | command perl -pe '
-      s/\b((?:api[_-]?key|token|secret|password))\b\s*([=:])\s*([^\s;]+)/$1$2***REDACTED***/ig;
-      s#(https?://)[^/\s:@]+:[^/\s@]+@#$1***REDACTED***@#ig;
-      s/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/=-]+/$1 ***REDACTED***/ig;
-    ' 2>/dev/null)
-    return 0
-  fi
-
-  local redacted=$raw
   local key
+  local -a match mbegin mend
   for key in api_key api-key apikey token secret password; do
-    redacted=${redacted//(#b)((#i)$key)([[:space:]]#)([=:])([[:space:]]#)([^[:space:];]##)/${match[1]}${match[2]}${match[3]}${match[4]}***REDACTED***}
+    REPLY=${REPLY//(#ib)($key)([[:space:]]#)([=:])([[:space:]]#)([^[:space:];]##)/${match[1]}${match[2]}${match[3]}${match[4]}***REDACTED***}
   done
-  redacted=${redacted//(#b)((#i)Bearer|Basic)([[:space:]]##)([A-Za-z0-9._~+\/=:-]##)/${match[1]}${match[2]}***REDACTED***}
-  redacted=${redacted//(#b)(http(|s):\/\/)([^[:space:]\/:@]##):([^[:space:]@\/]##)@/${match[1]}***REDACTED***@}
-  REPLY=$redacted
+  REPLY=${REPLY//(#ib)(bearer|basic)([[:space:]]##)([A-Za-z0-9._~+\/=:-]##)/${match[1]}${match[2]}***REDACTED***}
+  REPLY=${REPLY//(#ib)(http(|s):\/\/)([^[:space:]\/:@]##):([^[:space:]@\/]##)@/${match[1]}***REDACTED***@}
 }
 
 function -z4m-autosuggest-ai-buffer-eq-p() {
@@ -777,7 +769,7 @@ function -z4m-autosuggest-ai-read-config() {
   local api_key_env=${_z4m_autosuggest_ai_state[configured_api_key_env]}
   local mode=manual
   local -i timeout_ms=3000 debounce_ms=160 cooldown_ms=800 min_input=2
-  local -i max_input_tokens=384 max_output_tokens=96 history_lines=0
+  local -i max_input_tokens=1024 max_output_tokens=96 history_lines=0
   local -i budget_per_minute=12000 budget_per_day=300000
   local -i rewrite_enabled=1 intent_command_enabled=1 proxy_enabled=0
   local -i context_pwd_enabled=0 context_project_enabled=0 context_output_enabled=0
@@ -851,7 +843,7 @@ function -z4m-autosuggest-ai-read-config() {
     if [[ $value == <-> ]] && (( value > 0 )); then
       max_input_tokens=$value
     else
-      -z4m-autosuggest-ai-log warn ai-config "invalid max-input-tokens=${value}; forcing 384"
+      -z4m-autosuggest-ai-log warn ai-config "invalid max-input-tokens=${value}; forcing 1024"
     fi
   fi
 
@@ -1177,7 +1169,7 @@ function -z4m-autosuggest-ai-sanitize-output() {
   cleaned=${(j:$'\n':)lines}
 
   if (( max_chars > 0 && ${#cleaned} > max_chars )); then
-    cleaned="${cleaned[1,max_chars]}"
+    cleaned="${cleaned[-max_chars,-1]}"
   fi
 
   -z4m-autosuggest-ai-redact-sensitive "$cleaned"
@@ -1233,7 +1225,7 @@ function -z4m-autosuggest-ai-build-payload() {
   local intent_query=${4-}
   local model=${_z4m_autosuggest_ai_state[configured_model]}
   local -i history_lines=${_z4m_autosuggest_ai_state[configured_history_lines]:-0}
-  local -i max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-384}
+  local -i max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-1024}
   local -i max_output_tokens=${_z4m_autosuggest_ai_state[configured_max_output_tokens]:-96}
   local prompt_extend=${_z4m_autosuggest_ai_state[configured_prompt_extend]-}
   local pane=
@@ -1312,19 +1304,41 @@ function -z4m-autosuggest-ai-build-payload() {
     user_prompt+="QUERY: ${intent_query}"$'\n'
   fi
 
+  # The submit guard estimates tokens over the whole JSON payload, so sections
+  # are measured as they will be sent: redacted and JSON-escaped. The core
+  # prompt is always kept (an oversized one is left to the submit guard);
+  # optional context is admitted by priority while it fits, and output
+  # context is trimmed to its most recent part.
+  local head tail
+  -z4m-autosuggest-ai-json-escape "$model"
+  head="{\"model\":\"$REPLY\",\"messages\":[{\"role\":\"system\",\"content\":\""
+  -z4m-autosuggest-ai-json-escape "$system_prompt"
+  head+="$REPLY\"},{\"role\":\"user\",\"content\":\""
+  printf -v tail '"}],"temperature":%s,"max_tokens":%d,"stop":["\\n"]}' "$temperature" "$max_output_tokens"
+  local -i budget=$(( max_input_tokens * 4 - ${#head} - ${#tail} ))
+
+  -z4m-autosuggest-ai-redact-sensitive "$user_prompt"
+  -z4m-autosuggest-ai-json-escape "$REPLY"
+  local user_json=$REPLY
+  (( budget -= ${#user_json} ))
+
+  local meta_json= project_json= output_json= history_json=
+
   -z4m-autosuggest-ai-buffer-meta "$buffer"
-  [[ -n $REPLY ]] && user_prompt+=$'\n'"$REPLY"$'\n'
+  if [[ -n $REPLY ]]; then
+    -z4m-autosuggest-ai-redact-sensitive $'\n'"$REPLY"$'\n'
+    -z4m-autosuggest-ai-json-escape "$REPLY"
+    (( ${#REPLY} <= budget )) && { meta_json=$REPLY; (( budget -= ${#REPLY} )); }
+  fi
 
   if [[ $mode != autosuggest_fallback ]] &&
      (( ${_z4m_autosuggest_ai_state[configured_context_project_enabled]:-0} )); then
     -z4m-autosuggest-ai-project-context "$mode"
-    [[ -n $REPLY ]] && user_prompt+=$'\n'"$REPLY"$'\n'
-  fi
-
-  local output_context=
-  if -z4m-autosuggest-ai-output-context "$mode" "$pane"; then
-    output_context=$REPLY
-    user_prompt+=$'\n'"${output_context}"$'\n'
+    if [[ -n $REPLY ]]; then
+      -z4m-autosuggest-ai-redact-sensitive $'\n'"$REPLY"$'\n'
+      -z4m-autosuggest-ai-json-escape "$REPLY"
+      (( ${#REPLY} <= budget )) && { project_json=$REPLY; (( budget -= ${#REPLY} )); }
+    fi
   fi
 
   if [[ $mode == autosuggest_fallback ]]; then
@@ -1345,31 +1359,37 @@ function -z4m-autosuggest-ai-build-payload() {
       (( ++count ))
     done
 
-    user_prompt+=$'\nHISTORY (most recent first):\n'
+    local history_text=$'\nHISTORY (most recent first):\n'
     local item
     if (( ${#history_context} )); then
       for item in "${history_context[@]}"; do
-        user_prompt+="${idx}) ${item}"$'\n'
+        history_text+="${idx}) ${item}"$'\n'
         (( ++idx ))
       done
     else
-      user_prompt+=$'(none)\n'
+      history_text+=$'(none)\n'
+    fi
+    -z4m-autosuggest-ai-redact-sensitive "$history_text"
+    -z4m-autosuggest-ai-json-escape "$REPLY"
+    (( ${#REPLY} <= budget )) && { history_json=$REPLY; (( budget -= ${#REPLY} )); }
+  fi
+
+  if -z4m-autosuggest-ai-output-context "$mode" "$pane"; then
+    local output_text=${REPLY#$'OUTPUT_CONTEXT:\n'}
+    -z4m-autosuggest-ai-json-escape $'\nOUTPUT_CONTEXT:\n\n'
+    local -i overhead=${#REPLY}
+    -z4m-autosuggest-ai-json-escape "$output_text"
+    while (( ${#REPLY} + overhead > budget && ${#output_text} > 0 )); do
+      output_text=${output_text[$(( ${#REPLY} + overhead - budget + 1 )),-1]}
+      -z4m-autosuggest-ai-json-escape "$output_text"
+    done
+    if [[ -n $output_text ]]; then
+      output_json="\\nOUTPUT_CONTEXT:\\n${REPLY}\\n"
+      (( budget -= ${#output_json} ))
     fi
   fi
 
-  local -i max_chars=$(( max_input_tokens * 4 ))
-  -z4m-autosuggest-ai-redact-sensitive "$user_prompt"
-  user_prompt=$REPLY
-  if (( ${#user_prompt} > max_chars )); then
-    user_prompt="${user_prompt[1,max_chars]}"
-  fi
-
-  REPLY=$(printf '{"model":"%s","messages":[{"role":"system","content":"%s"},{"role":"user","content":"%s"}],"temperature":%s,"max_tokens":%d,"stop":["\\n"]}' \
-    "$(-z4m-autosuggest-ai-json-escape "$model")" \
-    "$(-z4m-autosuggest-ai-json-escape "$system_prompt")" \
-    "$(-z4m-autosuggest-ai-json-escape "$user_prompt")" \
-    "$temperature" \
-    "$max_output_tokens")
+  REPLY=$head$user_json$meta_json$project_json$output_json$history_json$tail
 }
 
 function -z4m-autosuggest-ai-submit() {
@@ -1385,7 +1405,7 @@ function -z4m-autosuggest-ai-submit() {
   local api_key=${(P)api_key_env-}
   local endpoint=${_z4m_autosuggest_ai_state[configured_endpoint]}/chat/completions
   local -i timeout_ms=${_z4m_autosuggest_ai_state[configured_timeout_ms]:-3000}
-  local -i max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-384}
+  local -i max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-1024}
 
   if [[ -z ${commands[curl]-} || -z ${commands[jq]-} ]]; then
     _z4m_autosuggest_ai_state[last_reject]=missing_dependencies
@@ -2242,7 +2262,7 @@ function -z4m-autosuggest-ai-status() {
   print -r -- "ai_debounce_ms=${_z4m_autosuggest_ai_state[configured_debounce_ms]:-160}"
   print -r -- "ai_cooldown_ms=${_z4m_autosuggest_ai_state[configured_cooldown_ms]:-800}"
   print -r -- "ai_min_input=${_z4m_autosuggest_ai_state[configured_min_input]:-2}"
-  print -r -- "ai_max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-384}"
+  print -r -- "ai_max_input_tokens=${_z4m_autosuggest_ai_state[configured_max_input_tokens]:-1024}"
   print -r -- "ai_max_output_tokens=${_z4m_autosuggest_ai_state[configured_max_output_tokens]:-96}"
   print -r -- "ai_history_lines=${_z4m_autosuggest_ai_state[configured_history_lines]:-0}"
 

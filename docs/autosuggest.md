@@ -144,6 +144,10 @@ credentials are removed; review these opt-ins against the configured provider.
 
 If context capture fails, request continues without output context (safe degradation).
 
+`max-input-tokens` caps the whole request payload. Optional context is admitted
+by priority (buffer metadata, project, history, output) and dropped when it
+does not fit; output context is trimmed to its most recent lines.
+
 ## Safety and Quality Gates
 
 - AI never bypasses local validation gates.

@@ -179,7 +179,7 @@ if [[ -n $real_perl ]]; then
   PATH=$saved_path
   hash -r
   perl_count=$(<"$count_file")
-  assert_eq 1 "$perl_count" 'fallback payload redaction perl calls'
+  assert_eq 0 "$perl_count" 'fallback payload construction does not fork perl'
 fi
 
 # Request files hold the API key. When mktemp fails there must be no fallback
@@ -216,6 +216,61 @@ assert_fail 'low-quality suggestions do not trigger strict retry' -z4m-autosugge
 assert_fail 'invalid protocol does not trigger strict retry' -z4m-autosuggest-ai-retryable-reject-p invalid_protocol
 assert_fail 'fallback rejects unresolved command-prefix guesses' -z4m-autosuggest-ai-autofallback-eligible-p gi
 assert_ok 'fallback allows resolved command arguments' -z4m-autosuggest-ai-autofallback-eligible-p 'print '
+
+payload_tokens() {
+  -z4m-autosuggest-ai-estimate-tokens "$1"
+  print -r -- $REPLY
+}
+
+# The token cap covers the whole JSON payload: optional context is dropped or
+# trimmed to fit instead of pushing the request over the submit guard.
+zstyle -d ':z4m:autosuggestions:ai'
+-z4m-autosuggest-ai-read-config
+assert_eq 1024 "${_z4m_autosuggest_ai_state[configured_max_input_tokens]}" 'default max input tokens'
+zstyle ':z4m:autosuggestions:ai' max-input-tokens 384
+zstyle ':z4m:autosuggestions:ai' context-output-enabled yes
+zstyle ':z4m:autosuggestions:ai' history-lines 20
+-z4m-autosuggest-ai-read-config
+function -z4m-autosuggest-ai-capture-pane() {
+  REPLY=${(l:3000::x:)}$'\nlast-output-line'
+  return 0
+}
+-z4m-autosuggest-ai-build-payload 'print ok' default manual_rewrite ''
+payload=$REPLY
+assert_ok 'budgeted payload is valid json' command jq -e . <<<"$payload" >/dev/null
+(( $(payload_tokens "$payload") <= 384 )) || { print -ru2 -- "budgeted payload exceeds 384 tokens"; ((failures++)); }
+user_prompt=$(extract_user_prompt "$payload")
+assert_contains 'BUFFER: print ok' "$user_prompt" 'core prompt survives budgeting'
+assert_contains 'OUTPUT_CONTEXT:' "$user_prompt" 'output context trimmed into budget'
+assert_contains 'last-output-line' "$user_prompt" 'output context keeps the most recent lines'
+
+long_buffer="print ${(l:200::a:)}"
+-z4m-autosuggest-ai-build-payload "$long_buffer" default autosuggest_fallback ''
+assert_ok '200-char fallback payload is valid json' command jq -e . <<<"$REPLY" >/dev/null
+(( $(payload_tokens "$REPLY") <= 384 )) || { print -ru2 -- "200-char fallback buffer exceeds budget"; ((failures++)); }
+
+# Opting into every context source does not get the request rejected.
+(
+  sandbox=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-ai-budget.XXXXXXXXXX") || exit 1
+  trap 'command rm -rf -- "$sandbox"' EXIT
+  command mkdir -p -- $sandbox/bin || exit 1
+  print -r -- '#!/bin/sh' >| $sandbox/bin/curl
+  command chmod +x -- $sandbox/bin/curl || exit 1
+  PATH=$sandbox/bin:$PATH Z4M_TEST_AI_KEY=test-key
+  hash -r
+  zstyle -d ':z4m:autosuggestions:ai' max-input-tokens
+  zstyle ':z4m:autosuggestions:ai' context-project-enabled yes
+  zstyle ':z4m:autosuggestions:ai' context-pwd-enabled yes
+  zstyle ':z4m:autosuggestions:ai' api-key-env Z4M_TEST_AI_KEY
+  -z4m-autosuggest-ai-read-config
+  _z4m_autosuggest_ai_state[inflight]=0
+  -z4m-autosuggest-ai-submit 'print ok' default manual_rewrite '' || {
+    print -ru2 -- "full-context submit rejected: ${_z4m_autosuggest_ai_state[last_reject]}"
+    exit 1
+  }
+  -z4m-autosuggest-ai-reset test
+) || ((failures++))
+zstyle -d ':z4m:autosuggestions:ai'
 
 if (( failures )); then
   exit 1
