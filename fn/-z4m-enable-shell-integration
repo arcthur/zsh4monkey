@@ -6,25 +6,66 @@
 #   - Prompt navigation (tmux C-Up/C-Down in copy-mode)
 #   - Output region marking for capture
 #   - Command completion detection
+#   - Prompt redraw on resize (Ghostty, kitty)
 #
 # Supported terminals: Ghostty, kitty, iTerm2, WezTerm, VS Code, Windows Terminal
 #
 # OSC 133 Protocol:
-#   A - Prompt start (before PS1)
-#   B - Command start (user pressed Enter)
-#   C - Command output start (before output)
+#   A - Prompt start (inside PS1, so every redraw repeats it)
+#   B - Input start (end of PS1)
+#   C - Command output start (preexec)
 #   D - Command end (with exit code)
 #
 # Sequence flow:
-#   precmd  → D;$? (end previous) → A (prompt start)
-#   preexec → B (command start) → C (output start)
+#   precmd  → D;$? (end previous command)
+#   PS1     → A … B (re-emitted whenever zsh redraws the prompt)
+#   PS2     → A;k=s … B
+#   preexec → C
 #
+# On resize, Ghostty and kitty clear the prompt the cursor is in, starting at
+# its A mark, and let the shell redraw it. The mark therefore belongs in the
+# prompt itself: printed from precmd it is not repeated when zsh redraws the
+# prompt (resize, reset-prompt, async theme updates), so a later resize can
+# find no prompt start. B at the end of PS1 marks where input begins, and k=s
+# on PS2 keeps a resize during a continuation from clearing the lines already
+# entered.
+#
+# Who marks PS1 (_z4m_osc133_prompt):
+#   p10k     - powerlevel10k with POWERLEVEL9K_TERM_SHELL_INTEGRATION; it embeds
+#              A and B in its prompt and leaves C and D to us (see -z4m-init-zle)
+#   prompt   - other prompts: precmd adds the marks to PS1 and preexec takes
+#              them out again, so other hooks never see them
+#   precmd   - p10k with its integration turned off; it rebuilds PROMPT after
+#              our precmd, so A is printed and B follows at zle-line-init
 
 # State machine:
 #   0 = initial (no command run yet)
 #   1 = prompt displayed (after precmd)
 #   2 = command running (after preexec)
 typeset -gi _z4m_shell_cmd=0
+: ${_z4m_osc133_prompt:=prompt}
+
+# Usage: -z4m-osc133-mark <payload>
+# Sets REPLY to a zero-width prompt escape that emits OSC 133;<payload>, plus a
+# tmux passthrough copy for the outer terminal, as -z4m-tmux-bypass does.
+function -z4m-osc133-mark() {
+  local seq=$'\e]133;'$1$'\a'
+  (( _z4m_can_save_restore_screen )) && seq+=$'\ePtmux;'${seq//$'\e'/$'\e\e'}$'\e\\'
+  REPLY="%{$seq%}"
+}
+
+# Usage: -z4m-osc133-wrap <prompt> <start-payload>
+# Sets REPLY to <prompt> between a start mark and B. A trailing bare % would
+# combine with the { of the B mark into a %{ escape, so it is doubled.
+function -z4m-osc133-wrap() {
+  local prompt=$1 start end
+  -z4m-osc133-mark $2
+  start=$REPLY
+  -z4m-osc133-mark B
+  end=$REPLY
+  [[ $prompt == *[^%]% || $prompt == % ]] && prompt+=%
+  REPLY=$start$prompt$end
+}
 
 # Precmd hook: end previous command and mark prompt start
 function -z4m-shell-integration-precmd() {
@@ -38,18 +79,49 @@ function -z4m-shell-integration-precmd() {
     -z4m-tmux-bypass '\e]133;D;%d\a' $exit_code
   fi
 
-  # Mark prompt start
-  -z4m-tmux-bypass '\e]133;A\a'
+  if [[ $PS2 != *$'\e]133;A;k=s'* ]]; then
+    -z4m-osc133-wrap "$PS2" 'A;k=s'
+    PS2=$REPLY
+  fi
+
+  case $_z4m_osc133_prompt in
+    prompt)
+      if [[ $PS1 != *$'\e]133;A'* ]]; then
+        typeset -g _z4m_osc133_ps1=$PS1
+        -z4m-osc133-wrap "$PS1" A
+        PS1=$REPLY
+        typeset -g _z4m_osc133_marked_ps1=$PS1
+      fi
+      ;;
+    precmd)
+      # p10k still marks its prompt where the terminal forces its integration
+      # (kitty, VS Code, Warp); PS1 here is the prompt it drew last time. Its
+      # A comes from an expansion, but B is literal.
+      if [[ $PS1 != *$'\e]133;B'* ]]; then
+        -z4m-tmux-bypass '\e]133;A\a'
+        typeset -gi _z4m_osc133_pending_b=1
+      fi
+      ;;
+  esac
 
   _z4m_shell_cmd=1
 }
 
-# Preexec hook: mark command and output start
-function -z4m-shell-integration-preexec() {
-  # Mark end of prompt region / command input complete
+# Called from zle-line-init: the prompt is on screen and input starts here.
+function -z4m-shell-integration-line-init() {
+  (( ${_z4m_osc133_pending_b:-0} )) || return 0
   -z4m-tmux-bypass '\e]133;B\a'
+  _z4m_osc133_pending_b=0
+}
 
-  # Mark start of command output
+# Preexec hook: mark command output start
+function -z4m-shell-integration-preexec() {
+  # Hand PS1 back unmarked unless something replaced it since precmd.
+  if [[ -v _z4m_osc133_ps1 && $PS1 == "$_z4m_osc133_marked_ps1" ]]; then
+    PS1=$_z4m_osc133_ps1
+  fi
+  unset _z4m_osc133_ps1 _z4m_osc133_marked_ps1
+
   -z4m-tmux-bypass '\e]133;C\a'
 
   _z4m_shell_cmd=2

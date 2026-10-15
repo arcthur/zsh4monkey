@@ -19,6 +19,8 @@ if (( ${+widgets[-z4m-orig-zle-line-init]} )); then
   zle -- -z4m-orig-zle-line-init "$@" || ret=$?
 fi
 
+-z4m-shell-integration-line-init
+
 if (( ${+_z4m_redraw_fd} )); then
   zle -F "$_z4m_redraw_fd"
   exec {_z4m_redraw_fd}>&-

@@ -432,9 +432,9 @@ function -z4m-cmd-init() {
     fi
 
     if [[ -v _z4m_tty_fd && -n $_Z4M_TMUX ]]; then
-      typeset -gri _z4m_can_save_restore_screen=1  # this parameter is read by p10k
+      typeset -gri _z4m_can_save_restore_screen=1
     else
-      typeset -gri _z4m_can_save_restore_screen=0  # this parameter is read by p10k
+      typeset -gri _z4m_can_save_restore_screen=0
     fi
 
     if (( _z4m_zle )) && zstyle -t :z4m:direnv enable && [[ -e $Z4M/cache/direnv ]]; then

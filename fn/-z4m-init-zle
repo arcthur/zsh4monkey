@@ -13,6 +13,7 @@ if zstyle -T :z4m: term-shell-integration &&
 else
   function -z4m-shell-integration-precmd() { }
   function -z4m-shell-integration-preexec() { }
+  function -z4m-shell-integration-line-init() { }
 fi
 
 # Command completion notification (OSC 9 desktop notification)
@@ -774,6 +775,20 @@ elif (( _z4m_use[powerlevel10k] )); then
     builtin source $Z4M/powerlevel10k/powerlevel10k.zsh-theme
   }
   z4m source -c $POWERLEVEL9K_CONFIG_FILE
+  if (( ${+functions[-z4m-osc133-mark]} )); then
+    # With POWERLEVEL9K_TERM_SHELL_INTEGRATION, p10k puts OSC 133 A and B in
+    # its own prompt, so every redraw repeats them; z4m cannot, because p10k
+    # rebuilds PROMPT after all other precmd hooks. _z4h_iterm_cmd is p10k's
+    # hook for zsh4humans, which z4m descends from: with it set, p10k leaves
+    # C and D to -z4m-enable-shell-integration instead of printing them twice.
+    (( ${+POWERLEVEL9K_TERM_SHELL_INTEGRATION} )) || typeset -g POWERLEVEL9K_TERM_SHELL_INTEGRATION=true
+    if [[ $POWERLEVEL9K_TERM_SHELL_INTEGRATION == true ]]; then
+      _z4m_osc133_prompt=p10k
+    else
+      _z4m_osc133_prompt=precmd
+    fi
+    typeset -g _z4h_iterm_cmd=
+  fi
 elif [[ $RPS1 == '%B%F{3}z4m recovery mode%f%b' ]]; then
   # z4m.zsh installs this right prompt as the fallback for a startup that never
   # gets here. Initialization succeeded without a prompt theme, so drop it

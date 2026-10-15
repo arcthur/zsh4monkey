@@ -51,36 +51,63 @@ Uses OSC 9 escape sequence for native desktop notifications.
 ## OSC 133 Protocol
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ OSC 133 Sequence Flow                                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─── precmd ───────────────────────────────────────────┐   │
-│  │  OSC 133;D;$?  ← End previous command (exit code)    │   │
-│  │  OSC 133;A     ← Prompt region starts                │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  [PS1 prompt displayed]                                     │
-│  [User types command]                                       │
-│                                                             │
-│  ┌─── preexec ──────────────────────────────────────────┐   │
-│  │  OSC 133;B     ← Command input complete              │   │
-│  │  OSC 133;C     ← Command output begins               │   │
-│  └──────────────────────────────────────────────────────┘   │
-│                                                             │
-│  [Command output]                                           │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+precmd   OSC 133;D;$?       end of the previous command, with its exit code
+PS1      OSC 133;A … B      prompt start … input start, part of the prompt
+PS2      OSC 133;A;k=s … B  secondary prompt start … input start
+preexec  OSC 133;C          command output begins
 ```
+
+A and B live inside the prompt string, so zsh writes them again every time it
+redraws the prompt: after a resize, `zle reset-prompt`, or an asynchronous
+theme update. Commands and other hooks see `PS1` without them; preexec takes
+them out again unless something replaced `PS1` in the meantime.
 
 ### Sequence Reference
 
 | Sequence | Name | Meaning |
 |----------|------|---------|
-| `\e]133;A\a` | Prompt Start | Before PS1 is displayed |
-| `\e]133;B\a` | Command Start | User pressed Enter |
+| `\e]133;A\a` | Prompt Start | First byte of PS1 |
+| `\e]133;A;k=s\a` | Secondary Prompt Start | First byte of PS2 |
+| `\e]133;B\a` | Input Start | Last byte of PS1 and PS2; typed input follows |
 | `\e]133;C\a` | Output Start | Before command output |
 | `\e]133;D;N\a` | Command End | After output, N = exit code |
+
+### Prompt Redraw on Resize
+
+Ghostty and kitty clear the prompt the cursor is in when the window is
+resized, starting at its A mark, and let zsh redraw it. Without that, a
+multi-line prompt rewrapped by the terminal leaves stale copies behind. Both
+act on the marks themselves, so the marks z4m writes are enough, including on
+hosts reached with `z4m ssh` where the terminal's own integration is not
+loaded. Two details matter:
+
+- A must be repeated on every redraw. Printed once from precmd, a later resize
+  can find no prompt start to clear from.
+- `k=s` on PS2 tells kitty that the continuation line is a prompt of its own,
+  so a resize while a multi-line command is being entered clears only that
+  line instead of the lines already entered.
+
+### Who Marks the Prompt
+
+| Prompt | A and B come from |
+|--------|-------------------|
+| powerlevel10k (default) | p10k itself, with `POWERLEVEL9K_TERM_SHELL_INTEGRATION=true`, which z4m sets unless your config sets it |
+| powerlevel10k with that option `false` | precmd prints A; B is printed when line editing starts |
+| Any other prompt, including the `z4m ssh` prompt | z4m adds them to `PS1` in precmd |
+
+p10k rebuilds its prompt after every other precmd hook, so z4m lets it place
+A and B and keeps writing C and D itself. z4m sets `_z4h_iterm_cmd`, the
+variable p10k checks for zsh4humans (z4m's ancestor), so p10k does not write
+C and D a second time.
+
+### Terminal Integrations
+
+Ghostty and kitty can load their own shell integration as well. With p10k,
+kitty's integration stops marking prompts (p10k turns on its `no-prompt-mark`
+option). Ghostty's integration adds its own marks next to z4m's; terminals
+treat a repeated mark as the same prompt or command, but if prompt jumps or
+command status look doubled, turn one side off: `shell-integration = none` in
+Ghostty's config, or `term-shell-integration no` in z4m.
 
 ## Configuration
 
@@ -213,13 +240,14 @@ If you see `^[]133;A^G` instead of invisible markers:
 
 | File | Purpose |
 |------|---------|
-| `fn/-z4m-enable-shell-integration` | OSC 133 sequence emission |
+| `fn/-z4m-enable-shell-integration` | OSC 133 sequence emission and prompt marking |
+| `fn/-z4m-init-zle` | Chooses who marks the prompt (p10k or z4m) |
 | `fn/-z4m-init-cmd-notify` | Command timing and OSC 9 |
 | `fn/-z4m-tmux-bypass` | Tmux passthrough wrapper |
 
 ### Tmux Passthrough
 
-When running inside tmux, escape sequences are wrapped:
+When running inside tmux, escape sequences z4m writes are also wrapped:
 
 ```
 \ePtmux;\e\e]133;A\a\e\\
