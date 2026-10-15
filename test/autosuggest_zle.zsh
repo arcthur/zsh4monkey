@@ -28,6 +28,7 @@ while (( $# )); do
   [[ $1 == --data-binary ]] && { payload=${2#@}; shift }
   shift
 done
+print -r -- $$ >| $fake/curl.pid
 print -r -- "$EPOCHREALTIME start $(jq -r .messages[1].content <$payload | grep ^BUFFER:)" >> $fake/count
 local content=$(<$fake/response)
 local -i delay_cs=$(( $(<$fake/delay) * 100 ))
@@ -189,6 +190,28 @@ drain 1.2
 (( $(requests) == 1 )) || { print -ru2 -- "debounce: $(requests) requests after pause"; (( ++failures )) }
 zpty -w -n t $'\x05\r'
 wait_for $'D42_abcsuggested\r' 4 || { print -ru2 -- "debounce: suggestion not shown after pause"; (( ++failures )) }
+
+# A new prompt cancels the in-flight request, and curl with it.
+print -r -- 5 >| $sandbox/fake/delay
+print -r -- '+suggested' >| $sandbox/fake/response
+: >| $sandbox/fake/count
+command rm -f -- $sandbox/fake/curl.pid
+acc=
+zpty -w -n t 'print -r -- K$((6*7))_'
+for i in {1..100}; do [[ -s $sandbox/fake/curl.pid ]] && break; drain 0.02; done
+local -i curl_pid=$(<$sandbox/fake/curl.pid 2>/dev/null)
+zpty -w -n t $'\r'
+wait_for $'K42_\r' 4
+for i in {1..50}; do builtin kill -0 $curl_pid 2>/dev/null || break; drain 0.02; done
+if (( curl_pid <= 0 )); then
+  print -ru2 -- 'no request was sent before the prompt was accepted'
+  (( ++failures ))
+elif builtin kill -0 $curl_pid 2>/dev/null; then
+  print -ru2 -- 'new prompt left curl running'
+  builtin kill -KILL $curl_pid
+  (( ++failures ))
+fi
+print -r -- 0.4 >| $sandbox/fake/delay
 
 # history_pwd only indexes lines that actually entered history, so ignored
 # lines never steal the id of the next command run in another directory.

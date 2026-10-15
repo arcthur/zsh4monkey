@@ -272,6 +272,39 @@ assert_ok '200-char fallback payload is valid json' command jq -e . <<<"$REPLY" 
 ) || ((failures++))
 zstyle -d ':z4m:autosuggestions:ai'
 
+# Cancelling a request also terminates curl, not only the wrapper job.
+(
+  sandbox=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-ai-cancel.XXXXXXXXXX") || exit 1
+  trap 'command rm -rf -- "$sandbox"' EXIT
+  command mkdir -p -- $sandbox/bin || exit 1
+  {
+    print -r -- '#!/bin/sh'
+    print -r -- 'echo $$ > "$Z4M_TEST_CURL_PID"'
+    print -r -- 'exec sleep 30'
+  } >| $sandbox/bin/curl
+  command chmod +x -- $sandbox/bin/curl || exit 1
+  PATH=$sandbox/bin:$PATH Z4M_TEST_AI_KEY=test-key
+  export Z4M_TEST_CURL_PID=$sandbox/curl.pid
+  hash -r
+  zstyle ':z4m:autosuggestions:ai' api-key-env Z4M_TEST_AI_KEY
+  -z4m-autosuggest-ai-read-config
+  _z4m_autosuggest_ai_state[inflight]=0
+  -z4m-autosuggest-ai-submit 'print ok' default manual_rewrite '' || exit 1
+  local request_dir=${_z4m_autosuggest_ai_state[inflight_tmp_dir]}
+  local -i i curl_pid
+  for i in {1..100}; do [[ -s $Z4M_TEST_CURL_PID ]] && break; zselect -t 2; done
+  curl_pid=$(<$Z4M_TEST_CURL_PID)
+  -z4m-autosuggest-ai-reset test
+  for i in {1..100}; do builtin kill -0 $curl_pid 2>/dev/null || break; zselect -t 2; done
+  if builtin kill -0 $curl_pid 2>/dev/null; then
+    print -ru2 -- 'reset left curl running'
+    builtin kill -KILL $curl_pid
+    exit 1
+  fi
+  [[ ! -e $request_dir ]] || { print -ru2 -- 'reset left request files'; exit 1 }
+) || ((failures++))
+zstyle -d ':z4m:autosuggestions:ai'
+
 if (( failures )); then
   exit 1
 fi

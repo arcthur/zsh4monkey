@@ -1030,7 +1030,7 @@ function -z4m-autosuggest-ai-reset() {
   local reason=${1:-reset}
   local -i pid=${_z4m_autosuggest_ai_state[inflight_pid]:-0}
   if (( ${_z4m_autosuggest_ai_state[inflight]:-0} && pid > 0 )); then
-    command kill -TERM "$pid" 2>/dev/null || true
+    builtin kill -TERM $pid 2>/dev/null || true
   fi
 
   _z4m_autosuggest_ai_state[inflight]=0
@@ -1488,13 +1488,17 @@ function -z4m-autosuggest-ai-submit() {
   command chmod 600 "$payload_file" 2>/dev/null || true
 
   {
-    local -i curl_rc=1
+    local -i curl_pid=0 curl_rc=1
+    # Cancellation signals this job; forward it so curl does not outlive it.
+    trap '(( curl_pid > 0 )) && builtin kill -TERM $curl_pid 2>/dev/null; exit 143' TERM
     command curl --silent --show-error --max-time "$timeout_s" \
       --header @"$header_file" \
       --data-binary @"$payload_file" \
       --output "$body_file" \
       --write-out '%{http_code}' \
-      "$endpoint" >| "$code_file" 2>/dev/null
+      "$endpoint" >| "$code_file" 2>/dev/null &
+    curl_pid=$!
+    wait $curl_pid
     curl_rc=$?
     print -r -- "$curl_rc" >| "$rc_file"
   } &!
