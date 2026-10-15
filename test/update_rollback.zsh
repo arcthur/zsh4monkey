@@ -78,8 +78,10 @@ local second=$REPLY
   sandbox_fail 'update did not keep the previous version for rollback'
 [[ $(<$SANDBOX_Z4M/stickycache/host-state) == host-state ]] 2>/dev/null ||
   sandbox_fail 'update discarded host runtime state'
-[[ $(<$SANDBOX_Z4M/.update-source) == *'|https://raw.githubusercontent.com/arcthur/zsh4monkey/main' ]] ||
-  sandbox_fail 'update did not record its source'
+[[ $(<$SANDBOX_Z4M/zsh4monkey/.z4m-update-source) == *'|https://raw.githubusercontent.com/arcthur/zsh4monkey/main' ]] ||
+  sandbox_fail 'update did not record its source in the version'
+[[ $(command readlink -- $SANDBOX_Z4M/previous) == versions/$first ]] ||
+  sandbox_fail 'update did not record the version it replaced'
 expect_no_transaction_leftovers 'successful update'
 
 # The updated cache must start normally, not in safe mode.
@@ -145,7 +147,7 @@ local third=$REPLY
   sandbox_fail 'update after a stale guard did not activate the new release'
 expect_no_transaction_leftovers 'stale guard takeover'
 
-# Retention: two versions by default, the active one and the newest other.
+# Retention: two versions by default, the active one and the rollback target.
 [[ -d $SANDBOX_Z4M/versions/$third && -d $SANDBOX_Z4M/versions/$second ]] ||
   sandbox_fail 'retention removed the active version or the rollback target'
 [[ ! -e $SANDBOX_Z4M/versions/$first ]] ||

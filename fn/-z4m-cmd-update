@@ -40,14 +40,10 @@ print -Pru2 -- "%F{3}z4m%f: update source %B$update_ref%b"
 # complete, working version in place.
 local staging=$Z4M.staging.$sysparams[pid]
 local guard=$Z4M/.updating
-local configured_url=$Z4M_URL
-local state_configured state_effective state_extra
-if [[ -r $Z4M/.update-source ]] &&
-   IFS='|' read -r state_configured state_effective state_extra <$Z4M/.update-source &&
-   [[ -z $state_extra && $state_effective == $Z4M_URL &&
-      $state_configured == https://raw.githubusercontent.com/arcthur/zsh4monkey/* ]]; then
-  configured_url=$state_configured
-fi
+# What the user configured, before startup followed the active version's record
+# (see z4m.zsh). The new version records it so the next startup follows it too.
+local configured_url=${_z4m_configured_url:-$Z4M_URL}
+local assembly_dir=
 local -i guard_owned=0
 
 function -z4m-cmd-update-write-guard() {
@@ -101,6 +97,14 @@ local -a preserved=(
 
 {
   -z4m-cmd-update-acquire-guard || return
+  # The guard serializes updates of this cache, so staging caches left by an
+  # update killed before its cleanup ran belong to no live process.
+  local stale
+  for stale in $Z4M.staging.<->(N/); do
+    [[ ${stale##*.} == $sysparams[pid] ]] && continue
+    builtin kill -0 ${stale##*.} 2>/dev/null && continue
+    zf_rm -rf -- $stale 2>/dev/null
+  done
   zf_rm -rf -- $staging || return
   zf_mkdir -p -- $staging || return
   command cp -p -- $Z4M/z4m.zsh $staging/z4m.zsh || return
@@ -144,21 +148,29 @@ local -a preserved=(
     return 1
   fi
 
+  # Assembled under a dot name, which rollback and pruning ignore, and renamed
+  # into place only once complete.
   zf_mkdir -p -- $Z4M/versions || return
-  local target_dir
   if (( $+commands[mktemp] )); then
-    target_dir=$(command mktemp -d -- $Z4M/versions/$update_ref.XXXXXXXXXX) || return
+    assembly_dir=$(command mktemp -d -- $Z4M/versions/.$update_ref.XXXXXXXXXX) || return
   else
-    target_dir=$Z4M/versions/$update_ref.$sysparams[pid]
-    zf_rm -rf -- $target_dir || return
-    zf_mkdir -p -- $target_dir || return
+    assembly_dir=$Z4M/versions/.$update_ref.$sysparams[pid]
+    zf_rm -rf -- $assembly_dir || return
+    zf_mkdir -p -- $assembly_dir || return
   fi
-  local target_name=${target_dir:t}
+  local target_name=${assembly_dir:t:s/.//}
   # mktemp creates the directory 0700; the framework must stay world-readable
   # like every other path a shell resolves through.
-  command chmod 755 $target_dir || return
-  -z4m-mv $framework $target_dir/zsh4monkey || return
-  command cp -p -- $target_dir/zsh4monkey/z4m.zsh $target_dir/z4m.zsh || return
+  command chmod 755 $assembly_dir || return
+  -z4m-mv $framework $assembly_dir/zsh4monkey || return
+  command cp -p -- $assembly_dir/zsh4monkey/z4m.zsh $assembly_dir/z4m.zsh || return
+  print -r -- "$configured_url|$update_url" >$assembly_dir/zsh4monkey/.z4m-update-source || return
+  if [[ -e $Z4M/versions/$target_name || -L $Z4M/versions/$target_name ]]; then
+    print -Pru2 -- "%F{3}z4m%f: version %F{1}$target_name%f already exists"
+    return 1
+  fi
+  zf_mv -- $assembly_dir $Z4M/versions/$target_name || return
+  assembly_dir=
 
   command sh $Z4M/versions/$target_name/zsh4monkey/sc/activate-version \
     $Z4M $target_name || return
@@ -179,9 +191,6 @@ local -a preserved=(
     -z4m-mv $entry $Z4M/$name || return
   done
 
-  print -r -- "$configured_url|$update_url" >$Z4M/.update-source.$$ || return
-  -z4m-mv $Z4M/.update-source.$$ $Z4M/.update-source || return
-
   # Read into a string first: assigning a user-supplied value to an integer
   # parameter would evaluate it arithmetically and defeat the check below.
   local keep_setting
@@ -190,6 +199,10 @@ local -a preserved=(
      [[ $keep_setting == <-> ]] && (( keep_setting >= 1 )); then
     keep=$keep_setting
   fi
+  # Remembered for the sh bootstrap, which prunes too but cannot read zstyle.
+  { print -r -- $keep >$Z4M/versions/.keep.$$ &&
+      zf_mv -f -- $Z4M/versions/.keep.$$ $Z4M/versions/.keep } 2>/dev/null ||
+    zf_rm -f -- $Z4M/versions/.keep.$$ 2>/dev/null
   command sh $Z4M/zsh4monkey/sc/prune-versions $Z4M $keep || true
 } always {
   local -i rc=$?
@@ -198,6 +211,7 @@ local -a preserved=(
     guard_owned=0
   fi
   zf_rm -rf -- $staging 2>/dev/null || true
+  [[ -z $assembly_dir ]] || zf_rm -rf -- $assembly_dir 2>/dev/null || true
   # unfunction, not `unset 'functions[...]'`: in zsh 5.10 the latter leaves a
   # dangling parameter behind that crashes the shell when this function returns.
   unfunction -- -z4m-cmd-update-acquire-guard -z4m-cmd-update-write-guard

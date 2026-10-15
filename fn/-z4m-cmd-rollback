@@ -5,8 +5,9 @@
 # Usage:
 #   z4m rollback [--list]
 #
-# Rolling back is the same single-symlink switch that `z4m update` performs, so
-# it neither downloads nor rebuilds anything. How many versions remain available
+# Rolling back is the same single-symlink switch that `z4m update` performs,
+# pointed at the version that was active before the last switch, so it neither
+# downloads nor rebuilds anything. How many versions remain available
 # is controlled by `zstyle ':z4m:update' keep-versions`.
 
 emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
@@ -36,7 +37,7 @@ local active
 active=$(command readlink -- $Z4M/current) || return 1
 active=${active#versions/}
 
-# Newest first, so the first entry that is not active is the rollback target.
+# Newest first, for --list. Dot entries are candidates still being assembled.
 local -a available=($Z4M/versions/*(N/om:t))
 if (( ! $#available )); then
   print -Pru2 -- "%F{3}z4m%f: no installed versions found"
@@ -69,13 +70,12 @@ function -z4m-cmd-rollback-describe() {
     return 0
   fi
 
+  # The version active before the last switch, as recorded by activate-version.
   local target=
-  local name
-  for name in $available; do
-    [[ $name == $active ]] && continue
-    target=$name
-    break
-  done
+  if [[ -L $Z4M/previous ]] && target=$(command readlink -- $Z4M/previous); then
+    target=${target#versions/}
+    [[ $target != $active ]] && (( ${available[(Ie)$target]} )) || target=
+  fi
 
   if [[ -z $target ]]; then
     print -Pru2 -- "%F{3}z4m%f: no earlier version to roll back to"

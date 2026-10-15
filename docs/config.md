@@ -197,7 +197,10 @@ zstyle ':z4m:update' keep-versions 2
 ```
 
 The value counts retained versions in total, including the active one, and is
-clamped to at least 1. Versions live under `$Z4M/versions/`; only the framework
+clamped to at least 1. With 2 or more, the version that was active before the
+last switch (the `z4m rollback` target) is always among them. `z4m update`
+records the value so the bootstrap, which cannot read `.zshrc`, prunes by it
+too. Versions live under `$Z4M/versions/`; only the framework
 is versioned, so retaining more of them costs little. `z4m rollback --list`
 shows what is currently available.
 

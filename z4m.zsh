@@ -158,14 +158,21 @@ if '[' '-r' "${Z4M-}"/zsh4monkey/.z4m-source-ref ']'; then
     _z4m_cached_ref=
 fi
 
+# `z4m update` may move the cache away from the configured Z4M_URL. Every
+# version records the configured|effective pair it was installed under inside
+# its own framework directory, so the record switches together with `current`
+# and rollback or an interrupted update can never leave it describing another
+# version. _z4m_configured_url keeps what the user configured for `z4m update`.
+_z4m_configured_url=${Z4M_URL-}
+_z4m_update_source="${Z4M-}"/zsh4monkey/.z4m-update-source
 _z4m_update_source_configured=
 _z4m_update_source_effective=
 _z4m_update_source_extra=
-if '[' '-r' "${Z4M-}"/.update-source ']'; then
+if '[' '-n' "${Z4M-}" '-a' '-r' "$_z4m_update_source" ']'; then
   IFS='|' 'read' '-r' \
     '_z4m_update_source_configured' \
     '_z4m_update_source_effective' \
-    '_z4m_update_source_extra' <"$Z4M"/.update-source || :
+    '_z4m_update_source_extra' <"$_z4m_update_source" || :
   case "$_z4m_update_source_configured|$_z4m_update_source_effective|$_z4m_update_source_extra" in
     'https://raw.githubusercontent.com/arcthur/zsh4monkey/'*'|https://raw.githubusercontent.com/arcthur/zsh4monkey/'*'|')
       _z4m_update_source_configured_ref="${_z4m_update_source_configured##*/}"
@@ -177,6 +184,7 @@ if '[' '-r' "${Z4M-}"/.update-source ']'; then
           *)
           if '[' "${Z4M_URL-}" '=' "$_z4m_update_source_configured" -o \
                  "${Z4M_URL-}" '=' "$_z4m_update_source_effective" ']'; then
+            _z4m_configured_url=$_z4m_update_source_configured
             Z4M_URL=$_z4m_update_source_effective
           fi
           ;;
@@ -187,6 +195,7 @@ if '[' '-r' "${Z4M-}"/.update-source ']'; then
   esac
 fi
 'unset' \
+  '_z4m_update_source' \
   '_z4m_update_source_configured' \
   '_z4m_update_source_effective' \
   '_z4m_update_source_extra' \
@@ -510,6 +519,8 @@ if '[' '-n' "${_z4m_bootstrap-}" ']'; then
 
       '[' '-d' "$package_dir" ']' || 'exit'
       'printf' '%s\n' "$v" >"$package_dir"/.z4m-source-ref || 'exit'
+      'printf' '%s|%s\n' "$_z4m_configured_url" "$Z4M_URL" \
+        >"$package_dir"/.z4m-update-source || 'exit'
 
       if '[' '-e' "$Z4M"/.updating ']'; then
         if '[' '-z' "${Z4M_UPDATING-}" ']'; then
@@ -523,25 +534,25 @@ if '[' '-n' "${_z4m_bootstrap-}" ']'; then
         "sh" "$package_dir"/sc/setup '-n' "$Z4M"                      || 'exit'
       fi
 
-      # Assemble the candidate under its final name, then hand the switch to
-      # sc/activate-version. Until that rename lands, nothing outside versions/
-      # has been touched, so a failure here leaves the running install intact.
-      if command -v 'mktemp' >'/dev/null' 2>&1; then
-        version_dir="$('command' 'mktemp' '-d' "$versions_dir"/"$v".XXXXXXXXXX)" || 'exit'
-      else
-        version_dir="$versions_dir"/"$v"."$$"
-        'command' 'rm' '-rf' '--' "$version_dir" || 'exit'
-        'command' 'mkdir' '--' "$version_dir"    || 'exit'
-      fi
+      # Assemble the candidate inside the hidden staging directory and rename it
+      # into versions/ only once complete: a failure never leaves a visible
+      # entry that rollback or pruning would take for an installed version.
+      # Until sc/activate-version switches `current`, nothing a running shell
+      # resolves through has been touched.
+      version_dir="$tmpdir"/version
+      version_name="$v".${tmpdir##*/.staging.}
+      'command' 'mkdir' '--' "$version_dir"                           || 'exit'
       # BSD chmod treats -- as a file name, so the separator is omitted here.
       'command' 'chmod' '755' "$version_dir"                          || 'exit'
       'command' 'mv' '-f' '--' "$package_dir" "$version_dir"/zsh4monkey || 'exit'
       'command' 'cp' '-p' '--' \
         "$version_dir"/zsh4monkey/z4m.zsh "$version_dir"/z4m.zsh      || 'exit'
+      '[' '!' '-e' "$versions_dir"/"$version_name" ']'                || 'exit'
+      'command' 'mv' '--' "$version_dir" "$versions_dir"/"$version_name" || 'exit'
 
-      "sh" "$version_dir"/zsh4monkey/sc/activate-version \
-        "$Z4M" "${version_dir##*/}" || 'exit'
-      "sh" "$version_dir"/zsh4monkey/sc/prune-versions "$Z4M" 2 || :
+      "sh" "$versions_dir"/"$version_name"/zsh4monkey/sc/activate-version \
+        "$Z4M" "$version_name" || 'exit'
+      "sh" "$versions_dir"/"$version_name"/zsh4monkey/sc/prune-versions "$Z4M" || :
     )
 
     ret="$?"

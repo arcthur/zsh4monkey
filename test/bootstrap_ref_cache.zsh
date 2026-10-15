@@ -17,6 +17,7 @@ output=$(
   HOME=$temporary_directory \
   ZDOTDIR=$temporary_directory \
   Z4M=$cache \
+  Z4M_BOOTSTRAP_COMMAND='exit 1' \
   Z4M_URL=https://raw.githubusercontent.com/arcthur/zsh4monkey/v1.0.0 \
     zsh -dfc 'source "$1"; print -r -- "$Z4M_CACHE_TEST"' _ "$repository/z4m.zsh"
 )
@@ -26,11 +27,12 @@ output=$(
 print -r -- v2.0.0 >$cache/zsh4monkey/.z4m-source-ref
 print -r -- \
   'https://raw.githubusercontent.com/arcthur/zsh4monkey/v1.0.0|https://raw.githubusercontent.com/arcthur/zsh4monkey/v2.0.0' \
-  >$cache/.update-source
+  >$cache/zsh4monkey/.z4m-update-source
 output=$(
   HOME=$temporary_directory \
   ZDOTDIR=$temporary_directory \
   Z4M=$cache \
+  Z4M_BOOTSTRAP_COMMAND='exit 1' \
   Z4M_URL=https://raw.githubusercontent.com/arcthur/zsh4monkey/v1.0.0 \
     zsh -dfc 'source "$1"; print -r -- "$Z4M_URL:$Z4M_CACHE_TEST"' _ "$repository/z4m.zsh"
 )
@@ -42,6 +44,7 @@ output=$(
   HOME=$temporary_directory \
   ZDOTDIR=$temporary_directory \
   Z4M=$cache \
+  Z4M_BOOTSTRAP_COMMAND='exit 1' \
   Z4M_URL=https://raw.githubusercontent.com/arcthur/zsh4monkey/v1.0.0 \
   Z4M_UPDATE_SOURCE_URL=https://raw.githubusercontent.com/arcthur/zsh4monkey/v3.0.0 \
     zsh -dfc 'source "$1"; print -r -- "$Z4M_URL:$Z4M_CACHE_TEST"' _ "$repository/z4m.zsh"

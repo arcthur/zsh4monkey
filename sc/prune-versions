@@ -5,49 +5,67 @@
 # Usage:
 #   prune-versions <z4m-root> [keep]
 #
-# The version `current` points at is always kept, plus the most recently created
-# ones up to `keep` total, so a rollback target survives. Abandoned staging
-# directories are removed unconditionally: they are only ever named while a
-# bootstrap or update is assembling a candidate, and a live one is protected by
-# the caller holding it, not by this script.
+# The version `current` points at is always kept, then the one `previous` points
+# at (the rollback target recorded by activate-version), then the most recently
+# created ones up to `keep` total. Dot entries under versions/ are candidates
+# still being assembled and are never touched here.
+#
+# Without `keep`, the count `z4m update` last recorded in versions/.keep is used:
+# the keep-versions style lives in .zshrc, which the sh bootstrap cannot read.
 #
 # Pruning never fails the operation that triggered it. A version directory that
 # cannot be removed is disk usage, not a correctness problem.
 
-set -u
+set -uf
 
 root=${1-}
-keep=${2-2}
+keep=${2-}
 
 [ -n "$root" ] || exit 0
 [ -d "$root/versions" ] || exit 0
 
+if [ -z "$keep" ] && [ -r "$root/versions/.keep" ]; then
+  IFS= read -r keep <"$root/versions/.keep" || :
+fi
 case "$keep" in
   ''|*[!0-9]*) keep=2 ;;
 esac
 [ "$keep" -ge 1 ] || keep=1
 
-current=''
-if [ -L "$root/current" ]; then
-  current="$(command readlink -- "$root/current" 2>/dev/null || printf '')"
-  current=${current#versions/}
+link_version() {
+  REPLY=''
+  [ -L "$root/$1" ] || return 0
+  REPLY="$(command readlink -- "$root/$1" 2>/dev/null || printf '')"
+  REPLY=${REPLY#versions/}
+  case "$REPLY" in
+    ''|.|..|*/*) REPLY='' ;;
+  esac
+}
+
+link_version current
+current=$REPLY
+previous=''
+if [ "$keep" -ge 2 ]; then
+  link_version previous
+  previous=$REPLY
+  [ "$previous" != "$current" ] && [ -d "$root/versions/$previous" ] || previous=''
 fi
 
-# The active version does not consume the allowance, so `keep` counts total
-# retained versions rather than rollback targets on top of the active one.
+# Protected versions consume the allowance, so `keep` counts total retained
+# versions rather than rollback targets on top of the active one.
 allowance=$keep
-if [ -n "$current" ]; then
-  allowance=$((keep - 1))
-  [ "$allowance" -ge 0 ] || allowance=0
-fi
+[ -n "$current" ] && allowance=$((allowance - 1))
+[ -n "$previous" ] && allowance=$((allowance - 1))
+[ "$allowance" -ge 0 ] || allowance=0
 
 kept=0
 for entry in $(command ls -t -- "$root/versions" 2>/dev/null); do
   case "$entry" in
-    ''|.|..) continue ;;
+    ''|.*) continue ;;
   esac
   [ -d "$root/versions/$entry" ] || continue
   [ "$entry" = "$current" ] && continue
+  [ "$entry" = "$previous" ] && continue
 
   if [ "$kept" -lt "$allowance" ]; then
     kept=$((kept + 1))

@@ -139,14 +139,23 @@ command sh $prune $aged 2
 [[ ! -d $aged/versions/v2 && ! -d $aged/versions/v1 ]] ||
   fail 'pruning kept more versions than requested'
 
-# Rolling back to an older version must protect it from the next prune.
+# Rollback target follows activation history, not directory age: after
+# v4 -> rollback v3 -> update v5, the version to return to is v3, even though
+# v4 is newer on disk.
 command sh $activate $aged v3
+assert_link $aged/previous versions/v4 'previous after rollback'
 make_version $aged v5 v5
 command touch -t 202001010009 -- $aged/versions/v5
+command sh $activate $aged v5
+assert_link $aged/previous versions/v3 'previous after update'
 command sh $prune $aged 2
-[[ -d $aged/versions/v3 ]] || fail 'pruning removed the active version after rollback'
-[[ -d $aged/versions/v5 ]] || fail 'pruning removed the newest version'
-[[ ! -d $aged/versions/v4 ]] || fail 'pruning kept a version beyond the limit after rollback'
+[[ -d $aged/versions/v5 ]] || fail 'pruning removed the active version'
+[[ -d $aged/versions/v3 ]] || fail 'pruning removed the recorded previous version'
+[[ ! -d $aged/versions/v4 ]] || fail 'pruning kept an older version over the previous one'
+
+# Reactivating the active version must not overwrite the rollback target.
+command sh $activate $aged v5
+assert_link $aged/previous versions/v3 'previous after reactivation'
 
 # Abandoned staging directories are never rollback targets.
 local staged=$test_directory/staged

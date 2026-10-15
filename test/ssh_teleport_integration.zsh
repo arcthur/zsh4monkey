@@ -89,6 +89,12 @@ sandbox_pty_send $session_state
 sandbox_pty_expect 20 "*${(b):-__STATE__=[1]|[fast]|}*" ||
   sandbox_fail "local shell does not run autosuggestions and highlighting: ${(q+)REPLY[-400,-1]}"
 
+# A cache that has been updated carries a rollback target next to current/.
+# Like current/, it resolves into versions/ and is not a plugin to teleport.
+local active_version
+active_version=$(command readlink -- $SANDBOX_Z4M/current) || exit 1
+command ln -s -- $active_version $SANDBOX_Z4M/previous || exit 1
+
 sandbox_pty_send 'z4m ssh testhost'
 if ! sandbox_pty_expect 60 '*__Z4M_REMOTE_READY__*'; then
   sandbox_fail 'teleported shell did not finish initialization on the remote host'
@@ -139,6 +145,8 @@ local -a pwned=($SANDBOX/**/PWNED(DN))
   sandbox_fail 'framework was not teleported into the remote cache'
 [[ $(<$remote/.zshrc) == $(<$SANDBOX_HOME/.zshrc) ]] 2>/dev/null ||
   sandbox_fail 'local .zshrc was not teleported'
+[[ ! -e $remote/.cache/zsh4monkey/previous ]] ||
+  sandbox_fail 'the rollback target was teleported as a plugin'
 
 local -a leftovers=($remote/.z4m-ssh.*(DN) $remote/**/.z4m-ssh.*(DN) $remote/tmp/z4m-ssh.*(/DN))
 (( ! $#leftovers )) || sandbox_fail "remote transaction state leaked: ${leftovers[*]}"

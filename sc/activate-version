@@ -11,11 +11,15 @@
 #   $Z4M/z4m.zsh      -> current/z4m.zsh        so ~/.zshenv never changes
 #   $Z4M/z4m.zsh.zwc  -> current/z4m.zsh.zwc
 #   $Z4M/zsh4monkey   -> current/zsh4monkey     so $Z4M/zsh4monkey/... keeps working
+#   $Z4M/previous     -> versions/<outgoing>    the rollback target
 #
 # Every link is created under a temporary name and moved into place, so a shell
 # starting concurrently observes either the previous version or the new one and
 # never a partially replaced framework. Link targets are relative, which keeps
 # the cache valid if $Z4M is moved.
+#
+# `previous` records activation history rather than directory age, so rollback
+# and pruning agree on which version the user last ran.
 #
 # A pre-existing real file or directory (the flat layout used by older installs
 # and by ssh bootstrap) is moved aside before the link lands, because renaming a
@@ -60,13 +64,36 @@ if [ ! -r "$root/versions/$name/zsh4monkey/main.zsh" ] ||
   exit 1
 fi
 
-displaced=''
+# Names this script may move aside; a fixed list keeps paths containing spaces
+# or glob characters out of word splitting when the scratch copies are dropped.
+managed='current previous zsh4monkey z4m.zsh.zwc z4m.zsh'
+mv_noderef=''
 
-# `ln -sfn` rather than a staged link plus `mv`: mv resolves a destination that
-# is a symlink to a directory and would move the new link *inside* the old
-# version, and BSD mv has no -T to suppress that. GNU ln -f performs the
-# replacement through rename(2); BSD ln unlinks and recreates, leaving a window
-# of two syscalls rather than the whole extraction.
+# Rename a staged link over the destination. Plain mv would resolve a
+# destination that is a symlink to a directory and move the link *inside* it, so
+# this needs GNU `mv -T` or BSD `mv -h`. Support is probed once and the outcome
+# verified, because an mv that ignored the flag would leave the link in place.
+replace_link() {
+  replace_staged=$1
+  replace_dest=$2
+  replace_target=$3
+
+  for replace_flag in -T -h; do
+    case "$mv_noderef" in
+      ''|"$replace_flag") ;;
+      *) continue ;;
+    esac
+    if command mv -f "$replace_flag" -- "$replace_staged" "$replace_dest" 2>/dev/null &&
+       [ ! -L "$replace_staged" ] && [ -L "$replace_dest" ] &&
+       [ "$(command readlink -- "$replace_dest" 2>/dev/null)" = "$replace_target" ]; then
+      mv_noderef=$replace_flag
+      return 0
+    fi
+  done
+  mv_noderef=none
+  return 1
+}
+
 relink() {
   relink_name=$1
   relink_target=$2
@@ -78,12 +105,21 @@ relink() {
       fi
     fi
   elif [ -d "$root/$relink_name" ]; then
-    # Flat layout: ln refuses to replace a real directory, so move it aside and
+    # Flat layout: a link cannot replace a real directory, so move it aside and
     # drop it only once every link is in place.
     command mv -f -- "$root/$relink_name" "$root/.z4m-replaced.$relink_name.$$" || return 1
-    displaced="$displaced $root/.z4m-replaced.$relink_name.$$"
   fi
 
+  relink_staged="$root/.z4m-activate.$relink_name.$$"
+  command rm -f -- "$relink_staged" 2>/dev/null || :
+  if [ "$mv_noderef" != none ] &&
+     command ln -s -- "$relink_target" "$relink_staged" 2>/dev/null; then
+    replace_link "$relink_staged" "$root/$relink_name" "$relink_target" && return 0
+    command rm -f -- "$relink_staged" 2>/dev/null || :
+  fi
+
+  # No mv that renames over a link: GNU ln -f still replaces through rename(2),
+  # BSD ln unlinks and recreates, leaving a window of two syscalls.
   command ln -sfn -- "$relink_target" "$root/$relink_name"
 }
 
@@ -92,9 +128,23 @@ if [ -e "$root/current" ] && [ ! -L "$root/current" ]; then
   exit 1
 fi
 
+outgoing=''
+if [ -L "$root/current" ]; then
+  outgoing="$(command readlink -- "$root/current" 2>/dev/null || printf '')"
+  outgoing=${outgoing#versions/}
+  case "$outgoing" in
+    ''|.|..|*/*|*[!A-Za-z0-9._-]*|"$name") outgoing='' ;;
+  esac
+fi
+
 # The switch itself. Everything after this point only makes the stable entry
 # points follow it, and each of those is idempotent.
 relink current "versions/$name" || exit 1
+# Recorded after the switch, so an interruption in between can only leave
+# `previous` one activation behind; rollback refuses a target that is active.
+if [ -n "$outgoing" ] && [ -d "$root/versions/$outgoing" ]; then
+  relink previous "versions/$outgoing" || :
+fi
 relink zsh4monkey current/zsh4monkey || exit 1
 # z4m.zsh.zwc is relinked even though the new version may not carry one: `z4m
 # compile` replaces this name with a real file, and leaving that file in place
@@ -103,6 +153,6 @@ relink zsh4monkey current/zsh4monkey || exit 1
 relink z4m.zsh.zwc current/z4m.zsh.zwc || exit 1
 relink z4m.zsh current/z4m.zsh || exit 1
 
-for replaced in $displaced; do
-  command rm -rf -- "$replaced" 2>/dev/null || :
+for replaced in $managed; do
+  command rm -rf -- "$root/.z4m-replaced.$replaced.$$" 2>/dev/null || :
 done

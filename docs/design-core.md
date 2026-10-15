@@ -117,16 +117,22 @@ Two consequences follow from the indirection:
 
 `sc/activate-version` is the single switch point, invoked by the sh bootstrap in
 `z4m.zsh`, by `z4m update`, and by `z4m rollback`, so the activation sequence
-exists exactly once. It replaces `current` with `ln -sfn`, which GNU coreutils
-implements through `rename(2)`; `mv` is unusable here because it resolves a
-destination that is a symlink to a directory and BSD `mv` has no `-T`.
+exists exactly once. It stages each link under a temporary name and renames it
+over the old one with GNU `mv -T` or BSD `mv -h`; plain `mv` would resolve a
+destination that is a symlink to a directory and move the link inside it. Hosts
+with neither flag fall back to `ln -sfn`. The outgoing version is recorded as
+`$Z4M/previous`, and each version carries the update source it was installed
+from in `zsh4monkey/.z4m-update-source`, so both switch together with
+`current`.
 
 `z4m update`:
 
 1. builds the candidate in a throwaway cache next to `$Z4M`;
 2. rehearses it with a full `zsh -ic`, so only a cache that reached a prompt
    can ever be activated;
-3. moves the candidate's version directory into `$Z4M/versions/`;
+3. assembles the version under a hidden name in `$Z4M/versions/` and renames
+   it into place once complete, so a failure never leaves an entry that
+   rollback or pruning would take for an installed version;
 4. switches `current`;
 5. replaces packages one at a time and prunes old versions.
 
@@ -137,9 +143,11 @@ bootstrap machinery: it existed to survive a window that no longer exists.
 Startup does not wait for a concurrent update either — the active version stays
 usable for the whole operation.
 
-`z4m rollback` is the same switch pointed at the previous version, so it costs
-one symlink write and no network access. `zstyle ':z4m:update' keep-versions`
-decides how many stay available (default 2).
+`z4m rollback` is the same switch pointed at `previous`, the version that was
+active before the last switch, so it costs one symlink write and no network
+access, and the next startup stays on it. `zstyle ':z4m:update' keep-versions`
+decides how many stay available (default 2); pruning always keeps the active
+version and `previous`.
 
 The flat layout produced by older installs and by `z4m ssh` remains a valid
 state: it starts normally, and the first `z4m update` migrates it.

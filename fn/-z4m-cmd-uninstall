@@ -105,25 +105,31 @@ zf_mkdir -p -- "$backup_dir" || {
 
 print -Pr -- "%F{3}z4m%f: Creating backup in: ${backup_dir//\%/%%}"
 
-# Backup and remove files
-for f in "${files_to_remove[@]}"; do
-  if [[ -e $f ]]; then
-    cp -a -- "$f" "$backup_dir/" 2>/dev/null
-    zf_rm -f -- "$f" 2>/dev/null
-    print -Pr -- "%F{3}z4m%f: Removed: ${f//\%/%%}"
+# Back up and remove each item; anything that could not be backed up is kept.
+local -a kept
+for f in "${files_to_remove[@]}" "${dirs_to_remove[@]}"; do
+  [[ -e $f ]] || continue
+  if ! command cp -a -- "$f" "$backup_dir/"; then
+    print -Pru2 -- "%F{3}z4m%f: %F{1}error%f: backup failed, keeping: ${f//\%/%%}"
+    kept+=("$f")
+    continue
   fi
-done
-
-# Backup and remove directories
-for f in "${dirs_to_remove[@]}"; do
-  if [[ -d $f ]]; then
-    cp -a -- "$f" "$backup_dir/" 2>/dev/null
-    zf_rm -rf -- "$f" 2>/dev/null
+  if zf_rm -rf -- "$f"; then
     print -Pr -- "%F{3}z4m%f: Removed: ${f//\%/%%}"
+  else
+    kept+=("$f")
   fi
 done
 
 print -Pr -- ""
+if (( $#kept )); then
+  print -Pru2 -- "%F{3}z4m%f: %F{1}Uninstall incomplete%f; not removed:"
+  for f in "${kept[@]}"; do
+    print -Pru2 -- "  ${f//\%/%%}"
+  done
+  print -Pru2 -- "%F{3}z4m%f: Partial backup in: ${backup_dir//\%/%%}"
+  return 1
+fi
 print -Pr -- "%F{3}z4m%f: %F{2}Uninstall complete%f"
 print -Pr -- "%F{3}z4m%f: Backup saved to: ${backup_dir//\%/%%}"
 print -Pr -- ""
