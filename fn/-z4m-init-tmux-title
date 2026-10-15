@@ -109,13 +109,21 @@ typeset -g _z4m_tmux_title_context=''
 # Core: Set tmux window name
 # =============================================================================
 function -z4m-tmux-set-window-name() {
+  # A cd inside $(...) must not leak the escape sequence into captured output.
+  (( ZSH_SUBSHELL )) && return
   # Directory names, HEAD contents and command words are untrusted: render
   # control characters visibly so they cannot end the sequence or inject others.
   local name=${(V)1} max=$_z4m_tmux_title_max_length
   # Truncate if too long
   (( max > 0 && ${#name} > max )) && name="${name:0:$((max-1))}…"
-  # Use escape sequence (faster, works in nested sessions)
-  printf '\033k%s\033\\' "$name"
+  # Use escape sequence (faster, works in nested sessions). Hooks invoked from
+  # widgets have stdout redirected, so fall back to the tty fd like -z4m-set-term-title.
+  if [[ -t 1 ]]; then
+    printf '\033k%s\033\\' "$name"
+  elif [[ -v _z4m_tty_fd ]]; then
+    printf '\033k%s\033\\' "$name" >&$_z4m_tty_fd 2>/dev/null
+  fi
+  return 0
 }
 
 # =============================================================================
@@ -208,6 +216,7 @@ function -z4m-tmux-build-context() {
 # Hook: chpwd - Update context on directory change
 # =============================================================================
 function -z4m-tmux-title-chpwd() {
+  emulate -L zsh
   -z4m-tmux-build-context
   _z4m_tmux_title_context=$REPLY
   -z4m-tmux-set-window-name "$_z4m_tmux_title_context"
@@ -217,6 +226,7 @@ function -z4m-tmux-title-chpwd() {
 # Hook: preexec - Show running command
 # =============================================================================
 function -z4m-tmux-title-preexec() {
+  emulate -L zsh
   local show_icons cmd icon title
 
   zstyle -t :z4m:tmux-title command-icons && show_icons=1 || show_icons=0
@@ -247,6 +257,7 @@ function -z4m-tmux-title-preexec() {
 # Hook: precmd - Restore context after command
 # =============================================================================
 function -z4m-tmux-title-precmd() {
+  emulate -L zsh
   # Rebuild context (git status may have changed)
   -z4m-tmux-build-context
   _z4m_tmux_title_context=$REPLY

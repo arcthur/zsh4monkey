@@ -35,11 +35,13 @@ cd -q -- $HOME/plain || exit 1
   preexec_functions=() precmd_functions=() chpwd_functions=()
 } >/dev/null
 
-# Usage: capture_title <hook> [args]; sets REPLY to the window name the hook emitted.
+# Usage: capture_title <hook> [args]; sets REPLY to the window name the hook
+# emitted. Hooks run from widgets write to the tty fd, as stdout is redirected.
+exec {_z4m_tty_fd}>>$tmpdir/tty || exit 1
 capture_title() {
-  local out
-  out=$("$@"; print -n .)
-  out=${out%.}
+  : >|$tmpdir/tty
+  "$@" >/dev/null
+  local out=$(<$tmpdir/tty)
   if [[ $out != $'\ek'*$'\e\\' ]]; then
     fail "$1: not a window name sequence: ${(q+)out}"
     REPLY=
@@ -63,5 +65,11 @@ capture_title -z4m-tmux-title-preexec abcdefghij
 assert_eq 'name within max-length' abcdefghij "$REPLY"
 capture_title -z4m-tmux-title-preexec abcdefghijk
 assert_eq 'name over max-length' 'abcdefghi…' "$REPLY"
+
+# A cd inside a command substitution must not leak the sequence into its output.
+chpwd_functions=(-z4m-tmux-title-chpwd)
+local captured=$(cd -- $HOME/plain && print -r -- captured)
+chpwd_functions=()
+assert_eq 'command substitution output' captured "$captured"
 
 (( ! failures ))
