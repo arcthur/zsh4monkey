@@ -391,7 +391,13 @@ if -z4m-ssh-zstyle-a send-extra-files extra_files; then
   done
 fi
 
-local -a z4m_ssh_env_specs env_specs
+# What remote programs read to identify the terminal, as Ghostty's ssh-env
+# forwards. Explicit `env` specs come later and win for the same name.
+local -a z4m_ssh_env_specs=(
+  COLORTERM=_z4m_copy_env_var_
+  TERM_PROGRAM=_z4m_copy_env_var_
+  TERM_PROGRAM_VERSION=_z4m_copy_env_var_)
+local -a env_specs
 if -z4m-ssh-zstyle-a env env_specs; then
   z4m_ssh_env_specs+=($env_specs)
 fi
@@ -435,6 +441,19 @@ fi
 
 if [[ -n $z4m_ssh_cwd ]]; then
   z4m_ssh_prelude+=('"export" Z4M_SSH_CWD='${(qq)z4m_ssh_cwd})
+fi
+
+# The remote host may have no terminfo for this TERM. Ship the entry's source
+# so the bootstrap can compile it there with tic, as Ghostty's ssh-terminfo
+# does. Comment lines are dropped: they name the local terminfo path.
+local terminfo_src
+local -a terminfo_lines
+if (( $+commands[infocmp] )) &&
+   terminfo_src=$(command infocmp -x -- ${term:-$TERM} 2>/dev/null); then
+  terminfo_lines=("${(@f)terminfo_src}")
+  terminfo_lines=("${(@)terminfo_lines:#\#*}")
+  (( $#terminfo_lines )) &&
+    z4m_ssh_prelude+=("_z4m_ssh_terminfo=${(qq)${(F)terminfo_lines}}")
 fi
 
 local src dst

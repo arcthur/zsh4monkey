@@ -143,6 +143,12 @@ sets an empty value,
 unsets the variable on the remote side, and
 .Ql NAME=_z4m_copy_env_var_
 copies the local scalar value if it exists.
+.Pp
+.Ev COLORTERM ,
+.Ev TERM_PROGRAM ,
+and
+.Ev TERM_PROGRAM_VERSION
+are copied by default; a directive for the same name overrides the default.
 .Ql _kitty_copy_env_var_
 is also accepted for easier migration from kitty configs.
 .Ss Startup Directory
@@ -189,6 +195,20 @@ zstyle ':z4m:ssh:oldserver' term 'screen-256color'
 # Custom ssh command
 zstyle ':z4m:ssh:*' ssh-command command ssh
 .Ed
+.Pp
+When the remote host has no terminfo entry for
+.Ev TERM ,
+the bootstrap compiles the source shipped from the local
+.Ql infocmp -x
+with
+.Ql tic -x
+into
+.Pa ~/.terminfo ,
+or falls back to
+.Ql xterm-256color
+with a notice when
+.Ql tic
+is missing.
 .Sh FILES
 .Bl -tag -width Ds
 .It Pa ~/.ssh/config

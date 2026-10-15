@@ -69,7 +69,12 @@ sandbox_write_zshrc \
   "zstyle ':z4m:ssh:testhost' cwd '~/work dir'" \
   "zstyle ':z4m:ssh:plainhost' enable yes" \
   "zstyle ':z4m:ssh:plainhost' env Z4M_BENCHMARK_MARKER=__Z4M_PLAIN_READY__" \
-  "zstyle ':z4m:ssh:plainhost' interpreter /bin/sh"
+  "zstyle ':z4m:ssh:plainhost' interpreter /bin/sh" \
+  "zstyle ':z4m:ssh:termhost' enable yes" \
+  "zstyle ':z4m:ssh:termhost' env Z4M_BENCHMARK_MARKER=__Z4M_TERM_READY__" \
+  "zstyle ':z4m:ssh:fallbackhost' enable yes" \
+  "zstyle ':z4m:ssh:fallbackhost' env Z4M_BENCHMARK_MARKER=__Z4M_FALLBACK_READY__" \
+  "zstyle ':z4m:ssh:fallbackhost' term xterm-z4m-missing"
 
 sandbox_pty_start Z4M_TEST_COPIED=$copied || exit 1
 sandbox_pty_expect 60 "*$SANDBOX_READY*" || {
@@ -144,6 +149,49 @@ local -a readable_scripts=($remote/tmp/z4m-ssh.*(.DNf:go+r:))
   sandbox_fail 'configured interpreter was not used to run the remote bootstrap'
 local -a local_staging=($SANDBOX_Z4M/tmp/ssh.*(DN))
 (( ! $#local_staging )) || sandbox_fail "local staging leaked: ${local_staging[*]}"
+
+# --- Terminal identification --------------------------------------------------
+# A terminal type only the local host knows: the remote compiles the entry z4m
+# ships, and receives what programs read to identify the terminal. A type
+# nobody knows falls back to xterm-256color instead of a shell without
+# terminal capabilities.
+if (( $+commands[tic] && $+commands[infocmp] )); then
+  command mkdir -p -- $SANDBOX/terminfo || exit 1
+  print -r -- $'xterm-z4m-test|z4m test terminal,\n\tuse=xterm-256color,' |
+    command tic -x -o $SANDBOX/terminfo - 2>/dev/null || exit 1
+  sandbox_pty_start TERMINFO=$SANDBOX/terminfo TERM=xterm-z4m-test \
+    TERM_PROGRAM=Z4MTerm TERM_PROGRAM_VERSION=1.2 COLORTERM=truecolor || exit 1
+  if ! sandbox_pty_expect 60 "*$SANDBOX_READY*"; then
+    sandbox_fail 'local shell with a custom TERM did not reach the prompt'
+  else
+    local term_state='print -r -- "__TE""RM__=[$TERM]|[$TERM_PROGRAM]|[$TERM_PROGRAM_VERSION]|[$COLORTERM]|[${terminfo[colors]}]"'
+    sandbox_pty_send 'z4m ssh termhost'
+    if sandbox_pty_expect 60 '*__Z4M_TERM_READY__*'; then
+      sandbox_pty_send $term_state
+      sandbox_pty_expect 20 "*${(b):-__TERM__=[xterm-z4m-test]|[Z4MTerm]|[1.2]|[truecolor]|[256]}*" ||
+        sandbox_fail "remote shell did not get the local terminal: ${(q+)${(M)${(f)REPLY}:#*__TERM__*}}"
+      sandbox_pty_send 'exit'
+    else
+      sandbox_fail 'teleport with a custom TERM did not initialize'
+    fi
+    sandbox_pty_send 'z4m ssh fallbackhost'
+    if sandbox_pty_expect 60 '*__Z4M_FALLBACK_READY__*'; then
+      [[ $REPLY == *'no terminfo for'*xterm-z4m-missing* ]] ||
+        sandbox_fail 'unknown TERM fallback was silent'
+      sandbox_pty_send $term_state
+      sandbox_pty_expect 20 "*${(b):-__TERM__=[xterm-256color]|}*" ||
+        sandbox_fail "unknown remote TERM did not fall back: ${(q+)REPLY[-400,-1]}"
+      sandbox_pty_send 'exit'
+    else
+      sandbox_fail 'teleport with an unknown TERM did not initialize'
+    fi
+  fi
+  sandbox_pty_stop
+  local -a compiled=($remote/.terminfo/*/xterm-z4m-test(N))
+  (( $#compiled )) || sandbox_fail 'shipped terminfo entry was not compiled on the remote host'
+else
+  print -ru2 -- 'skip: terminal identification (tic or infocmp missing)'
+fi
 
 # --- Pass-through -------------------------------------------------------------
 # Hosts without teleportation, and invocations teleportation cannot handle, go

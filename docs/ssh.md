@@ -108,6 +108,20 @@ Directive rules:
 
 `_kitty_copy_env_var_` is also accepted for easier migration from kitty configs.
 
+`COLORTERM`, `TERM_PROGRAM`, and `TERM_PROGRAM_VERSION` are copied by default
+so remote programs can identify the terminal. An `env` directive for the same
+name overrides the default, for example `TERM_PROGRAM` to unset it remotely.
+
+### Terminal Type
+
+The remote shell keeps the local `TERM` (`tmux-256color` becomes
+`screen-256color`; override with the `term` style). Newer terminals such as
+Ghostty and kitty use types most hosts have no terminfo entry for, so z4m
+ships the entry's source from the local `infocmp -x`. When the remote host
+cannot resolve the type, the bootstrap compiles that source into
+`~/.terminfo` with `tic -x`; when it has no `tic` either, it uses
+`xterm-256color` and prints a notice.
+
 ### Startup Directory
 
 Start the remote shell from a specific directory:

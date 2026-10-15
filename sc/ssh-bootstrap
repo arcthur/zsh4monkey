@@ -57,6 +57,45 @@ _z4m_ssh_apply_cwd() {
   'unset' 'Z4M_SSH_CWD' 2>'/dev/null' || :
 }
 
+# Usage: _z4m_ssh_term_known <term>
+# True if infocmp resolves the entry or a compiled one exists in a terminfo
+# directory ncurses or the zsh-bin build searches, in letter or hex layout.
+_z4m_ssh_term_known() {
+  if 'command' '-v' 'infocmp' >'/dev/null' 2>&1 &&
+     'command' 'infocmp' "$1" >'/dev/null' 2>&1; then
+    'return' '0'
+  fi
+  _z4m_ssh_term_c="$('printf' '%.1s' "$1")"
+  _z4m_ssh_term_h="$('printf' '%x' "'$_z4m_ssh_term_c")"
+  for _z4m_ssh_term_d in "${TERMINFO-}" "$HOME/.terminfo" "$HOME/.zsh-bin/share/terminfo" \
+      "$HOME/.local/share/terminfo" '/etc/terminfo' '/lib/terminfo' '/usr/share/terminfo' \
+      '/usr/lib/terminfo' '/usr/share/lib/terminfo'; do
+    '[' '-n' "$_z4m_ssh_term_d" ']' || 'continue'
+    if '[' '-e' "$_z4m_ssh_term_d/$_z4m_ssh_term_c/$1" '-o' \
+         '-e' "$_z4m_ssh_term_d/$_z4m_ssh_term_h/$1" ']'; then
+      'return' '0'
+    fi
+  done
+  'return' '1'
+}
+
+# Remote hosts often lack terminfo for newer terminals (xterm-ghostty,
+# xterm-kitty). Compile the entry the client shipped when tic is available;
+# otherwise fall back to xterm-256color rather than start a shell that has no
+# terminal capabilities.
+_z4m_ssh_ensure_term() {
+  '[' '-n' "${TERM-}" ']' || 'return' '0'
+  _z4m_ssh_term_known "$TERM" && 'return' '0'
+  if '[' '-n' "${_z4m_ssh_terminfo-}" ']' && 'command' '-v' 'tic' >'/dev/null' 2>&1; then
+    'command' 'mkdir' '-p' '--' "$HOME/.terminfo" 2>'/dev/null' &&
+      'printf' '%s\n' "$_z4m_ssh_terminfo" |
+      'command' 'tic' '-x' '-o' "$HOME/.terminfo" '-' >'/dev/null' 2>&1
+    _z4m_ssh_term_known "$TERM" && 'return' '0'
+  fi
+  >&2 'printf' '\033[33mz4m\033[0m: remote host has no terminfo for \033[1m%s\033[0m; using \033[1mxterm-256color\033[0m\n' "$TERM"
+  'export' TERM='xterm-256color'
+}
+
 for _z4m_ssh_cmd in 'tar' 'tail' 'rm' 'mkdir' 'mktemp' 'mv' 'cp' 'cat' 'touch' 'uname' 'tr'; do
   if ! command -v "$_z4m_ssh_cmd" >'/dev/null' 2>&1; then
     _z4m_bypass='1'
@@ -92,6 +131,7 @@ if '[' '-n' "$_z4m_bypass" ']'; then
   command -v 'rm' >'/dev/null' 2>&1 && 'command' 'rm' '-f' '--' "$0"
 
   export TERM=^TERM^
+  _z4m_ssh_ensure_term
 
   if '[' '-n' "$_z4m_bypass_reason" ']'; then
     >&2 'printf' '\033[33mz4m\033[0m: falling back to remote login shell (%s)\n' "$_z4m_bypass_reason"
@@ -309,6 +349,8 @@ fi
 _z4m_ssh_apply_cwd || :
 
 'command' 'rm' '-rf' '--' "$_z4m_ssh_tmp" || 'exit'
+
+_z4m_ssh_ensure_term
 
 ^RUN^
 
