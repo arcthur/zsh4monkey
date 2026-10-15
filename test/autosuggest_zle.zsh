@@ -213,6 +213,20 @@ elif builtin kill -0 $curl_pid 2>/dev/null; then
 fi
 print -r -- 0.4 >| $sandbox/fake/delay
 
+# Ctrl+O preempts an in-flight fallback request instead of being rejected.
+print -r -- 1 >| $sandbox/fake/delay
+print -r -- '=print -r -- P$((6*7))_rewritten' >| $sandbox/fake/response
+: >| $sandbox/fake/count
+command rm -f -- $sandbox/fake/curl.pid
+acc=
+zpty -w -n t 'print -r -- P$((6*7))_original'
+for i in {1..100}; do [[ -s $sandbox/fake/curl.pid ]] && break; drain 0.02; done
+curl_pid=$(<$sandbox/fake/curl.pid 2>/dev/null)
+(( curl_pid > 0 )) || { print -ru2 -- 'preempt: no fallback request in flight'; (( ++failures )) }
+scenario 'manual rewrite preempts fallback' '' 0 $'\x0f' 2 P42_rewritten
+builtin kill -0 $curl_pid 2>/dev/null && { print -ru2 -- 'preempted fallback curl still running'; (( ++failures )) }
+print -r -- 0.4 >| $sandbox/fake/delay
+
 # history_pwd only indexes lines that actually entered history, so ignored
 # lines never steal the id of the next command run in another directory.
 mkdir -p -- $sandbox/home/{a,b}

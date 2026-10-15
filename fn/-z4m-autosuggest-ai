@@ -313,10 +313,9 @@ function -z4m-autosuggest-ai-maybe-clear-status-message() {
 }
 
 function -z4m-autosuggest-ai-zshexit-cleanup() {
-  -z4m-autosuggest-ai-clear-redraw-watch
+  -z4m-autosuggest-ai-cancel-inflight
   -z4m-autosuggest-ai-clear-debounce-watch
   -z4m-autosuggest-ai-status-message-disarm
-  -z4m-autosuggest-ai-cleanup-files
 }
 if (( ! ${+_z4m_ai_zshexit_registered} )); then
   typeset -gi _z4m_ai_zshexit_registered=1
@@ -1022,16 +1021,14 @@ function -z4m-autosuggest-ai-cleanup-files() {
   _z4m_autosuggest_ai_state[inflight_tmp_dir]=
 }
 
-function -z4m-autosuggest-ai-reset() {
-  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
-    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
-  -z4m-autosuggest-ai-ensure
-
-  local reason=${1:-reset}
+# Terminates the in-flight request job (its TERM trap also stops curl) and
+# releases its watcher and files.
+function -z4m-autosuggest-ai-cancel-inflight() {
   local -i pid=${_z4m_autosuggest_ai_state[inflight_pid]:-0}
   if (( ${_z4m_autosuggest_ai_state[inflight]:-0} && pid > 0 )); then
     builtin kill -TERM $pid 2>/dev/null || true
   fi
+  -z4m-autosuggest-ai-finish-inflight-mode "${_z4m_autosuggest_ai_state[inflight_mode]-}"
 
   _z4m_autosuggest_ai_state[inflight]=0
   _z4m_autosuggest_ai_state[inflight_pid]=0
@@ -1041,6 +1038,26 @@ function -z4m-autosuggest-ai-reset() {
   _z4m_autosuggest_ai_state[inflight_intent_query]=
   _z4m_autosuggest_ai_state[inflight_started_ms]=0
   _z4m_autosuggest_ai_state[inflight_input_tokens]=0
+
+  -z4m-autosuggest-ai-clear-redraw-watch
+  -z4m-autosuggest-ai-cleanup-files
+}
+
+# Interactive lanes take priority over a speculative fallback request.
+function -z4m-autosuggest-ai-preempt-fallback() {
+  (( ${_z4m_autosuggest_ai_state[inflight]:-0} )) || return 0
+  [[ ${_z4m_autosuggest_ai_state[inflight_mode]-} == autosuggest_fallback ]] || return 1
+  -z4m-autosuggest-ai-log info ai-preempt 'cancel autosuggest_fallback request'
+  -z4m-autosuggest-ai-cancel-inflight
+}
+
+function -z4m-autosuggest-ai-reset() {
+  emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
+    -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
+  -z4m-autosuggest-ai-ensure
+
+  local reason=${1:-reset}
+  -z4m-autosuggest-ai-cancel-inflight
 
   _z4m_autosuggest_ai_state[manual_inflight]=0
   _z4m_autosuggest_ai_state[manual_last_apply_result]=$reason
@@ -1059,9 +1076,7 @@ function -z4m-autosuggest-ai-reset() {
   _z4m_autosuggest_ai_state[autosuggest_pending_suggestion]=
   _z4m_autosuggest_ai_state[autosuggest_pending_buffer]=
 
-  -z4m-autosuggest-ai-clear-redraw-watch
   -z4m-autosuggest-ai-clear-debounce-watch
-  -z4m-autosuggest-ai-cleanup-files
 }
 
 function -z4m-autosuggest-ai-project-context() {
@@ -2006,7 +2021,7 @@ function -z4m-autosuggest-ai-trigger-manual() {
     return 1
   fi
 
-  if (( ${_z4m_autosuggest_ai_state[inflight]:-0} )); then
+  if ! -z4m-autosuggest-ai-preempt-fallback; then
     _z4m_autosuggest_ai_state[last_reject]=inflight
     _z4m_autosuggest_ai_state[last_error]='request already inflight'
     _z4m_autosuggest_ai_state[manual_last_apply_result]=inflight
@@ -2175,7 +2190,7 @@ function -z4m-autosuggest-ai-intent-command() {
     return 1
   fi
 
-  if (( ${_z4m_autosuggest_ai_state[inflight]:-0} )); then
+  if ! -z4m-autosuggest-ai-preempt-fallback; then
     _z4m_autosuggest_ai_state[last_reject]=inflight
     _z4m_autosuggest_ai_state[last_error]='request already inflight'
     return 1

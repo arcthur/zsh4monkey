@@ -305,6 +305,38 @@ zstyle -d ':z4m:autosuggestions:ai'
 ) || ((failures++))
 zstyle -d ':z4m:autosuggestions:ai'
 
+# Manual and intent requests preempt a speculative fallback request, but not
+# each other.
+(
+  -z4m-autosuggest-ai-read-config
+  _z4m_autosuggest_ai_state[enabled]=1
+  command sleep 30 &
+  local -i fallback_pid=$!
+  _z4m_autosuggest_ai_state[inflight]=1
+  _z4m_autosuggest_ai_state[inflight_pid]=$fallback_pid
+  _z4m_autosuggest_ai_state[inflight_mode]=autosuggest_fallback
+  typeset -g submitted_mode=
+  function -z4m-autosuggest-ai-submit() { submitted_mode=$3; return 0 }
+  -z4m-autosuggest-ai-trigger-manual 'git st' ||
+    { print -ru2 -- "manual lane rejected: ${_z4m_autosuggest_ai_state[last_reject]}"; exit 1 }
+  [[ $submitted_mode == manual_rewrite ]] || { print -ru2 -- 'manual lane did not submit'; exit 1 }
+  wait $fallback_pid 2>/dev/null
+  ! builtin kill -0 $fallback_pid 2>/dev/null || { print -ru2 -- 'preempted fallback still running'; exit 1 }
+
+  _z4m_autosuggest_ai_state[inflight]=1
+  _z4m_autosuggest_ai_state[inflight_pid]=0
+  _z4m_autosuggest_ai_state[inflight_mode]=autosuggest_fallback
+  submitted_mode=
+  -z4m-autosuggest-ai-intent-command 'list files' >/dev/null
+  [[ $submitted_mode == intent_command ]] || { print -ru2 -- 'intent lane did not preempt fallback'; exit 1 }
+
+  _z4m_autosuggest_ai_state[inflight]=1
+  _z4m_autosuggest_ai_state[inflight_mode]=manual_rewrite
+  submitted_mode=
+  ! -z4m-autosuggest-ai-intent-command 'list files' >/dev/null || { print -ru2 -- 'intent lane preempted manual lane'; exit 1 }
+  [[ -z $submitted_mode ]] || { print -ru2 -- 'intent lane submitted over manual lane'; exit 1 }
+) || ((failures++))
+
 if (( failures )); then
   exit 1
 fi

@@ -65,6 +65,10 @@ re-walk history. Event lookups get slower the further back they reach, so
 | `manual_rewrite` | `z4m-autosuggest-ai-trigger` (`Ctrl+O` by default) | Rewrite/extend current buffer | No input prefix required; provider `+` -> overlay, `=` -> replace `BUFFER` |
 | `intent_command` | `z4m ai "<query>"` | Convert natural language intent into one command | Queues interactively; prints non-interactively |
 
+Only one request is in flight at a time. `manual_rewrite` and `intent_command`
+cancel an in-flight `autosuggest_fallback` request instead of waiting for it;
+a new prompt cancels any in-flight request.
+
 The AI lane is not loaded at all unless `:z4m:autosuggestions:ai enabled` is
 set; `Ctrl+O` and `z4m ai` load it on demand.
 
