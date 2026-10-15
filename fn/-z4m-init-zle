@@ -3,6 +3,10 @@
 # Shell integration (OSC 133) for modern terminals (Ghostty, kitty, etc.)
 # Enables semantic navigation (tmux C-Up/C-Down) and output capture.
 # Disable with: zstyle ':z4m:' term-shell-integration no
+#
+# zsh 5.10 emits its own OSC 133 and OSC 7. Its 133;D carries no exit status
+# and precedes ours, so terminals would record every command as successful.
+-z4m-term-ext-disable integration
 if zstyle -T :z4m: term-shell-integration &&
    [[ $TERM != (dumb|linux) && -z $NVIM_LISTEN_ADDRESS && -z $NVIM ]]; then
   -z4m-enable-shell-integration

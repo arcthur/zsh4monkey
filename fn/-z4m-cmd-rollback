@@ -96,7 +96,8 @@ function -z4m-cmd-rollback-describe() {
   command sh $Z4M/versions/$target/zsh4monkey/sc/activate-version \
     $Z4M $target || return
 } always {
-  unset "functions[-z4m-cmd-rollback-describe]"
+  # Not `unset 'functions[...]'`, which crashes zsh 5.10 on return.
+  unfunction -- -z4m-cmd-rollback-describe
 }
 
 zf_rm -f -- $Z4M/.last-init-failed $Z4M/.safe-mode 2>/dev/null

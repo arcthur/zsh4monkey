@@ -1,0 +1,24 @@
+#!/usr/bin/env zsh
+#
+# Usage: -z4m-term-ext-disable <extension>...
+#
+# zsh 5.10 lets ZLE drive some terminal features itself (OSC 133 marks, cursor
+# shapes, ...), switched through the `.term.extensions` array. Where z4m already
+# drives the same feature, the two outputs interleave. This disables each
+# <extension> natively unless the user has configured its family (the part
+# before the first dash) in `.term.extensions`.
+#
+# Returns 1 if this zsh has no terminal extensions; nothing changes then.
+
+emulate -L zsh -o extended_glob
+
+# The name is invalid before zsh 5.10. Only eval keeps that error non-fatal,
+# and indirection keeps the name out of syntax that zsh 5.9 parses.
+eval 'builtin typeset -ga .term.extensions' 2>/dev/null || return
+
+local name=.term.extensions ext
+local -a exts=("${(@P)name}")
+for ext; do
+  (( ${exts[(I)(-|)${ext%%-*}(|-*)]} )) || exts+=(-$ext)
+done
+builtin set -A $name "${exts[@]}"

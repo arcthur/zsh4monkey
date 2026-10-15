@@ -1,7 +1,14 @@
 #!/usr/bin/env zsh
 
 local file
-zparseopts -D -F -- || return '_z4m_err()'
+# Not `zparseopts -D -F --`: zsh 5.10 rejects an empty spec list, and the
+# empty spec that replaces it there is invalid in zsh 5.9.
+if [[ ${1-} == -- ]]; then
+  shift
+elif [[ ${1-} == -?* ]]; then
+  print -ru2 -- "z4m compile: bad option: $1"
+  return '_z4m_err()'
+fi
 emulate zsh -o extended_glob -c 'local files=(${^@}(N))'
 builtin set --
 for file in "${files[@]}"; do

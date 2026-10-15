@@ -226,7 +226,8 @@ function -z4m-tmux-title-preexec() {
   # Remove path prefix if present
   cmd=${cmd:t}
   # Handle sudo/env/time prefixes
-  [[ $cmd == (sudo|env|time|nohup|nice|ionice|strace|ltrace) ]] && cmd=${1[(w)2]:t}
+  # zsh 5.10 has no word past the last one; keep the prefix itself then.
+  [[ $cmd == (sudo|env|time|nohup|nice|ionice|strace|ltrace) ]] && cmd=${${1[(w)2]:t}:-$cmd}
 
   if (( show_icons )); then
     icon=${_z4m_cmd_icons[$cmd]:-}

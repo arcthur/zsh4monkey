@@ -49,7 +49,7 @@ function -z4m-cmd-notify-preexec() {
 
   # Handle sudo/env/time prefixes
   if [[ $cmd == (sudo|env|time|nohup|nice|ionice|caffeinate) ]]; then
-    cmd=${1[(w)2]:t}
+    cmd=${${1[(w)2]:t}:-$cmd}  # zsh 5.10 has no word past the last one
   fi
 
   # Check exclusions

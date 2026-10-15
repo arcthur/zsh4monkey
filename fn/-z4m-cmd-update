@@ -198,8 +198,9 @@ local -a preserved=(
     guard_owned=0
   fi
   zf_rm -rf -- $staging 2>/dev/null || true
-  unset "functions[-z4m-cmd-update-acquire-guard]" \
-    "functions[-z4m-cmd-update-write-guard]"
+  # unfunction, not `unset 'functions[...]'`: in zsh 5.10 the latter leaves a
+  # dangling parameter behind that crashes the shell when this function returns.
+  unfunction -- -z4m-cmd-update-acquire-guard -z4m-cmd-update-write-guard
   if (( rc )); then
     -z4m-error-command update
   fi

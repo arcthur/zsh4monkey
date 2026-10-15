@@ -127,7 +127,9 @@ No `jk`-style insert-mode escape sequence is configured by default.
 
 ### Visual Indicators
 
-- Cursor changes shape: block (normal), beam (insert)
+- Cursor changes shape: block (normal), beam (insert). From zsh 5.10, which
+  shapes the cursor itself, z4m adds `-cursor-shape` to `.term.extensions`
+  unless a `cursor` extension is already listed there.
 - Autosuggestions hidden in normal mode
 
 ## Custom Bindings

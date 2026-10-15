@@ -127,6 +127,7 @@ local success
 
 } always {
   unset _z4m_install_queue
-  unset "functions[-z4m-install-many-parallel]"
+  # Not `unset 'functions[...]'`, which crashes zsh 5.10 on return.
+  [[ ! -v functions[-z4m-install-many-parallel] ]] || unfunction -- -z4m-install-many-parallel
   [[ -z $success ]] || zf_rm -f -- $success
 }

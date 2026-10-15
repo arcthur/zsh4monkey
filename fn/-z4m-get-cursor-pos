@@ -15,7 +15,9 @@ done
 
 if (( ARGC )); then
   local pref=${resp%$'\e['*}
-  [[ -n $pref ]] && print -rz -- $pref
+  # Escapes are not typeahead: they are replies to terminal queries that came
+  # too late, such as those ZLE sends at startup in zsh 5.10.
+  [[ -n $pref && $pref != *$'\e'* ]] && print -rz -- $pref
 fi
 
 resp=${resp##*'['}

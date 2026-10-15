@@ -91,6 +91,12 @@ Uses OSC 9 escape sequence for native desktop notifications.
 zstyle ':z4m:' term-shell-integration 'no'
 ```
 
+From zsh 5.10, ZLE can emit OSC 133 and OSC 7 itself. Its `133;D` carries no
+exit code, so z4m turns it off with `-integration` in `.term.extensions` and
+each mark is sent once. To use the zsh marks instead, list any `integration`
+extension in `.term.extensions` before `z4m init` and set
+`term-shell-integration` to `no`.
+
 ### Command Notification (OSC 9)
 
 ```zsh
