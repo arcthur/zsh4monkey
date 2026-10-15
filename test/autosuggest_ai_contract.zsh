@@ -182,18 +182,17 @@ if [[ -n $real_perl ]]; then
   assert_eq 0 "$perl_count" 'fallback payload construction does not fork perl'
 fi
 
-# Request files hold the API key. When mktemp fails there must be no fallback
-# to a guessable directory that another local user could have pre-created.
+# Request files hold the API key. The request directory is created
+# exclusively and privately; when that fails the request is skipped rather
+# than written somewhere guessable.
 (
   sandbox=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-ai-submit.XXXXXXXXXX") || exit 1
   trap 'command rm -rf -- "$sandbox"' EXIT
-  command mkdir -p -- $sandbox/bin $sandbox/tmp || exit 1
-  print -r -- '#!/bin/sh
-exit 1' >| $sandbox/bin/mktemp
+  command mkdir -p -- $sandbox/bin || exit 1
   print -r -- "#!/bin/sh
 : >'$sandbox/curl-ran'" >| $sandbox/bin/curl
-  command chmod +x -- $sandbox/bin/mktemp $sandbox/bin/curl || exit 1
-  PATH=$sandbox/bin:$PATH TMPDIR=$sandbox/tmp Z4M_TEST_AI_KEY=submit-secret-value
+  command chmod +x -- $sandbox/bin/curl || exit 1
+  PATH=$sandbox/bin:$PATH TMPDIR=$sandbox/missing Z4M_TEST_AI_KEY=submit-secret-value
   hash -r
   zstyle ':z4m:autosuggestions:ai' api-key-env Z4M_TEST_AI_KEY
   -z4m-autosuggest-ai-read-config
@@ -202,9 +201,54 @@ exit 1' >| $sandbox/bin/mktemp
     print -ru2 -- 'submit succeeded without a private request directory'
     exit 1
   fi
-  local -a created=($sandbox/tmp/*(DN))
-  (( ! $#created )) || { print -ru2 -- "submit created ${(j: :)created}"; exit 1 }
+  [[ ${_z4m_autosuggest_ai_state[last_reject]} == tmp_dir_failed ]] ||
+    { print -ru2 -- "unexpected reject: ${_z4m_autosuggest_ai_state[last_reject]}"; exit 1 }
+  [[ ! -e $sandbox/missing ]] || { print -ru2 -- 'submit created TMPDIR'; exit 1 }
   [[ ! -e $sandbox/curl-ran ]] || { print -ru2 -- 'submit ran curl'; exit 1 }
+) || ((failures++))
+
+# A request forks nothing on the shell's own thread: files, curl and jq all
+# run in the request job. Stub commands record their parent pid.
+(
+  zmodload zsh/system zsh/stat || exit 1
+  sandbox=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-ai-fork.XXXXXXXXXX") || exit 1
+  trap 'command rm -rf -- "$sandbox"' EXIT
+  command mkdir -p -- $sandbox/bin $sandbox/tmp || exit 1
+  local name real
+  for name in mktemp chmod rm mkdir cat kill sleep perl printf jq; do
+    real=${commands[$name]-}
+    [[ -n $real ]] || continue
+    print -r -- "#!/bin/sh
+echo \"$name \$PPID\" >>'$sandbox/calls'
+exec '$real' \"\$@\"" >| $sandbox/bin/$name
+  done
+  print -r -- "#!/bin/sh
+echo \"curl \$PPID\" >>'$sandbox/calls'
+while [ \$# -gt 0 ]; do [ \"\$1\" = --output ] && out=\$2; shift; done
+dir=\${out%/*}
+stat -f %Lp \"\$dir\" >'$sandbox/dir-mode' 2>/dev/null || stat -c %a \"\$dir\" >'$sandbox/dir-mode'
+printf '%s' '{\"choices\":[{\"message\":{\"content\":\"+ ok\"}}]}' >\"\$out\"
+printf 200" >| $sandbox/bin/curl
+  command chmod +x -- $sandbox/bin/* || exit 1
+  PATH=$sandbox/bin:$PATH TMPDIR=$sandbox/tmp Z4M_TEST_AI_KEY=test-key
+  hash -r
+  zstyle ':z4m:autosuggestions:ai' api-key-env Z4M_TEST_AI_KEY
+  -z4m-autosuggest-ai-read-config
+  _z4m_autosuggest_ai_state[inflight]=0
+  -z4m-autosuggest-ai-submit 'print' default manual_rewrite '' || exit 1
+  local -i i
+  for i in {1..250}; do -z4m-autosuggest-ai-request-done-p 2>/dev/null && break; zselect -t 2; done
+  -z4m-autosuggest-ai-harvest 'print'
+  [[ ${_z4m_autosuggest_ai_state[manual_pending_suggestion]} == 'print ok' ]] ||
+    { print -ru2 -- "harvest lost the result: ${_z4m_autosuggest_ai_state[last_reject]}"; exit 1 }
+  [[ $(<$sandbox/dir-mode) == 700 ]] || { print -ru2 -- "request dir mode $(<$sandbox/dir-mode)"; exit 1 }
+  local -a calls=(${(f)"$(<$sandbox/calls)"})
+  local -a own=(${(M)calls:#* $sysparams[pid]})
+  (( ! $#own )) || { print -ru2 -- "forked on the shell thread: ${(j:, :)own%% *}"; exit 1 }
+  local -a jq_calls=(${(M)calls:#jq *})
+  (( $#jq_calls )) || { print -ru2 -- 'jq stub never ran'; exit 1 }
+  local -a left=($sandbox/tmp/*(DN))
+  (( ! $#left )) || { print -ru2 -- "harvest left ${(j: :)left}"; exit 1 }
 ) || ((failures++))
 
 assert_ok 'no-suggestion protocol is valid' -z4m-autosuggest-ai-parse-protocol '!no_suggestion' 'git '
@@ -336,6 +380,29 @@ zstyle -d ':z4m:autosuggestions:ai'
   ! -z4m-autosuggest-ai-intent-command 'list files' >/dev/null || { print -ru2 -- 'intent lane preempted manual lane'; exit 1 }
   [[ -z $submitted_mode ]] || { print -ru2 -- 'intent lane submitted over manual lane'; exit 1 }
 ) || ((failures++))
+
+# The fork-free command classification agrees with whence -w.
+alias z4m_test_alias='print -r --'
+for name in print ls if z4m_test_alias -z4m-autosuggest-ai-ensure z4m-no-such-command ./install /bin/ls; do
+  -z4m-autosuggest-ai-command-type "$name"
+  expected=$(whence -w -- "$name")
+  assert_eq "${expected##*: }" "$REPLY" "command type of $name"
+done
+unalias z4m_test_alias
+
+# A buffer the fallback lane would never send does not arm the debounce timer.
+(
+  zstyle ':z4m:autosuggestions:ai' mode auto
+  -z4m-autosuggest-ai-read-config
+  _z4m_autosuggest_ai_state[enabled]=1
+  typeset -gi armed=0
+  function -z4m-autosuggest-ai-arm-debounce() { (( ++armed )) }
+  -z4m-autosuggest-ai-maybe-suggest 'z4m-no-such-command arg'
+  [[ ${_z4m_autosuggest_ai_state[last_reject]} == unknown_command ]] ||
+    { print -ru2 -- "ineligible buffer reject: ${_z4m_autosuggest_ai_state[last_reject]}"; exit 1 }
+  (( ! armed )) || { print -ru2 -- 'ineligible buffer armed the debounce timer'; exit 1 }
+) || ((failures++))
+zstyle -d ':z4m:autosuggestions:ai'
 
 if (( failures )); then
   exit 1

@@ -6,6 +6,7 @@ emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
 (( ${+functions[-z4m-autosuggest-ai-ensure]} )) && return 0
 
 zmodload zsh/datetime zsh/zselect 2>/dev/null
+zmodload -F zsh/files b:zf_mkdir b:zf_rm 2>/dev/null
 
 (( ${+_z4m_autosuggest_ai_state} )) || typeset -gA _z4m_autosuggest_ai_state
 
@@ -50,10 +51,6 @@ function -z4m-autosuggest-ai-ensure() {
   : ${_z4m_autosuggest_ai_state[inflight_intent_query]:=}
   : ${_z4m_autosuggest_ai_state[inflight_started_ms]:=0}
   : ${_z4m_autosuggest_ai_state[inflight_input_tokens]:=0}
-  : ${_z4m_autosuggest_ai_state[inflight_body_file]:=}
-  : ${_z4m_autosuggest_ai_state[inflight_code_file]:=}
-  : ${_z4m_autosuggest_ai_state[inflight_rc_file]:=}
-  : ${_z4m_autosuggest_ai_state[inflight_header_file]:=}
   : ${_z4m_autosuggest_ai_state[inflight_tmp_dir]:=}
 
   : ${_z4m_autosuggest_ai_state[last_submit_ms]:=0}
@@ -275,10 +272,8 @@ function -z4m-autosuggest-ai-arm-status-message-clear() {
   -z4m-autosuggest-ai-clear-status-message-watch
   [[ -o zle ]] || return 0
 
-  local timeout_s
-  timeout_s=$(printf '%d.%03d' $(( timeout_ms / 1000 )) $(( timeout_ms % 1000 )))
   if exec {_z4m_ai_status_clear_fd}< <(
-    command sleep "$timeout_s"
+    zselect -t $(( (timeout_ms + 9) / 10 )) 2>/dev/null
     print -r -- done
   ); then
     zle -F "$_z4m_ai_status_clear_fd" -z4m-autosuggest-ai-status-message-timeout 2>/dev/null || {
@@ -322,22 +317,28 @@ if (( ! ${+_z4m_ai_zshexit_registered} )); then
   zshexit_functions+=(-z4m-autosuggest-ai-zshexit-cleanup)
 fi
 
+# The job writes rc last, so a non-empty rc file means the result is complete;
+# a vanished job without one died, and harvest reports it as a failure.
+function -z4m-autosuggest-ai-request-done-p() {
+  local tmp_dir=${_z4m_autosuggest_ai_state[inflight_tmp_dir]-}
+  local -i pid=${_z4m_autosuggest_ai_state[inflight_pid]:-0}
+  [[ -n $tmp_dir && -s $tmp_dir/rc ]] && return 0
+  (( pid > 0 )) && builtin kill -0 $pid 2>/dev/null && return 1
+  return 0
+}
+
 function -z4m-autosuggest-ai-redraw-ready() {
   emulate -L zsh -o typeset_silent -o pipe_fail -o extended_glob \
     -o prompt_percent -o no_prompt_subst -o no_prompt_bang -o no_bg_nice -o no_aliases
 
   -z4m-autosuggest-ai-log info ai-redraw 'ready'
 
-  local -i inflight=${_z4m_autosuggest_ai_state[inflight]:-0}
-  local pending_rc=${_z4m_autosuggest_ai_state[inflight_rc_file]-}
-  local -i pending_pid=${_z4m_autosuggest_ai_state[inflight_pid]:-0}
-  if (( inflight )); then
-    if [[ -z $pending_rc || ! -s $pending_rc ]] || { (( pending_pid > 0 )) && command kill -0 "$pending_pid" 2>/dev/null; }; then
-      -z4m-autosuggest-ai-log info ai-redraw 'ready_early_rearm'
-      -z4m-autosuggest-ai-clear-redraw-watch
-      -z4m-autosuggest-ai-notify-redraw-on-complete "$pending_rc" "$pending_pid" 3000
-      return 0
-    fi
+  if (( ${_z4m_autosuggest_ai_state[inflight]:-0} )) && ! -z4m-autosuggest-ai-request-done-p; then
+    -z4m-autosuggest-ai-log info ai-redraw 'ready_early_rearm'
+    -z4m-autosuggest-ai-clear-redraw-watch
+    -z4m-autosuggest-ai-notify-redraw-on-complete \
+      "${_z4m_autosuggest_ai_state[inflight_tmp_dir]}/rc" "${_z4m_autosuggest_ai_state[inflight_pid]}" 3000
+    return 0
   fi
 
   -z4m-autosuggest-ai-clear-redraw-watch
@@ -382,17 +383,12 @@ function -z4m-autosuggest-ai-notify-redraw-on-complete() {
       local -i step_ms=50
       local -i max_steps=$(( timeout_ms / step_ms ))
       (( max_steps < 20 )) && max_steps=20
-      zmodload zsh/zselect 2>/dev/null || true
       local -i n=0
       while (( n < max_steps )); do
-        if (( request_pid <= 0 )) || ! command kill -0 "$request_pid" 2>/dev/null; then
-          break
-        fi
-        if [[ -s $rc_file ]]; then
-          break
-        fi
+        [[ -s $rc_file ]] && break
+        (( request_pid > 0 )) && builtin kill -0 $request_pid 2>/dev/null || break
         # zselect -t takes hundredths of a second; 5 = 50ms
-        zselect -t 5 2>/dev/null || command sleep 0.05
+        zselect -t 5 2>/dev/null
         (( n++ ))
       done
       print -r -- done
@@ -427,6 +423,24 @@ function -z4m-autosuggest-ai-roll-budgets() {
   fi
 }
 
+# The classification of `whence -w`, without forking a command substitution.
+function -z4m-autosuggest-ai-command-type() {
+  local name=${1-}
+  if (( ${+aliases[$name]} || ${+galiases[$name]} )); then
+    REPLY=alias
+  elif (( ${reswords[(Ie)$name]} )); then
+    REPLY=reserved
+  elif (( ${+functions[$name]} )); then
+    REPLY=function
+  elif (( ${+builtins[$name]} )); then
+    REPLY=builtin
+  elif [[ -n ${commands[$name]-} ]] || [[ $name == */* && -f $name && -x $name ]]; then
+    REPLY=command
+  else
+    REPLY=none
+  fi
+}
+
 function -z4m-autosuggest-ai-buffer-meta() {
   local buffer=${1-}
   local command_name=${buffer%%[[:space:]]*}
@@ -436,33 +450,21 @@ function -z4m-autosuggest-ai-buffer-meta() {
   local meta="name: ${command_name}"
   local line=
 
-  line=$(whence -w -- "$command_name" 2>/dev/null)
-  if [[ -n $line && $line != *': none' ]]; then
+  -z4m-autosuggest-ai-command-type "$command_name"
+  if [[ $REPLY != none ]]; then
     kind=resolved
-    line=${line//$'\n'/ }
-    (( ${#line} > 180 )) && line="${line[1,180]}..."
-    meta+=$'\n'"whence: ${line}"
+    meta+=$'\n'"whence: ${command_name}: ${REPLY}"
   fi
 
-  if alias "$command_name" >/dev/null 2>&1; then
+  if (( ${+aliases[$command_name]} )); then
     kind=alias
-    line=$(alias "$command_name" 2>/dev/null)
-    line=${line#*=}
-    line=${line#\'}
-    line=${line#\"}
-    line=${line%%\'}
-    line=${line%%\"}
-    line=${line%%[[:space:]]*}
+    line=${aliases[$command_name]%%[[:space:]]*}
     [[ -n $line ]] && meta+=$'\n'"alias_target: ${line}"
   fi
 
   if (( ${+functions[$command_name]} )); then
     kind=function
-    line=$(functions "$command_name" 2>/dev/null)
-    line=${line%%$'\n'*}
-    line=${line//$'\n'/ }
-    (( ${#line} > 180 )) && line="${line[1,180]}..."
-    [[ -n $line ]] && meta+=$'\n'"func_head: ${line}"
+    meta+=$'\n'"func_head: ${command_name} () {"
   fi
 
   meta=$'BUFFER_META:\n'"kind: ${kind}"$'\n'"${meta}"
@@ -479,13 +481,8 @@ function -z4m-autosuggest-ai-autofallback-eligible-p() {
   local command_name=${buffer%%[[:space:]]*}
   [[ -n $command_name ]] || return 1
 
-  local line
-  line=$(whence -w -- "$command_name" 2>/dev/null)
-  if [[ -n $line && $line != *': none' ]]; then
-    REPLY=ok
-    return 0
-  fi
-  if alias "$command_name" >/dev/null 2>&1 || (( ${+functions[$command_name]} )); then
+  -z4m-autosuggest-ai-command-type "$command_name"
+  if [[ $REPLY != none ]]; then
     REPLY=ok
     return 0
   fi
@@ -1004,20 +1001,8 @@ function -z4m-autosuggest-ai-read-config() {
 }
 
 function -z4m-autosuggest-ai-cleanup-files() {
-  local body=${_z4m_autosuggest_ai_state[inflight_body_file]-}
-  local code=${_z4m_autosuggest_ai_state[inflight_code_file]-}
-  local rc=${_z4m_autosuggest_ai_state[inflight_rc_file]-}
-  local header=${_z4m_autosuggest_ai_state[inflight_header_file]-}
   local tmp_dir=${_z4m_autosuggest_ai_state[inflight_tmp_dir]-}
-  [[ -n $body ]] && command rm -f -- "$body" 2>/dev/null || true
-  [[ -n $code ]] && command rm -f -- "$code" 2>/dev/null || true
-  [[ -n $rc ]] && command rm -f -- "$rc" 2>/dev/null || true
-  [[ -n $header ]] && command rm -f -- "$header" 2>/dev/null || true
-  [[ -n $tmp_dir ]] && command rm -rf -- "$tmp_dir" 2>/dev/null || true
-  _z4m_autosuggest_ai_state[inflight_body_file]=
-  _z4m_autosuggest_ai_state[inflight_code_file]=
-  _z4m_autosuggest_ai_state[inflight_rc_file]=
-  _z4m_autosuggest_ai_state[inflight_header_file]=
+  [[ -n $tmp_dir ]] && zf_rm -rf -- "$tmp_dir" 2>/dev/null
   _z4m_autosuggest_ai_state[inflight_tmp_dir]=
 }
 
@@ -1471,51 +1456,41 @@ function -z4m-autosuggest-ai-submit() {
   fi
 
   local timeout_s
-  timeout_s=$(printf '%d.%03d' $(( timeout_ms / 1000 )) $(( timeout_ms % 1000 )))
-  # The request files hold the API key. A guessable fallback path could be
-  # pre-created by another local user, so skip the request instead.
-  local tmp_dir=
-  if ! tmp_dir=$(command mktemp -d "${TMPDIR:-/tmp}/z4m-autosuggest-ai.XXXXXXXX" 2>/dev/null); then
+  printf -v timeout_s '%d.%03d' $(( timeout_ms / 1000 )) $(( timeout_ms % 1000 ))
+
+  # The request files hold the API key. mkdir is exclusive, so nothing another
+  # user pre-created at this path is ever used; the request is skipped instead.
+  local tmp_dir=${TMPDIR:-/tmp}/z4m-autosuggest-ai.$$.${EPOCHREALTIME/./}.$RANDOM$RANDOM
+  if ! zf_mkdir -m 700 -- "$tmp_dir" 2>/dev/null; then
     _z4m_autosuggest_ai_state[last_reject]=tmp_dir_failed
     _z4m_autosuggest_ai_state[last_error]='cannot create a private request directory'
     return 1
   fi
-  command chmod 700 "$tmp_dir" 2>/dev/null || true
-  local body_file=${tmp_dir}/body
-  local code_file=${tmp_dir}/code
-  local rc_file=${tmp_dir}/rc
-  local header_file=${tmp_dir}/headers
-  local payload_file=${tmp_dir}/payload
 
-  print -r -- 'Content-Type: application/json' >| "$header_file" || {
-    command rm -rf -- "$tmp_dir" 2>/dev/null || true
-    return 1
-  }
-  command chmod 600 "$header_file" 2>/dev/null || true
-  print -r -- "Authorization: Bearer ${api_key}" >>| "$header_file" || {
-    command rm -rf -- "$tmp_dir" 2>/dev/null || true
-    return 1
-  }
-  print -rn -- "$payload" >| "$payload_file" || {
-    command rm -rf -- "$tmp_dir" 2>/dev/null || true
-    return 1
-  }
-  command chmod 600 "$payload_file" 2>/dev/null || true
-
+  # Everything that writes files or forks runs in the job, off the ZLE
+  # thread. The job writes rc last; it is the completion signal.
   {
+    umask 077
     local -i curl_pid=0 curl_rc=1
     # Cancellation signals this job; forward it so curl does not outlive it.
     trap '(( curl_pid > 0 )) && builtin kill -TERM $curl_pid 2>/dev/null; exit 143' TERM
+    print -rl -- 'Content-Type: application/json' "Authorization: Bearer ${api_key}" \
+      >| $tmp_dir/headers || exit 1
+    print -rn -- "$payload" >| $tmp_dir/payload || exit 1
     command curl --silent --show-error --max-time "$timeout_s" \
-      --header @"$header_file" \
-      --data-binary @"$payload_file" \
-      --output "$body_file" \
+      --header @$tmp_dir/headers \
+      --data-binary @$tmp_dir/payload \
+      --output $tmp_dir/body \
       --write-out '%{http_code}' \
-      "$endpoint" >| "$code_file" 2>/dev/null &
+      "$endpoint" >| $tmp_dir/code 2>/dev/null &
     curl_pid=$!
     wait $curl_pid
     curl_rc=$?
-    print -r -- "$curl_rc" >| "$rc_file"
+    if (( curl_rc == 0 )); then
+      command jq -r '.choices[0].message.content // empty' \
+        <$tmp_dir/body >| $tmp_dir/content 2>/dev/null
+    fi
+    print -r -- "$curl_rc" >| $tmp_dir/rc
   } &!
   local -i pid=$!
 
@@ -1530,10 +1505,6 @@ function -z4m-autosuggest-ai-submit() {
   _z4m_autosuggest_ai_state[inflight_intent_query]=$intent_query
   _z4m_autosuggest_ai_state[inflight_started_ms]=$now_ms
   _z4m_autosuggest_ai_state[inflight_input_tokens]=$input_tokens
-  _z4m_autosuggest_ai_state[inflight_body_file]=$body_file
-  _z4m_autosuggest_ai_state[inflight_code_file]=$code_file
-  _z4m_autosuggest_ai_state[inflight_rc_file]=$rc_file
-  _z4m_autosuggest_ai_state[inflight_header_file]=$header_file
   _z4m_autosuggest_ai_state[inflight_tmp_dir]=$tmp_dir
   _z4m_autosuggest_ai_state[last_submit_ms]=$now_ms
 
@@ -1545,7 +1516,7 @@ function -z4m-autosuggest-ai-submit() {
 
   # Each request should own its redraw watcher; drop stale one first.
   -z4m-autosuggest-ai-clear-redraw-watch
-  -z4m-autosuggest-ai-notify-redraw-on-complete "$rc_file" "$pid" "$(( timeout_ms + 2000 ))"
+  -z4m-autosuggest-ai-notify-redraw-on-complete "$tmp_dir/rc" "$pid" $(( timeout_ms + 2000 ))
 
   case $mode in
     manual_rewrite)
@@ -1712,25 +1683,19 @@ function -z4m-autosuggest-ai-harvest() {
 
   (( ${_z4m_autosuggest_ai_state[inflight]:-0} )) || return 1
 
-  local -i pid=${_z4m_autosuggest_ai_state[inflight_pid]:-0}
-  if (( pid > 0 )) && command kill -0 "$pid" 2>/dev/null; then
-    REPLY=
-    return 1
-  fi
+  -z4m-autosuggest-ai-request-done-p || return 1
 
   local inflight_buffer=${_z4m_autosuggest_ai_state[inflight_buffer]-}
   local inflight_mode=${_z4m_autosuggest_ai_state[inflight_mode]-autosuggest_fallback}
   local -i started_ms=${_z4m_autosuggest_ai_state[inflight_started_ms]:-0}
   local -i input_tokens=${_z4m_autosuggest_ai_state[inflight_input_tokens]:-0}
   local inflight_profile=${_z4m_autosuggest_ai_state[inflight_profile]-default}
-  local body_file=${_z4m_autosuggest_ai_state[inflight_body_file]-}
-  local code_file=${_z4m_autosuggest_ai_state[inflight_code_file]-}
-  local rc_file=${_z4m_autosuggest_ai_state[inflight_rc_file]-}
+  local tmp_dir=${_z4m_autosuggest_ai_state[inflight_tmp_dir]-}
   local current_buffer=${1-}
 
   local curl_rc=1 http_code=000 content=
-  [[ -r $rc_file ]] && IFS= read -r curl_rc <"$rc_file"
-  [[ -r $code_file ]] && IFS= read -r http_code <"$code_file"
+  [[ -r $tmp_dir/rc ]] && IFS= read -r curl_rc <$tmp_dir/rc
+  [[ -r $tmp_dir/code ]] && IFS= read -r http_code <$tmp_dir/code
 
   -z4m-autosuggest-ai-now-ms
   local -i finished_ms=$REPLY
@@ -1773,9 +1738,8 @@ function -z4m-autosuggest-ai-harvest() {
     return 1
   fi
 
-  if [[ -r $body_file ]]; then
-    content=$(command jq -r '.choices[0].message.content // empty' <"$body_file" 2>/dev/null)
-  fi
+  # $(<file) reads in-process and drops trailing newlines like jq's output did.
+  [[ -r $tmp_dir/content ]] && content=$(<$tmp_dir/content)
   -z4m-autosuggest-ai-cleanup-files
 
   local kind suggestion
@@ -1968,6 +1932,11 @@ function -z4m-autosuggest-ai-maybe-suggest() {
     _z4m_autosuggest_ai_state[last_buffer]=$buffer
     _z4m_autosuggest_ai_state[last_change_ms]=$now_ms
   fi
+  # Checked before waiting so that ineligible buffers never arm the timer.
+  if ! -z4m-autosuggest-ai-autofallback-eligible-p "$buffer"; then
+    _z4m_autosuggest_ai_state[last_reject]=${REPLY:-weak_signal}
+    return 1
+  fi
   local -i debounce_ms=${_z4m_autosuggest_ai_state[configured_debounce_ms]:-160}
   local -i cooldown_ms=${_z4m_autosuggest_ai_state[configured_cooldown_ms]:-800}
   local -i debounce_wait=$(( ${_z4m_autosuggest_ai_state[last_change_ms]:-0} + debounce_ms - now_ms ))
@@ -1979,11 +1948,6 @@ function -z4m-autosuggest-ai-maybe-suggest() {
       _z4m_autosuggest_ai_state[last_reject]=cooldown
     fi
     -z4m-autosuggest-ai-arm-debounce $(( debounce_wait > cooldown_wait ? debounce_wait : cooldown_wait ))
-    return 1
-  fi
-
-  if ! -z4m-autosuggest-ai-autofallback-eligible-p "$buffer"; then
-    _z4m_autosuggest_ai_state[last_reject]=${REPLY:-weak_signal}
     return 1
   fi
 
@@ -2219,7 +2183,7 @@ function -z4m-autosuggest-ai-intent-command() {
     fi
     -z4m-autosuggest-ai-now-ms
     (( REPLY >= deadline )) && break
-    command sleep 0.02
+    zselect -t 2 2>/dev/null
   done
 
   if [[ -z $result ]]; then
